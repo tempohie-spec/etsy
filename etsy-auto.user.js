@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.4
+// @version      5.5
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -15,7 +15,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '5.4';
+  const PHIEN_BAN = '5.5';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -33,6 +33,15 @@
   // Khoang cach (ms) giua 2 lan tai file lien tiep, de trinh duyet khong chan cac ban tai lien tuc.
   // Neu bi mat anh giua chung (trinh duyet bop bot), tang len 1000-1500.
   const KHOANG_CACH_GIUA_CAC_LAN_TAI = 700;
+
+  // Thoi han TOI DA (ms) cho MOI CACH tai 1 anh (GM_download tu URL / tu blob).
+  // Neu Chrome dang bat "Ask where to save each file before downloading", moi lan GM_download
+  // se bat hop thoai Save As GOC cua he dieu hanh; hop dau con thay duoc, cac lenh tai sau bi
+  // xep hang cho hop truoc xu ly nhung khong ai bam -> GM_download KHONG BAO GIO goi lai
+  // onload/onerror/ontimeout, treo vinh vien. Option "timeout" cua GM_download vo dung trong
+  // truong hop nay vi request con chua bat dau. Phai tu dat 1 dong ho rieng o tang code de
+  // chac chan khong bao gio treo qua thoi han nay, du GM_download co phan hoi hay khong.
+  const THOI_HAN_MOI_CACH_TAI = 20000;
 
   // Khi KHONG tim thay khoi carousel va phai quet ca trang (che do du phong),
   // bo bot 1 anh cuoi cung tim thay (thuong la anh khong thuoc listing).
@@ -78,6 +87,36 @@
 
   function cho(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Boc 1 promise trong dong ho rieng: neu qua "ms" ma promise chua xong (chua resolve/reject),
+  // TU DAY reject bang loi timeout, khong can biet ben trong promise co bao gio phan hoi hay khong.
+  // Dung khi goi cac API cua tien ich (GM_download...) co the treo vinh vien vi ly do ngoai tam
+  // kiem soat cua trang (vi du: hop thoai Save As goc cua he dieu hanh dang cho nguoi dung).
+  function voiThoiHan(promise, ms, thongDiepTimeout) {
+    return new Promise((resolve, reject) => {
+      let daXong = false;
+      const bomHen = setTimeout(() => {
+        if (daXong) return;
+        daXong = true;
+        reject(new Error(thongDiepTimeout || `Hết ${ms}ms mà không có phản hồi`));
+      }, ms);
+
+      promise.then(
+        (giaTri) => {
+          if (daXong) return;
+          daXong = true;
+          clearTimeout(bomHen);
+          resolve(giaTri);
+        },
+        (loi) => {
+          if (daXong) return;
+          daXong = true;
+          clearTimeout(bomHen);
+          reject(loi);
+        }
+      );
+    });
   }
 
   function timTheoChuHienThi(danhSachThe, chu) {
@@ -423,12 +462,24 @@
     });
   }
 
-  // Luu 1 anh xuong may, thu lan luot 3 cach tu "an toan voi adblock" nhat tro xuong
-  async function luuAnhXuongMay(url, tenFile) {
+  // Luu 1 anh xuong may, thu lan luot 3 cach tu "an toan voi adblock" nhat tro xuong.
+  // MOI cach qua GM_download deu boc trong voiThoiHan() de khong bao gio treo qua
+  // THOI_HAN_MOI_CACH_TAI, du GM_download co bao gio goi lai hay khong.
+  // "baoTreo" (tuy chon) duoc goi dung 1 lan neu cach 1 bi TIMEOUT (khong phai loi khac),
+  // de ben ngoai hien 1 canh bao rieng huong dan nguoi dung kiem tra cai dat trinh duyet.
+  async function luuAnhXuongMay(url, tenFile, baoTreo) {
     try {
-      return await taiBangGmDownloadTuUrl(url, tenFile);
+      return await voiThoiHan(
+        taiBangGmDownloadTuUrl(url, tenFile),
+        THOI_HAN_MOI_CACH_TAI,
+        'GM_download (URL) không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's — có thể trình duyệt ' +
+          'đang chờ hộp thoại "Save As" (do bật "Ask where to save each file")'
+      );
     } catch (loi) {
-      console.warn('[Etsy Auto] GM_download từ URL thất bại, chuyển sang tải dữ liệu rồi lưu:', loi.message);
+      console.warn('[Etsy Auto] GM_download từ URL thất bại/treo, chuyển sang tải dữ liệu rồi lưu:', loi.message);
+      if (loi.message.includes('không phản hồi sau') && typeof baoTreo === 'function') {
+        baoTreo();
+      }
     }
 
     const duLieu = await taiMotAnhVoiRetry(url);
@@ -436,9 +487,13 @@
     const blob = new Blob([duLieu], { type: laMimeTheoDuoi(duoi) });
 
     try {
-      return await taiBangGmDownloadTuBlob(blob, tenFile);
+      return await voiThoiHan(
+        taiBangGmDownloadTuBlob(blob, tenFile),
+        THOI_HAN_MOI_CACH_TAI,
+        'GM_download (blob) không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's'
+      );
     } catch (loi) {
-      console.warn('[Etsy Auto] GM_download từ blob thất bại, thử bằng thẻ <a>:', loi.message);
+      console.warn('[Etsy Auto] GM_download từ blob thất bại/treo, thử bằng thẻ <a>:', loi.message);
     }
     return taiBangTheA(blob, tenFile);
   }
@@ -463,13 +518,25 @@
     let soLuongThanhCong = 0;
     const danhSachLoi = [];
 
+    // Chi hien canh bao ve "hop thoai Save As bi treo" DUNG 1 LAN cho ca lo anh,
+    // tranh spam toast neu nhieu anh lien tiep cung gap.
+    let daCanhBaoTreo = false;
+    const baoTreo = () => {
+      if (daCanhBaoTreo) return;
+      daCanhBaoTreo = true;
+      hienThongBao(
+        '⚠️ Tải ảnh bị treo — hãy tắt "Ask where to save each file" trong Cài đặt tải xuống của Chrome',
+        '#F59E0B'
+      );
+    };
+
     for (let i = 0; i < danhSachUrl.length; i++) {
       const url = danhSachUrl[i];
       const soThuTu = String(i + 1).padStart(2, '0');
       try {
         const duoi = laySoDuoiFile(url);
         const tenFile = `${tenGoc} - ${soThuTu}.${duoi}`;
-        const cachTai = await luuAnhXuongMay(url, tenFile);
+        const cachTai = await luuAnhXuongMay(url, tenFile, baoTreo);
         soLuongThanhCong++;
         console.log(`[Etsy Auto] Đã lưu ảnh ${soThuTu} (${cachTai}):`, tenFile);
         hienThongBao(`⏳ Đã tải ${soLuongThanhCong}/${danhSachUrl.length} ảnh...`, '#2563EB');
