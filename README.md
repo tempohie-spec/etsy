@@ -133,25 +133,36 @@ Nếu vẫn gặp trục trặc, xử lý theo thứ tự:
    trình duyệt. Option `timeout` của `GM_xmlhttpRequest` gặp đúng vấn đề như `GM_download`: chỉ
    tính giờ sau khi request đã bắt đầu, vô dụng nếu nó bị treo trước đó.
 
-4c. **Đứng hình mà Console hoàn toàn im lặng (không có cả log timeout)** — đây là dấu hiệu khác
-   hẳn mục 4b: nếu các lớp timeout của script còn hoạt động thì bắt buộc phải có `console.warn`
-   sau ~20 giây. Im lặng tuyệt đối nghĩa là **toàn bộ JavaScript đã ngừng thực thi**, thường do:
+4c. **`window.setTimeout` bị vô hiệu hoá trên trang listing (nguyên nhân thật, sửa ở 5.9)**
 
-   - **DevTools đang pause ở debugger.** Trang Etsy có exception thật (`Exceeded timeout to send
-     pdp request`); nếu bật *Pause on exceptions* trong tab **Sources**, debugger sẽ treo toàn bộ
-     trang tại đó — không log, không timer, không download, nhưng giao diện vẫn hiển thị bình
-     thường. Bấm **▶ Resume** và tắt *Pause on exceptions*, hoặc đơn giản là **đóng hẳn DevTools**
-     rồi chạy lại.
-   - Tab bị trình duyệt đình chỉ (sleeping tab) khi chuyển sang cửa sổ khác quá lâu.
+   Triệu chứng quan sát được trên Edge, với bộ đo nhịp của bản 5.8:
 
-   **Dấu hiệu nhận biết nhanh:** toast `⏳ Đã tải x/y ảnh...` tự ẩn sau 4 giây. Nếu nó vẫn nằm
-   trên màn hình sau vài chục giây thì `setTimeout` không chạy → JS đang bị đóng băng, không phải
-   lỗi logic của script.
+   ```
+   [Etsy Auto] Đã lưu ảnh 01 (gm_download_blob): ...
+   [Etsy Auto] ⏱ Nhịp 5s   — đang xử lý: nghỉ 700ms trước ảnh kế tiếp
+   [Etsy Auto] ⏱ Nhịp 115s — đang xử lý: nghỉ 700ms trước ảnh kế tiếp
+   ```
 
-   Từ bản 5.8, trong lúc tải ảnh script in ra Console một **nhịp mỗi 5 giây**
-   (`⏱ Nhịp 15s — đang xử lý: ảnh 02/8 — đang lấy dữ liệu ảnh (lần thử 1/3)`). Còn thấy nhịp
-   nghĩa là JS vẫn sống và dòng đó chỉ đúng chỗ đang kẹt; mất hẳn nhịp nghĩa là JS đã bị đóng băng
-   theo một trong các lý do trên.
+   Nhịp (chạy bằng `setInterval`) vẫn đều đặn, nhưng một lệnh chờ **700 mili-giây**
+   (`setTimeout`) kéo dài hơn 115 giây và không bao giờ kết thúc. Nghĩa là trên trang này
+   `window.setTimeout` đã bị ghi đè bởi code khác — nhiều khả năng từ một tiện ích mở rộng khác
+   chạy cùng lúc — và không bao giờ gọi lại callback, trong khi `setInterval` vẫn nguyên vẹn.
+
+   Điều này giải thích ngược lại mọi triệu chứng trước đó: các lớp timeout thêm ở bản 5.5–5.7
+   đều xây trên `setTimeout` nên **chưa từng có cơ hội chạy** — đó là lý do Console im lặng tuyệt
+   đối, không có cả log timeout. Toast `⏳ Đã tải x/y ảnh...` không tự ẩn sau 4 giây cũng vì lý do
+   này (hàm ẩn toast cũng dùng `setTimeout`) — đây là dấu hiệu nhận biết nhanh nhất bằng mắt.
+
+   **Cách sửa ở bản 5.9:** lấy bản **nguyên gốc** của `setTimeout`/`setInterval` từ một iframe
+   cùng nguồn tạo mới (`HEN_GIO`) — iframe có `window` riêng chưa bị ai vá. Ngoài ra hàm `cho()`
+   chạy song song 2 cơ chế (`setTimeout` gốc **và** `setInterval` tự kiểm tra đồng hồ), cái nào
+   xong trước thì kết thúc, nên kể cả khi `setTimeout` vẫn hỏng thì việc chờ vẫn kết thúc đúng
+   hạn. `voiThoiHan()` xây trên chính `cho()` để thừa hưởng cùng độ bền.
+
+   Lúc nạp script, Console in ra nguồn hẹn giờ đang dùng:
+   `[Etsy Auto] Đã nạp script phiên bản 5.9 | Nguồn hẹn giờ: iframe (bản gốc)`.
+   Nếu thấy `window (có thể đã bị ghi đè)` thì iframe không tạo được, lúc đó lớp `setInterval`
+   dự phòng trong `cho()` là thứ giữ cho script không treo.
 
 5. **Violentmonkey** — vào *Settings* của script, kiểm tra `GM_download` và `GM_xmlhttpRequest`
    được cấp quyền, và `i.etsystatic.com` nằm trong danh sách `@connect`.

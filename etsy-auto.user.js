@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.8
+// @version      5.9
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -15,7 +15,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '5.8';
+  const PHIEN_BAN = '5.9';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -51,6 +51,49 @@
   // de giu nguyen giua cac lan tai lai trang.
   const PANEL_STATE_KEY = 'etsy_auto_panel_state_v1';
 
+  // ================== HEN GIO "SACH" ==================
+
+  // VAN DE THUC TE da gap: tren trang listing cua Etsy, window.setTimeout bi mot doan code khac
+  // (trang, hoac mot tien ich khac dang chay cung luc) ghi de va KHONG BAO GIO goi lai callback,
+  // trong khi window.setInterval van chay binh thuong. Hau qua: moi "await cho(...)" dung hinh
+  // vinh vien, moi lop timeout deu vo hieu (vi chung cung xay tren setTimeout), va toast khong tu an.
+  //
+  // Cach xu ly: lay ban GOC cua cac ham hen gio tu mot iframe cung nguon moi tao ra.
+  // Iframe do co window rieng, chua he bi ai va, nen setTimeout trong do luon nguyen ban.
+  // LUU Y: phai GIU LAI iframe trong DOM — go bo iframe se giet toan bo timer thuoc ve no.
+  const HEN_GIO = (function layHenGioSach() {
+    const banDuPhong = {
+      setTimeout: window.setTimeout.bind(window),
+      clearTimeout: window.clearTimeout.bind(window),
+      setInterval: window.setInterval.bind(window),
+      clearInterval: window.clearInterval.bind(window),
+      nguon: 'window (có thể đã bị ghi đè)',
+    };
+
+    try {
+      const khung = document.createElement('iframe');
+      khung.setAttribute('aria-hidden', 'true');
+      khung.setAttribute('tabindex', '-1');
+      khung.style.cssText = 'display:none!important;width:0;height:0;border:0;position:absolute;';
+      (document.body || document.documentElement).appendChild(khung);
+
+      const w = khung.contentWindow;
+      if (w && typeof w.setTimeout === 'function' && typeof w.setInterval === 'function') {
+        return {
+          setTimeout: w.setTimeout.bind(w),
+          clearTimeout: w.clearTimeout.bind(w),
+          setInterval: w.setInterval.bind(w),
+          clearInterval: w.clearInterval.bind(w),
+          nguon: 'iframe (bản gốc)',
+        };
+      }
+    } catch (e) {
+      console.warn('[Etsy Auto] Không lấy được setTimeout gốc từ iframe, dùng bản của trang:', e);
+    }
+
+    return banDuPhong;
+  })();
+
   // ================== HAM DUNG CHUNG ==================
 
   function setNativeValue(element, value) {
@@ -81,38 +124,62 @@
     box.style.background = mau;
     box.textContent = text;
     box.style.display = 'block';
-    clearTimeout(box._timer);
-    box._timer = setTimeout(() => (box.style.display = 'none'), 4000);
+    HEN_GIO.clearTimeout(box._timer);
+    box._timer = HEN_GIO.setTimeout(() => (box.style.display = 'none'), 4000);
   }
 
+  // Cho "ms" mili giay. Dung DONG THOI 2 co che de chac chan luon ket thuc:
+  //   - setTimeout (ban goc lay tu iframe)
+  //   - setInterval tu kiem tra dong ho (phong khi setTimeout van bi vo hieu hoa)
+  // Cai nao xong truoc thi ket thuc, cai con lai bi huy. Day la ham then chot: neu no treo
+  // thi CA vong lap tai anh dung hinh, va truoc day da tung xay ra dung nhu vay.
   function cho(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise((resolve) => {
+      const hetHan = Date.now() + ms;
+      let xong = false;
+      let hen = null;
+      let dongHo = null;
+
+      const ketThuc = () => {
+        if (xong) return;
+        xong = true;
+        if (hen !== null) HEN_GIO.clearTimeout(hen);
+        if (dongHo !== null) HEN_GIO.clearInterval(dongHo);
+        resolve();
+      };
+
+      hen = HEN_GIO.setTimeout(ketThuc, ms);
+      dongHo = HEN_GIO.setInterval(() => {
+        if (Date.now() >= hetHan) ketThuc();
+      }, Math.max(50, Math.min(ms, 250)));
+    });
   }
 
   // Boc 1 promise trong dong ho rieng: neu qua "ms" ma promise chua xong (chua resolve/reject),
   // TU DAY reject bang loi timeout, khong can biet ben trong promise co bao gio phan hoi hay khong.
   // Dung khi goi cac API cua tien ich (GM_download...) co the treo vinh vien vi ly do ngoai tam
   // kiem soat cua trang (vi du: hop thoai Save As goc cua he dieu hanh dang cho nguoi dung).
+  // Dung chinh cho() lam dong ho dem nguoc, de thua huong luon co che 2 lop cua no
+  // (neu chi dung setTimeout thi khi setTimeout bi vo hieu, timeout nay cung khong bao gio chay).
   function voiThoiHan(promise, ms, thongDiepTimeout) {
     return new Promise((resolve, reject) => {
       let daXong = false;
-      const bomHen = setTimeout(() => {
+
+      cho(ms).then(() => {
         if (daXong) return;
         daXong = true;
         reject(new Error(thongDiepTimeout || `Hết ${ms}ms mà không có phản hồi`));
-      }, ms);
+      });
 
       promise.then(
         (giaTri) => {
           if (daXong) return;
           daXong = true;
-          clearTimeout(bomHen);
           resolve(giaTri);
         },
         (loi) => {
           if (daXong) return;
           daXong = true;
-          clearTimeout(bomHen);
           reject(loi);
         }
       );
@@ -139,7 +206,7 @@
         }
         if (ketQua) return resolve(ketQua);
         if (Date.now() - batDau >= thoiGianToiDa) return resolve(null);
-        setTimeout(thu, buoc);
+        HEN_GIO.setTimeout(thu, buoc);
       })();
     });
   }
@@ -443,15 +510,15 @@
         name: tenFile,
         saveAs: false,
         onload: () => {
-          setTimeout(() => URL.revokeObjectURL(urlTaiVe), 5000);
+          HEN_GIO.setTimeout(() => URL.revokeObjectURL(urlTaiVe), 5000);
           resolve('gm_download_blob');
         },
         onerror: (loi) => {
-          setTimeout(() => URL.revokeObjectURL(urlTaiVe), 5000);
+          HEN_GIO.setTimeout(() => URL.revokeObjectURL(urlTaiVe), 5000);
           reject(new Error('GM_download (blob) báo lỗi: ' + JSON.stringify(loi)));
         },
         ontimeout: () => {
-          setTimeout(() => URL.revokeObjectURL(urlTaiVe), 5000);
+          HEN_GIO.setTimeout(() => URL.revokeObjectURL(urlTaiVe), 5000);
           reject(new Error('GM_download (blob) timeout'));
         },
       });
@@ -471,7 +538,7 @@
         document.body.appendChild(theA);
         theA.click();
         theA.remove();
-        setTimeout(() => URL.revokeObjectURL(urlTaiVe), 8000);
+        HEN_GIO.setTimeout(() => URL.revokeObjectURL(urlTaiVe), 8000);
         resolve('a_tag');
       } catch (loi) {
         reject(loi);
@@ -576,7 +643,7 @@
     //     hoac tab bi dinh chi), khi do moi timeout trong script deu vo nghia
     let buocHienTai = 'chuẩn bị';
     const batDauNhip = Date.now();
-    const nhip = setInterval(() => {
+    const nhip = HEN_GIO.setInterval(() => {
       console.log(
         `[Etsy Auto] ⏱ Nhịp ${Math.round((Date.now() - batDauNhip) / 1000)}s — đang xử lý: ${buocHienTai}`
       );
@@ -606,7 +673,7 @@
         await cho(KHOANG_CACH_GIUA_CAC_LAN_TAI);
       }
     } finally {
-      clearInterval(nhip);
+      HEN_GIO.clearInterval(nhip);
     }
 
     if (soLuongThanhCong === 0) {
@@ -749,7 +816,7 @@
     if (nutCopy) {
       // Nut Copy co san se ghi de tag vao clipboard, nen phai doi no chay xong roi moi doc lai va ghi de ca goi (title+tag)
       nutCopy.click();
-      setTimeout(async () => {
+      HEN_GIO.setTimeout(async () => {
         let tagText = '';
         try {
           tagText = await navigator.clipboard.readText();
@@ -1367,7 +1434,8 @@
 
   console.log(
     `%c[Etsy Auto] Đã nạp script phiên bản ${PHIEN_BAN}`,
-    'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;'
+    'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;',
+    `| Nguồn hẹn giờ: ${HEN_GIO.nguon}`
   );
 
   document.addEventListener('keydown', (e) => {
