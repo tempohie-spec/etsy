@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Etsy Auto - Lay Tieu De, Tag & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
+// @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.0
-// @description  Lay tieu de + tag (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
+// @version      5.1
+// @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
@@ -16,6 +16,16 @@
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
+
+  // Ky tu ngan cach cho phan "Add personalization" lay tu trang nguon.
+  // Goi du lieu day du: tieuDe |||TAGS||| tag |||PERSO_LABEL||| nhan |||PERSO_INSTR||| huong dan
+  // (neu listing khong co o ca nhan hoa thi khong co 2 doan sau -> van tuong thich ban cu)
+  const NGAN_CACH_PERSO_NHAN = '|||PERSO_LABEL|||';
+  const NGAN_CACH_PERSO_HUONG_DAN = '|||PERSO_INSTR|||';
+
+  // Gioi han ky tu cua o "Add text box" ben trang chinh sua Etsy
+  const GIOI_HAN_NHAN_FIELD = 45;
+  const GIOI_HAN_HUONG_DAN_FIELD = 120;
 
   // Khoang cach (ms) giua 2 lan tai file lien tiep, de trinh duyet khong chan cac ban tai lien tuc.
   // Neu bi mat anh giua chung (trinh duyet bop bot), tang len 1000-1500.
@@ -73,6 +83,39 @@
     );
   }
 
+  // Goi ham "hamTim" lien tuc cho toi khi no tra ve mot gia tri that (phan tu tim duoc),
+  // hoac het thoi gian cho. Dung de doi menu / hop thoai cua Etsy hien ra.
+  function doiPhanTu(hamTim, thoiGianToiDa = 5000, buoc = 150) {
+    return new Promise((resolve) => {
+      const batDau = Date.now();
+      (function thu() {
+        let ketQua = null;
+        try {
+          ketQua = hamTim();
+        } catch (e) {
+          ketQua = null;
+        }
+        if (ketQua) return resolve(ketQua);
+        if (Date.now() - batDau >= thoiGianToiDa) return resolve(null);
+        setTimeout(thu, buoc);
+      })();
+    });
+  }
+
+  // Doc text cua 1 phan tu nhung GIU LAI xuong dong do the <br> tao ra
+  // (phan Instructions cua Etsy dung <br> de xuong dong giua cac vi du)
+  function docTextGiuXuongDong(el) {
+    if (!el) return '';
+    const ban = el.cloneNode(true);
+    ban.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
+    return ban.textContent
+      .split('\n')
+      .map((dong) => dong.trim())
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   // Doc chuoi hien co trong clipboard he thong (dung chung giua cac trinh duyet)
   async function docClipboard() {
     try {
@@ -83,11 +126,46 @@
     }
   }
 
-  // Tach chuoi da luu trong clipboard thanh { tieuDe, tagText }
+  // Tach chuoi lam 2 phan tai LAN XUAT HIEN DAU TIEN cua dau ngan cach
+  function tachMotLan(chuoi, dauNganCach) {
+    const viTri = chuoi.indexOf(dauNganCach);
+    if (viTri === -1) return [chuoi, null];
+    return [chuoi.slice(0, viTri), chuoi.slice(viTri + dauNganCach.length)];
+  }
+
+  // Gop tieu de + tag + ca nhan hoa thanh 1 chuoi duy nhat de luu vao clipboard
+  function taoGoiDuLieu(tieuDe, tagText, perso) {
+    let goi = `${tieuDe || ''}${NGAN_CACH}${tagText || ''}`;
+    if (perso && perso.nhan) {
+      goi += `${NGAN_CACH_PERSO_NHAN}${perso.nhan}${NGAN_CACH_PERSO_HUONG_DAN}${perso.huongDan || ''}`;
+    }
+    return goi;
+  }
+
+  // Tach chuoi da luu trong clipboard thanh { tieuDe, tagText, persoNhan, persoHuongDan }
   function tachDuLieu(chuoi) {
-    if (!chuoi || !chuoi.includes(NGAN_CACH)) return { tieuDe: '', tagText: '' };
-    const [tieuDe, tagText] = chuoi.split(NGAN_CACH);
-    return { tieuDe: (tieuDe || '').trim(), tagText: (tagText || '').trim() };
+    const rong = { tieuDe: '', tagText: '', persoNhan: '', persoHuongDan: '' };
+    if (!chuoi || !chuoi.includes(NGAN_CACH)) return rong;
+
+    const [tieuDe, phanSauTieuDe] = tachMotLan(chuoi, NGAN_CACH);
+    let tagText = phanSauTieuDe || '';
+    let persoNhan = '';
+    let persoHuongDan = '';
+
+    const [tagThoi, phanPerso] = tachMotLan(tagText, NGAN_CACH_PERSO_NHAN);
+    if (phanPerso !== null) {
+      tagText = tagThoi;
+      const [nhan, huongDan] = tachMotLan(phanPerso, NGAN_CACH_PERSO_HUONG_DAN);
+      persoNhan = nhan;
+      persoHuongDan = huongDan || '';
+    }
+
+    return {
+      tieuDe: tieuDe.trim(),
+      tagText: tagText.trim(),
+      persoNhan: persoNhan.trim(),
+      persoHuongDan: persoHuongDan.trim(),
+    };
   }
 
   // Ghi chuoi vao clipboard he thong. Dung GM_setClipboard truoc (dong bo, on dinh hon),
@@ -429,6 +507,57 @@
     return null;
   }
 
+  // Lay o "Add personalization" tren trang nguon (neu listing co bat ca nhan hoa).
+  // Trong Elements, khu vuc nay co dang:
+  //   <div id="enhanced-perso-content"> ... <li id="perso-field-xxxx" data-field-type="text_input">
+  //     <label data-label-translation="Please write the Pokemon character you'd like">
+  //        <span data-label>Please write the Pokemon character you'd like</span>
+  //     <div data-selector="perso-text-field-content">
+  //        <p data-instructions>Examples:<br>• Pikachu<br>• Eevee ...</p>
+  // -> lay chu trong [data-label] va [data-instructions]
+  function layThongTinCaNhanHoa() {
+    const cacSelectorVung = [
+      '#enhanced-perso-content',
+      '[data-appears-component-name="personalization"]',
+      'li[id^="perso-field-"]',
+      '[data-selector="perso-text-field-content"]',
+    ];
+
+    let vung = null;
+    for (const sel of cacSelectorVung) {
+      vung = document.querySelector(sel);
+      if (vung) break;
+    }
+
+    // Du phong: neu khong khop selector nao, bam theo chinh thuoc tinh data-label / data-instructions
+    if (!vung) {
+      const moc = document.querySelector('[data-instructions], [data-label]');
+      vung = moc ? moc.closest('li[id^="perso-field-"]') || moc.parentElement : null;
+    }
+
+    if (!vung) {
+      console.log('[Etsy Auto] Listing này không có ô "Add personalization"');
+      return { nhan: '', huongDan: '' };
+    }
+
+    let nhan = docTextGiuXuongDong(vung.querySelector('[data-label]'));
+    if (!nhan) {
+      const elDich = vung.querySelector('[data-label-translation]');
+      if (elDich) nhan = (elDich.getAttribute('data-label-translation') || '').trim();
+    }
+
+    const huongDan = docTextGiuXuongDong(vung.querySelector('[data-instructions]'));
+
+    if (nhan || huongDan) {
+      console.log('[Etsy Auto] Cá nhân hoá — data-label:', nhan);
+      console.log('[Etsy Auto] Cá nhân hoá — data-instructions:', huongDan);
+    } else {
+      console.warn('[Etsy Auto] Thấy khu vực cá nhân hoá nhưng không đọc được data-label / data-instructions');
+    }
+
+    return { nhan, huongDan };
+  }
+
   function timNutCopyTag() {
     const nhan = timTheoChuHienThi('dt, span, div, h2, h3, label', 'tags');
     if (!nhan) return null;
@@ -454,6 +583,11 @@
       console.warn('[Etsy Auto] KHÔNG tìm thấy tiêu đề trên trang này (kiểm tra lại selector h1)');
     }
 
+    // Lay them o ca nhan hoa (neu listing co) — dung cho ca Alt+G va Alt+C
+    const perso = layThongTinCaNhanHoa();
+    const coPerso = !!perso.nhan;
+    const ghiChuPerso = coPerso ? ' + cá nhân hoá' : '';
+
     // Chi tai anh full size (tung file rieng) neu coTaiAnh = true (chay nen, khong lien quan clipboard)
     if (coTaiAnh) {
       taiTungAnhRieng(tieuDe).catch((loi) => {
@@ -476,24 +610,23 @@
           return;
         }
 
-        const goiDuLieu = `${tieuDe}${NGAN_CACH}${tagText}`;
-        const ok = await ghiClipboard(goiDuLieu);
+        const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, tagText, perso));
 
         const ghiChuAnh = coTaiAnh ? ', đang tải ảnh full size' : '';
         if (ok && daLuuTieuDe) {
-          hienThongBao(`✅ Đã lấy tiêu đề + tag${ghiChuAnh}!`, '#16A34A');
+          hienThongBao(`✅ Đã lấy tiêu đề + tag${ghiChuPerso}${ghiChuAnh}!`, '#16A34A');
         } else if (ok) {
-          hienThongBao(`⚠️ Đã lấy tag${ghiChuAnh}, nhưng KHÔNG tìm thấy tiêu đề trên trang này!`, '#DC2626');
+          hienThongBao(`⚠️ Đã lấy tag${ghiChuPerso}${ghiChuAnh}, nhưng KHÔNG tìm thấy tiêu đề trên trang này!`, '#DC2626');
         } else {
           hienThongBao('❌ Không ghi được vào Clipboard', '#DC2626');
         }
       }, 400);
     } else if (daLuuTieuDe) {
-      const ok = await ghiClipboard(`${tieuDe}${NGAN_CACH}`);
+      const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, '', perso));
       const ghiChuAnh = coTaiAnh ? ', đang tải ảnh full size' : '';
       hienThongBao(
         ok
-          ? `✅ Đã lấy tiêu đề${ghiChuAnh} (không thấy nút Copy tag trên trang này)`
+          ? `✅ Đã lấy tiêu đề${ghiChuPerso}${ghiChuAnh} (không thấy nút Copy tag trên trang này)`
           : '❌ Không ghi được vào Clipboard',
         ok ? '#16A34A' : '#DC2626'
       );
@@ -561,6 +694,50 @@
       khuVuc = khuVuc.parentElement;
     }
     return { input, nutAdd };
+  }
+
+  // ---- Cac phan tu cua luong "Custom options > Add field > Text box" ----
+
+  // Nut "+ Add field" o muc Custom options
+  function timNutAddField() {
+    return [...document.querySelectorAll('button')].find(
+      (b) => /^\+?\s*add field$/i.test(b.textContent.trim()) && !b.disabled
+    );
+  }
+
+  // Muc "Text box" trong menu vua xo ra (phan "Create new")
+  function timMucTextBox() {
+    const cacMuc = [...document.querySelectorAll('[role="menuitem"], button.wt-options__item')];
+    return cacMuc.find(
+      (muc) =>
+        muc.getAttribute('aria-disabled') !== 'true' &&
+        [...muc.querySelectorAll('*')].some(
+          (x) => x.children.length === 0 && x.textContent.trim().toLowerCase() === 'text box'
+        )
+    );
+  }
+
+  // O "Field title" trong hop thoai "Add text box"
+  function timOFieldTitle() {
+    return document.querySelector(
+      '#field-personalizationQuestions-questionText, input[name="questionText"], [data-testid="personalization-questions-question-text-textarea"]'
+    );
+  }
+
+  // O "Instructions" trong hop thoai "Add text box"
+  function timOInstructions() {
+    return document.querySelector(
+      '#field-personalizationQuestions-instructions, textarea[name="instructions"], [data-testid="personalization-questions-instructions-textarea"]'
+    );
+  }
+
+  // Nut "Done" o cuoi hop thoai (bi khoa cho toi khi Field title co chu)
+  function timNutDone() {
+    const hopThoai = document.querySelector('[data-clg-id="WtDialog"], [role="dialog"]');
+    const goc = hopThoai || document;
+    return [...goc.querySelectorAll('button')].find(
+      (b) => b.textContent.trim().toLowerCase() === 'done' && !b.disabled
+    );
   }
 
   // Tim va bam vao tab "Photo & Video" (thuong la tab dau tien, co href chua #media)
@@ -646,9 +823,67 @@
     return { ok: true, soLuong: danhSachTag.length };
   }
 
+  // Dan phan ca nhan hoa: bam "Add field" -> chon "Text box" -> dien Field title + Instructions -> bam "Done"
+  async function danCaNhanHoaNoiBo(nhan, huongDan) {
+    if (!nhan) {
+      return { boQua: true, ok: false, ly_do: 'ℹ️ Clipboard không có dữ liệu cá nhân hoá' };
+    }
+
+    const nutAddField = timNutAddField();
+    console.log('[Etsy Auto] Kết quả tìm nút "Add field":', nutAddField);
+    if (!nutAddField) {
+      return { ok: false, ly_do: '⚠️ Không tìm thấy nút "Add field" (mở tab Item Options trước)' };
+    }
+    nutAddField.click();
+
+    const mucTextBox = await doiPhanTu(timMucTextBox, 5000);
+    console.log('[Etsy Auto] Kết quả tìm mục "Text box":', mucTextBox);
+    if (!mucTextBox) {
+      return { ok: false, ly_do: '⚠️ Không tìm thấy mục "Text box" trong menu Add field' };
+    }
+    mucTextBox.click();
+
+    const oNhan = await doiPhanTu(timOFieldTitle, 5000);
+    console.log('[Etsy Auto] Kết quả tìm ô Field title:', oNhan);
+    if (!oNhan) {
+      return { ok: false, ly_do: '⚠️ Không mở được hộp thoại "Add text box"' };
+    }
+
+    // Etsy gioi han 45 ky tu cho Field title va 120 ky tu cho Instructions -> cat bot cho vua
+    const nhanCat = nhan.slice(0, GIOI_HAN_NHAN_FIELD);
+    if (nhanCat.length < nhan.length) {
+      console.warn(`[Etsy Auto] Field title bị cắt còn ${GIOI_HAN_NHAN_FIELD} ký tự:`, nhanCat);
+    }
+    oNhan.focus();
+    setNativeValue(oNhan, nhanCat);
+    await cho(250);
+
+    const oHuongDan = timOInstructions();
+    console.log('[Etsy Auto] Kết quả tìm ô Instructions:', oHuongDan);
+    if (oHuongDan && huongDan) {
+      const huongDanCat = huongDan.slice(0, GIOI_HAN_HUONG_DAN_FIELD);
+      if (huongDanCat.length < huongDan.length) {
+        console.warn(`[Etsy Auto] Instructions bị cắt còn ${GIOI_HAN_HUONG_DAN_FIELD} ký tự:`, huongDanCat);
+      }
+      oHuongDan.focus();
+      setNativeValue(oHuongDan, huongDanCat);
+      await cho(250);
+    }
+
+    const nutDone = await doiPhanTu(timNutDone, 4000);
+    console.log('[Etsy Auto] Kết quả tìm nút "Done":', nutDone);
+    if (!nutDone) {
+      return { ok: false, ly_do: '⚠️ Không bấm được nút "Done" (nút đang bị khoá?)' };
+    }
+    nutDone.click();
+    await cho(400);
+
+    return { ok: true };
+  }
+
   // Ham gop: doc Clipboard 1 lan roi dan ca tieu de va tag, sau do tu dong bam tab Photo & Video
   async function danTieuDeVaTag() {
-    const { tieuDe, tagText } = tachDuLieu(await docClipboard());
+    const { tieuDe, tagText, persoNhan, persoHuongDan } = tachDuLieu(await docClipboard());
     if (!tieuDe && !tagText) {
       hienThongBao('⚠️ Clipboard chưa có dữ liệu. Hãy chạy Alt+G trên trang nguồn trước rồi copy sang trình duyệt này', '#DC2626');
       return;
@@ -659,8 +894,15 @@
     const ketQuaTieuDe = danTieuDeNoiBo(tieuDe);
     const ketQuaTag = await danTagNoiBo(tagText);
 
-    // Sau khi dan xong (it nhat 1 trong 2 thanh cong), doi 1 chut roi tu dong bam vao tab "Photo & Video"
-    if (ketQuaTieuDe.ok || ketQuaTag.ok) {
+    // Neu clipboard co du lieu ca nhan hoa thi tao them 1 Custom option dang Text box
+    let ketQuaPerso = { boQua: true, ok: false, ly_do: '' };
+    if (persoNhan) {
+      hienThongBao('⏳ Đang tạo ô cá nhân hoá (Add field → Text box)...', '#2563EB');
+      ketQuaPerso = await danCaNhanHoaNoiBo(persoNhan, persoHuongDan);
+    }
+
+    // Sau khi dan xong (it nhat 1 phan thanh cong), doi 1 chut roi tu dong bam vao tab "Photo & Video"
+    if (ketQuaTieuDe.ok || ketQuaTag.ok || ketQuaPerso.ok) {
       await cho(300);
       timVaBamTabPhotoVideo();
     }
@@ -672,14 +914,20 @@
       console.log('[Etsy Auto] Đã ghi lại Clipboard, chỉ còn tiêu đề để dùng Ctrl+V ở nơi khác');
     }
 
+    // Ghi chu them ve phan ca nhan hoa (chi hien khi clipboard co du lieu ca nhan hoa)
+    const ghiChuPerso = ketQuaPerso.boQua ? '' : ketQuaPerso.ok ? ' + ô cá nhân hoá' : ` (${ketQuaPerso.ly_do})`;
+
     if (ketQuaTieuDe.ok && ketQuaTag.ok) {
-      hienThongBao(`✅ Đã dán tiêu đề + ${ketQuaTag.soLuong} tag!`, '#16A34A');
+      hienThongBao(
+        `✅ Đã dán tiêu đề + ${ketQuaTag.soLuong} tag${ghiChuPerso}!`,
+        ketQuaPerso.boQua || ketQuaPerso.ok ? '#16A34A' : '#F59E0B'
+      );
     } else if (ketQuaTieuDe.ok) {
-      hienThongBao(`✅ Đã dán tiêu đề. ${ketQuaTag.ly_do}`, '#DC2626');
+      hienThongBao(`✅ Đã dán tiêu đề${ghiChuPerso}. ${ketQuaTag.ly_do}`, '#DC2626');
     } else if (ketQuaTag.ok) {
-      hienThongBao(`✅ Đã dán ${ketQuaTag.soLuong} tag. ${ketQuaTieuDe.ly_do}`, '#DC2626');
+      hienThongBao(`✅ Đã dán ${ketQuaTag.soLuong} tag${ghiChuPerso}. ${ketQuaTieuDe.ly_do}`, '#DC2626');
     } else {
-      hienThongBao(`❌ ${ketQuaTieuDe.ly_do} | ${ketQuaTag.ly_do}`, '#DC2626');
+      hienThongBao(`❌ ${ketQuaTieuDe.ly_do} | ${ketQuaTag.ly_do}${ghiChuPerso}`, '#DC2626');
     }
   }
 
