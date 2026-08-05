@@ -160,9 +160,12 @@ Nếu vẫn gặp trục trặc, xử lý theo thứ tự:
    hạn. `voiThoiHan()` xây trên chính `cho()` để thừa hưởng cùng độ bền.
 
    Lúc nạp script, Console in ra nguồn hẹn giờ đang dùng:
-   `[Etsy Auto] Đã nạp script phiên bản 5.9 | Nguồn hẹn giờ: iframe (bản gốc)`.
+   `[Etsy Auto] Đã nạp script phiên bản 6.0 | Nguồn hẹn giờ: iframe (bản gốc)`.
    Nếu thấy `window (có thể đã bị ghi đè)` thì iframe không tạo được, lúc đó lớp `setInterval`
    dự phòng trong `cho()` là thứ giữ cho script không treo.
+
+   Bộ đo nhịp dùng để chẩn đoán lỗi này đã được gỡ ở bản 6.0 sau khi xác nhận chạy ổn. Nếu cần
+   dựng lại để soi một sự cố tương tự, xem commit `447d836`.
 
 5. **Violentmonkey** — vào *Settings* của script, kiểm tra `GM_download` và `GM_xmlhttpRequest`
    được cấp quyền, và `i.etsystatic.com` nằm trong danh sách `@connect`.

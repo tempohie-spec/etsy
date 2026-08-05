@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.9
+// @version      6.0
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -15,7 +15,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '5.9';
+  const PHIEN_BAN = '6.0';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -450,9 +450,6 @@
         url,
         responseType: 'arraybuffer',
         timeout: 30000,
-        // onloadstart chi de CHAN DOAN: neu thay dong nay tuc la yeu cau da that su duoc gui di,
-        // khong thay tuc la GM_xmlhttpRequest bi ket ngay tu truoc khi mo ket noi.
-        onloadstart: () => console.log('[Etsy Auto] → Bắt đầu gửi yêu cầu lấy dữ liệu:', url),
         onload: (res) => {
           if (res.status >= 200 && res.status < 300) {
             resolve(res.response);
@@ -472,13 +469,10 @@
   // truoc khi request thuc su bat dau (vi du: bi trinh duyet/tien ich chan ngam khi goi lien
   // tiep nhieu request cheo goc toi cung 1 CDN). Khong co dong ho rieng nay thi ca vong lap tai
   // anh se dung hinh vinh vien tu ngay o BUOC LAY DU LIEU, truoc ca khi cham toi GM_download.
-  async function taiMotAnhVoiRetry(url, soLanThuLai = 2, ghiBuoc) {
+  async function taiMotAnhVoiRetry(url, soLanThuLai = 2) {
     let loiCuoi;
     for (let lan = 0; lan <= soLanThuLai; lan++) {
       try {
-        if (typeof ghiBuoc === 'function') {
-          ghiBuoc(`đang lấy dữ liệu ảnh (lần thử ${lan + 1}/${soLanThuLai + 1})`);
-        }
         return await voiThoiHan(
           taiMotAnh(url),
           THOI_HAN_MOI_CACH_TAI,
@@ -554,20 +548,15 @@
   // MOI cach qua GM_download deu boc trong voiThoiHan() de khong bao gio treo qua THOI_HAN_MOI_CACH_TAI,
   // du GM_download co goi lai hay khong (vi du: hop thoai he dieu hanh, CDN treo ket noi, v.v.)
   // "baoTreo" (tuy chon) duoc goi khi mot buoc GM_download bi TIMEOUT (khong phai loi khac).
-  async function luuAnhXuongMay(url, tenFile, baoTreo, baoBuoc) {
-    const ghiBuoc = (buoc) => {
-      if (typeof baoBuoc === 'function') baoBuoc(buoc);
-    };
+  async function luuAnhXuongMay(url, tenFile, baoTreo) {
     let blob = null;
 
     // Buoc 1: lay du lieu anh + luu tu blob (uu tien, giong cach ban goc 4.8 da chay on dinh)
     try {
-      ghiBuoc('đang lấy dữ liệu ảnh (GM_xmlhttpRequest)');
-      const duLieu = await taiMotAnhVoiRetry(url, 2, ghiBuoc);
+      const duLieu = await taiMotAnhVoiRetry(url);
       const duoi = laySoDuoiFile(url);
       blob = new Blob([duLieu], { type: laMimeTheoDuoi(duoi) });
 
-      ghiBuoc('đang lưu file (GM_download từ blob)');
       return await voiThoiHan(
         taiBangGmDownloadTuBlob(blob, tenFile),
         THOI_HAN_MOI_CACH_TAI,
@@ -582,7 +571,6 @@
 
     // Buoc 2: du phong - GM_download tai thang tu URL (khong can blob da fetch o buoc 1)
     try {
-      ghiBuoc('dự phòng: GM_download tải thẳng từ URL');
       return await voiThoiHan(
         taiBangGmDownloadTuUrl(url, tenFile),
         THOI_HAN_MOI_CACH_TAI,
@@ -599,7 +587,6 @@
     // Neu ca viec fetch du lieu cung that bai thi khong co gi de dan qua the <a> -> bao loi anh nay.
     if (blob) {
       console.warn('[Etsy Auto] Thử phương án cuối: thẻ <a download>');
-      ghiBuoc('dự phòng cuối: thẻ <a download>');
       return taiBangTheA(blob, tenFile);
     }
     throw new Error('Cả 3 cách tải đều thất bại/treo (không lấy được dữ liệu ảnh)');
@@ -634,46 +621,22 @@
       hienThongBao('⚠️ Một bước tải bị treo quá lâu, script đang tự chuyển sang cách khác...', '#F59E0B');
     };
 
-    // ---- BO DO NHIP (chan doan) ----
-    // Cu 5 giay in 1 dong ra Console cho biet dang ket o buoc nao va da troi bao nhieu giay.
-    // Muc dich: phan biet 2 tinh huong hoan toan khac nhau khi tai bi dung hinh:
-    //   - VAN CO nhip in ra  -> timer song, JS chay binh thuong, chi la 1 buoc nao do lau/treo
-    //     (luc do dong "dang xu ly" se chi ro ket o dau)
-    //   - KHONG CO nhip nao  -> ca JS da ngung chay (thuong do DevTools dang pause o debugger,
-    //     hoac tab bi dinh chi), khi do moi timeout trong script deu vo nghia
-    let buocHienTai = 'chuẩn bị';
-    const batDauNhip = Date.now();
-    const nhip = HEN_GIO.setInterval(() => {
-      console.log(
-        `[Etsy Auto] ⏱ Nhịp ${Math.round((Date.now() - batDauNhip) / 1000)}s — đang xử lý: ${buocHienTai}`
-      );
-    }, 5000);
-
-    try {
-      for (let i = 0; i < danhSachUrl.length; i++) {
-        const url = danhSachUrl[i];
-        const soThuTu = String(i + 1).padStart(2, '0');
-        try {
-          const duoi = laySoDuoiFile(url);
-          const tenFile = `${tenGoc} - ${soThuTu}.${duoi}`;
-          buocHienTai = `ảnh ${soThuTu}/${danhSachUrl.length}`;
-          console.log(`[Etsy Auto] ▶ Bắt đầu ảnh ${soThuTu}:`, url);
-          const cachTai = await luuAnhXuongMay(url, tenFile, baoTreo, (buoc) => {
-            buocHienTai = `ảnh ${soThuTu}/${danhSachUrl.length} — ${buoc}`;
-          });
-          soLuongThanhCong++;
-          console.log(`[Etsy Auto] Đã lưu ảnh ${soThuTu} (${cachTai}):`, tenFile);
-          hienThongBao(`⏳ Đã tải ${soLuongThanhCong}/${danhSachUrl.length} ảnh...`, '#2563EB');
-        } catch (loi) {
-          console.error(`[Etsy Auto] Lỗi ở ảnh ${soThuTu}:`, url, loi);
-          danhSachLoi.push(soThuTu);
-        }
-        // Cho 1 chut giua cac lan tai de trinh duyet khong chan bot cac ban tai lien tuc
-        buocHienTai = `nghỉ ${KHOANG_CACH_GIUA_CAC_LAN_TAI}ms trước ảnh kế tiếp`;
-        await cho(KHOANG_CACH_GIUA_CAC_LAN_TAI);
+    for (let i = 0; i < danhSachUrl.length; i++) {
+      const url = danhSachUrl[i];
+      const soThuTu = String(i + 1).padStart(2, '0');
+      try {
+        const duoi = laySoDuoiFile(url);
+        const tenFile = `${tenGoc} - ${soThuTu}.${duoi}`;
+        const cachTai = await luuAnhXuongMay(url, tenFile, baoTreo);
+        soLuongThanhCong++;
+        console.log(`[Etsy Auto] Đã lưu ảnh ${soThuTu} (${cachTai}):`, tenFile);
+        hienThongBao(`⏳ Đã tải ${soLuongThanhCong}/${danhSachUrl.length} ảnh...`, '#2563EB');
+      } catch (loi) {
+        console.error(`[Etsy Auto] Lỗi ở ảnh ${soThuTu}:`, url, loi);
+        danhSachLoi.push(soThuTu);
       }
-    } finally {
-      HEN_GIO.clearInterval(nhip);
+      // Cho 1 chut giua cac lan tai de trinh duyet khong chan bot cac ban tai lien tuc
+      await cho(KHOANG_CACH_GIUA_CAC_LAN_TAI);
     }
 
     if (soLuongThanhCong === 0) {
@@ -690,10 +653,6 @@
       hienThongBao(`✅ Đã tải xong tất cả ${soLuongThanhCong} ảnh (file riêng lẻ, không nén zip)`, '#16A34A');
     }
 
-    console.log(
-      '[Etsy Auto] Lưu ý: nếu trình duyệt vẫn hiện popup "This site wants to download multiple files", ' +
-      'hãy bấm Allow/Cho phép, hoặc vào Cài đặt trang của etsy.com và bật "Automatic downloads / Tải xuống tự động".'
-    );
   }
 
   // ================== BUOC 1: LAY DU LIEU (chay tren trang nguon) ==================
@@ -765,8 +724,7 @@
     const huongDan = docTextGiuXuongDong(vung.querySelector('[data-instructions]'));
 
     if (nhan || huongDan) {
-      console.log('[Etsy Auto] Cá nhân hoá — data-label:', nhan);
-      console.log('[Etsy Auto] Cá nhân hoá — data-instructions:', huongDan);
+      console.log('[Etsy Auto] Cá nhân hoá — nhãn:', nhan, '| hướng dẫn:', huongDan);
     } else {
       console.warn('[Etsy Auto] Thấy khu vực cá nhân hoá nhưng không đọc được data-label / data-instructions');
     }
@@ -1022,11 +980,9 @@
     for (const cachBam of cacCachBam) {
       const nut = await doiPhanTu(timNutDone, 3000);
       if (!nut) break;
-      console.log('[Etsy Auto] Bấm nút "Done"...', nut);
       cachBam(nut);
       const daDong = await doiPhanTu(() => (hopThoaiTextBoxDangMo() ? null : true), 2500);
       if (daDong) {
-        console.log('[Etsy Auto] Hộp thoại "Add text box" đã đóng');
         return true;
       }
       console.warn('[Etsy Auto] Hộp thoại vẫn mở sau khi bấm Done, thử cách bấm khác...');
@@ -1048,7 +1004,6 @@
 
     if (tab) {
       tab.click();
-      console.log('[Etsy Auto] Đã bấm vào tab Photo & Video');
       return true;
     }
     console.warn('[Etsy Auto] KHÔNG tìm thấy tab Photo & Video');
@@ -1065,7 +1020,6 @@
   // Dan tieu de. Tra ve true/false de ham gop biet co thanh cong khong.
   function danTieuDeNoiBo(tieuDe) {
     const el = timOTieuDe();
-    console.log('[Etsy Auto] Kết quả tìm ô Tiêu đề:', el);
     if (!el) {
       return { ok: false, ly_do: '⚠️ Không tìm thấy ô Tiêu đề trên trang này' };
     }
@@ -1074,14 +1028,12 @@
     }
     el.focus();
     setNativeValue(el, tieuDe);
-    console.log('[Etsy Auto] Giá trị ô Tiêu đề sau khi dán:', el.value);
     return { ok: true };
   }
 
   // Dan tag. Tra ve true/false de ham gop biet co thanh cong khong.
   async function danTagNoiBo(tagText) {
     const { input, nutAdd } = timOTag();
-    console.log('[Etsy Auto] Kết quả tìm ô Tag:', input, '| Nút Add:', nutAdd);
     if (!input) {
       return { ok: false, ly_do: '⚠️ Không tìm thấy ô Tag trên trang này' };
     }
@@ -1124,21 +1076,18 @@
     }
 
     const nutAddField = timNutAddField();
-    console.log('[Etsy Auto] Kết quả tìm nút "Add field":', nutAddField);
     if (!nutAddField) {
       return { ok: false, ly_do: '⚠️ Không tìm thấy nút "Add field" (mở tab Item Options trước)' };
     }
     nutAddField.click();
 
     const mucTextBox = await doiPhanTu(timMucTextBox, 5000);
-    console.log('[Etsy Auto] Kết quả tìm mục "Text box":', mucTextBox);
     if (!mucTextBox) {
       return { ok: false, ly_do: '⚠️ Không tìm thấy mục "Text box" trong menu Add field' };
     }
     mucTextBox.click();
 
     const oNhan = await doiPhanTu(timOFieldTitle, 5000);
-    console.log('[Etsy Auto] Kết quả tìm ô Field title:', oNhan);
     if (!oNhan) {
       return { ok: false, ly_do: '⚠️ Không mở được hộp thoại "Add text box"' };
     }
@@ -1153,7 +1102,6 @@
     await cho(250);
 
     const oHuongDan = timOInstructions();
-    console.log('[Etsy Auto] Kết quả tìm ô Instructions:', oHuongDan);
     if (oHuongDan && huongDan) {
       const huongDanCat = huongDan.slice(0, GIOI_HAN_HUONG_DAN_FIELD);
       if (huongDanCat.length < huongDan.length) {
@@ -1207,11 +1155,7 @@
     let daGiuLaiTieuDe = false;
     if (tieuDe) {
       daGiuLaiTieuDe = await ghiClipboard(tieuDe);
-      console.log(
-        daGiuLaiTieuDe
-          ? '[Etsy Auto] Clipboard giờ chỉ còn tiêu đề, Ctrl+V ở đâu cũng dán được tiêu đề: ' + tieuDe
-          : '[Etsy Auto] KHÔNG ghi lại được Clipboard'
-      );
+      if (!daGiuLaiTieuDe) console.warn('[Etsy Auto] KHÔNG ghi lại được Clipboard');
     }
 
     // Sau khi dan xong (it nhat 1 phan thanh cong), doi 1 chut roi tu dong bam vao tab "Photo & Video".
