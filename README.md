@@ -105,21 +105,27 @@ Nếu vẫn gặp trục trặc, xử lý theo thứ tự:
 4. **Tải bị mất giữa chừng** — tăng `KHOANG_CACH_GIUA_CAC_LAN_TAI` trong script từ `700` lên
    `1000`–`1500` (ms) để trình duyệt không bóp bớt các bản tải liên tiếp.
 
-4b. **Tải bị đứng ở "Đã tải 1/8..." rồi không nhúc nhích nữa (v5.5)** — nguyên nhân gần như chắc
-   chắn là Chrome đang bật **"Ask where to save each file before downloading"**. Ảnh đầu tiên tải
-   được vì không cần hỏi gì (do trước đó đã chọn "Allow" cho site), nhưng từ ảnh thứ 2 trở đi,
-   mỗi lần `GM_download` gọi là bật một hộp thoại **Save As gốc của hệ điều hành** — hộp đầu còn
-   thấy, các hộp sau bị xếp hàng chờ mà không ai bấm, khiến `GM_download` không bao giờ gọi lại
-   `onload`/`onerror`/`ontimeout`.
+4b. **Tải bị đứng ở "Đã tải 1/8..." rồi không nhúc nhích nữa (v5.5+)** — `GM_download` bị treo
+   vĩnh viễn, không bao giờ gọi lại `onload`/`onerror`/`ontimeout` cho ảnh tiếp theo. Vài nguyên
+   nhân có thể gặp:
 
-   Cách tắt: `chrome://settings/downloads` → tắt **"Ask where to save each file before downloading"**.
+   - Chrome bật **"Ask where to save each file before downloading"** (`chrome://settings/downloads`)
+     → mỗi lần `GM_download` bật 1 hộp thoại Save As gốc, hộp sau xếp hàng chờ mà không ai bấm.
+   - Chrome tạm chặn tải nhiều file tự động — để ý 1 icon nhỏ (chồng file, góc đỏ) xuất hiện ở
+     thanh địa chỉ, bấm vào và chọn **Allow**.
+   - CDN của Etsy (`i.etsystatic.com`) treo kết nối khi tải trực tiếp bằng `chrome.downloads`
+     (khác với tải bằng `GM_xmlhttpRequest` rồi mới lưu — cách này ít khi bị treo hơn).
+
+   **Cách chẩn đoán:** lúc script đang đứng, mở `chrome://downloads` xem mục ảnh đang tải là
+   *In progress* (treo thật, do 1 trong các lý do trên) hay hoàn toàn không xuất hiện (script còn
+   chưa gửi được request).
 
    Từ bản 5.5, script tự đặt đồng hồ riêng (`THOI_HAN_MOI_CACH_TAI`, mặc định 20 giây) cho mỗi
    lần gọi `GM_download`, không còn phụ thuộc vào việc `GM_download` có tự báo lại hay không —
-   nên vòng lặp không còn bị treo vĩnh viễn nữa, tối đa dừng lại ở 1 ảnh rồi tự chuyển sang ảnh kế.
-   Khi gặp lần treo đầu tiên, sẽ có toast vàng nhắc kiểm tra cài đặt trên. Tuy vậy nếu cài đặt này
-   vẫn bật, các hộp thoại Save As gốc vẫn sẽ dồn lại và bạn phải tự bấm qua từng cái — tắt hẳn cài
-   đặt đó vẫn là cách xử lý triệt để nhất.
+   nên vòng lặp không còn bị treo vĩnh viễn nữa, tối đa dừng lại 20s ở 1 bước rồi tự rớt xuống
+   cách tiếp theo. Bản 5.6 đổi lại **thứ tự ưu tiên**: mặc định tải theo đúng cách bản gốc 4.8
+   đã chạy ổn định (`GM_xmlhttpRequest` lấy dữ liệu → `GM_download` lưu từ blob), chỉ thử
+   "`GM_download` tải thẳng từ URL" làm phương án dự phòng nếu cách trên thất bại.
 
 5. **Violentmonkey** — vào *Settings* của script, kiểm tra `GM_download` và `GM_xmlhttpRequest`
    được cấp quyền, và `i.etsystatic.com` nằm trong danh sách `@connect`.

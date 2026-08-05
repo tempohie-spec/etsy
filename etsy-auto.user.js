@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.5
+// @version      5.6
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -15,7 +15,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '5.5';
+  const PHIEN_BAN = '5.6';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -34,13 +34,13 @@
   // Neu bi mat anh giua chung (trinh duyet bop bot), tang len 1000-1500.
   const KHOANG_CACH_GIUA_CAC_LAN_TAI = 700;
 
-  // Thoi han TOI DA (ms) cho MOI CACH tai 1 anh (GM_download tu URL / tu blob).
-  // Neu Chrome dang bat "Ask where to save each file before downloading", moi lan GM_download
-  // se bat hop thoai Save As GOC cua he dieu hanh; hop dau con thay duoc, cac lenh tai sau bi
-  // xep hang cho hop truoc xu ly nhung khong ai bam -> GM_download KHONG BAO GIO goi lai
-  // onload/onerror/ontimeout, treo vinh vien. Option "timeout" cua GM_download vo dung trong
-  // truong hop nay vi request con chua bat dau. Phai tu dat 1 dong ho rieng o tang code de
-  // chac chan khong bao gio treo qua thoi han nay, du GM_download co phan hoi hay khong.
+  // Thoi han TOI DA (ms) cho MOI CACH tai 1 anh (GM_download tu blob / tu URL).
+  // GM_download co the treo VINH VIEN (khong bao gio goi lai onload/onerror/ontimeout) vi nhieu
+  // ly do ngoai tam kiem soat cua script: Chrome bat "Ask where to save each file" (bat hop thoai
+  // Save As goc xep hang), Chrome tam chan tai nhieu file tu dong, CDN treo ket noi, loi noi bo cua
+  // Violentmonkey/Tampermonkey... Option "timeout" cua GM_download KHONG cuu duoc vi no chi tinh gio
+  // SAU KHI request da bat dau. Phai tu dat 1 dong ho rieng o tang code de chac chan khong bao gio
+  // treo qua thoi han nay, bat ke ly do treo la gi.
   const THOI_HAN_MOI_CACH_TAI = 20000;
 
   // Khi KHONG tim thay khoi carousel va phai quet ca trang (che do du phong),
@@ -335,10 +335,10 @@
       .slice(0, 100) || 'etsy-images';
   }
 
-  // CACH 1 (uu tien): GM_download tai THANG tu URL goc.
-  // Yeu cau tai nay do TIEN ICH (Violentmonkey/Tampermonkey) thuc hien, khong phai trang web,
-  // nen uBlock Origin / AdBlock khong loc duoc, va trinh duyet cung KHONG hien popup
-  // "This site wants to download multiple files".
+  // Tai THANG tu URL goc bang GM_download (khong tu fetch du lieu truoc).
+  // Van la request do TIEN ICH thuc hien (khong phai trang web) nen uBlock/AdBlock khong loc duoc,
+  // nhung dung lam PHUONG AN DU PHONG (khong phai mac dinh) vi it duoc kiem chung hon voi CDN cua
+  // Etsy so voi duong "fetch bytes roi GM_download tu blob" - xem luuAnhXuongMay() de biet thu tu uu tien.
   function taiBangGmDownloadTuUrl(url, tenFile) {
     return new Promise((resolve, reject) => {
       if (typeof GM_download !== 'function') {
@@ -413,7 +413,9 @@
     throw loiCuoi;
   }
 
-  // CACH 2: da co san du lieu anh (blob) -> nho GM_download luu xuong may
+  // Da co san du lieu anh (blob) -> nho GM_download luu xuong may.
+  // Day la CACH MAC DINH (uu tien nhat) trong luuAnhXuongMay(), giong het cach ban script goc 4.8
+  // da dung va chay on dinh: fetch bytes qua GM_xmlhttpRequest roi moi GM_download tu blob.
   function taiBangGmDownloadTuBlob(blob, tenFile) {
     return new Promise((resolve, reject) => {
       if (typeof GM_download !== 'function') {
@@ -462,26 +464,15 @@
     });
   }
 
-  // Luu 1 anh xuong may, thu lan luot 3 cach tu "an toan voi adblock" nhat tro xuong.
-  // MOI cach qua GM_download deu boc trong voiThoiHan() de khong bao gio treo qua
-  // THOI_HAN_MOI_CACH_TAI, du GM_download co bao gio goi lai hay khong.
-  // "baoTreo" (tuy chon) duoc goi dung 1 lan neu cach 1 bi TIMEOUT (khong phai loi khac),
-  // de ben ngoai hien 1 canh bao rieng huong dan nguoi dung kiem tra cai dat trinh duyet.
+  // Luu 1 anh xuong may. Thu tu uu tien (doi lai so voi ban 5.0-5.5):
+  //   1) GM_xmlhttpRequest tu lay du lieu anh -> GM_download tu BLOB
+  //      (dung cach nay lam MAC DINH vi day la cach ban script goc 4.8 da chay on dinh)
+  //   2) GM_download tai THANG tu URL goc (nhanh hon nhung it duoc kiem chung hon voi CDN cua Etsy)
+  //   3) The <a download> chay ngay trong trang (de bi trinh duyet chan nhat, chi dung khi bi dong)
+  // MOI cach qua GM_download deu boc trong voiThoiHan() de khong bao gio treo qua THOI_HAN_MOI_CACH_TAI,
+  // du GM_download co goi lai hay khong (vi du: hop thoai he dieu hanh, CDN treo ket noi, v.v.)
+  // "baoTreo" (tuy chon) duoc goi khi mot buoc GM_download bi TIMEOUT (khong phai loi khac).
   async function luuAnhXuongMay(url, tenFile, baoTreo) {
-    try {
-      return await voiThoiHan(
-        taiBangGmDownloadTuUrl(url, tenFile),
-        THOI_HAN_MOI_CACH_TAI,
-        'GM_download (URL) không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's — có thể trình duyệt ' +
-          'đang chờ hộp thoại "Save As" (do bật "Ask where to save each file")'
-      );
-    } catch (loi) {
-      console.warn('[Etsy Auto] GM_download từ URL thất bại/treo, chuyển sang tải dữ liệu rồi lưu:', loi.message);
-      if (loi.message.includes('không phản hồi sau') && typeof baoTreo === 'function') {
-        baoTreo();
-      }
-    }
-
     const duLieu = await taiMotAnhVoiRetry(url);
     const duoi = laySoDuoiFile(url);
     const blob = new Blob([duLieu], { type: laMimeTheoDuoi(duoi) });
@@ -493,8 +484,25 @@
         'GM_download (blob) không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's'
       );
     } catch (loi) {
-      console.warn('[Etsy Auto] GM_download từ blob thất bại/treo, thử bằng thẻ <a>:', loi.message);
+      console.warn('[Etsy Auto] GM_download từ blob thất bại/treo, thử tải thẳng từ URL:', loi.message);
+      if (loi.message.includes('không phản hồi sau') && typeof baoTreo === 'function') {
+        baoTreo();
+      }
     }
+
+    try {
+      return await voiThoiHan(
+        taiBangGmDownloadTuUrl(url, tenFile),
+        THOI_HAN_MOI_CACH_TAI,
+        'GM_download (URL) không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's'
+      );
+    } catch (loi) {
+      console.warn('[Etsy Auto] GM_download từ URL cũng thất bại/treo, thử bằng thẻ <a>:', loi.message);
+      if (loi.message.includes('không phản hồi sau') && typeof baoTreo === 'function') {
+        baoTreo();
+      }
+    }
+
     return taiBangTheA(blob, tenFile);
   }
 
