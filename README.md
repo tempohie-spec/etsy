@@ -133,6 +133,26 @@ Nếu vẫn gặp trục trặc, xử lý theo thứ tự:
    trình duyệt. Option `timeout` của `GM_xmlhttpRequest` gặp đúng vấn đề như `GM_download`: chỉ
    tính giờ sau khi request đã bắt đầu, vô dụng nếu nó bị treo trước đó.
 
+4c. **Đứng hình mà Console hoàn toàn im lặng (không có cả log timeout)** — đây là dấu hiệu khác
+   hẳn mục 4b: nếu các lớp timeout của script còn hoạt động thì bắt buộc phải có `console.warn`
+   sau ~20 giây. Im lặng tuyệt đối nghĩa là **toàn bộ JavaScript đã ngừng thực thi**, thường do:
+
+   - **DevTools đang pause ở debugger.** Trang Etsy có exception thật (`Exceeded timeout to send
+     pdp request`); nếu bật *Pause on exceptions* trong tab **Sources**, debugger sẽ treo toàn bộ
+     trang tại đó — không log, không timer, không download, nhưng giao diện vẫn hiển thị bình
+     thường. Bấm **▶ Resume** và tắt *Pause on exceptions*, hoặc đơn giản là **đóng hẳn DevTools**
+     rồi chạy lại.
+   - Tab bị trình duyệt đình chỉ (sleeping tab) khi chuyển sang cửa sổ khác quá lâu.
+
+   **Dấu hiệu nhận biết nhanh:** toast `⏳ Đã tải x/y ảnh...` tự ẩn sau 4 giây. Nếu nó vẫn nằm
+   trên màn hình sau vài chục giây thì `setTimeout` không chạy → JS đang bị đóng băng, không phải
+   lỗi logic của script.
+
+   Từ bản 5.8, trong lúc tải ảnh script in ra Console một **nhịp mỗi 5 giây**
+   (`⏱ Nhịp 15s — đang xử lý: ảnh 02/8 — đang lấy dữ liệu ảnh (lần thử 1/3)`). Còn thấy nhịp
+   nghĩa là JS vẫn sống và dòng đó chỉ đúng chỗ đang kẹt; mất hẳn nhịp nghĩa là JS đã bị đóng băng
+   theo một trong các lý do trên.
+
 5. **Violentmonkey** — vào *Settings* của script, kiểm tra `GM_download` và `GM_xmlhttpRequest`
    được cấp quyền, và `i.etsystatic.com` nằm trong danh sách `@connect`.
 
