@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.6
+// @version      5.7
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -15,7 +15,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '5.6';
+  const PHIEN_BAN = '5.7';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -396,16 +396,25 @@
     });
   }
 
-  // Thu tai 1 anh, neu loi thi thu lai them vai lan truoc khi bo cuoc
+  // Thu tai 1 anh, neu loi thi thu lai them vai lan truoc khi bo cuoc.
+  // MOI LAN THU deu boc trong voiThoiHan() rieng: option "timeout" cua GM_xmlhttpRequest
+  // co the KHONG duoc goi lai (giong y het van de gap voi GM_download) neu ket noi bi treo
+  // truoc khi request thuc su bat dau (vi du: bi trinh duyet/tien ich chan ngam khi goi lien
+  // tiep nhieu request cheo goc toi cung 1 CDN). Khong co dong ho rieng nay thi ca vong lap tai
+  // anh se dung hinh vinh vien tu ngay o BUOC LAY DU LIEU, truoc ca khi cham toi GM_download.
   async function taiMotAnhVoiRetry(url, soLanThuLai = 2) {
     let loiCuoi;
     for (let lan = 0; lan <= soLanThuLai; lan++) {
       try {
-        return await taiMotAnh(url);
+        return await voiThoiHan(
+          taiMotAnh(url),
+          THOI_HAN_MOI_CACH_TAI,
+          `GM_xmlhttpRequest không phản hồi sau ${THOI_HAN_MOI_CACH_TAI / 1000}s: ${url}`
+        );
       } catch (loi) {
         loiCuoi = loi;
         if (lan < soLanThuLai) {
-          console.warn(`[Etsy Auto] Lỗi tải ảnh, thử lại lần ${lan + 1}/${soLanThuLai}:`, url, loi.message);
+          console.warn(`[Etsy Auto] Lỗi/treo khi tải ảnh, thử lại lần ${lan + 1}/${soLanThuLai}:`, url, loi.message);
           await cho(800);
         }
       }
@@ -473,23 +482,27 @@
   // du GM_download co goi lai hay khong (vi du: hop thoai he dieu hanh, CDN treo ket noi, v.v.)
   // "baoTreo" (tuy chon) duoc goi khi mot buoc GM_download bi TIMEOUT (khong phai loi khac).
   async function luuAnhXuongMay(url, tenFile, baoTreo) {
-    const duLieu = await taiMotAnhVoiRetry(url);
-    const duoi = laySoDuoiFile(url);
-    const blob = new Blob([duLieu], { type: laMimeTheoDuoi(duoi) });
+    let blob = null;
 
+    // Buoc 1: lay du lieu anh + luu tu blob (uu tien, giong cach ban goc 4.8 da chay on dinh)
     try {
+      const duLieu = await taiMotAnhVoiRetry(url);
+      const duoi = laySoDuoiFile(url);
+      blob = new Blob([duLieu], { type: laMimeTheoDuoi(duoi) });
+
       return await voiThoiHan(
         taiBangGmDownloadTuBlob(blob, tenFile),
         THOI_HAN_MOI_CACH_TAI,
         'GM_download (blob) không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's'
       );
     } catch (loi) {
-      console.warn('[Etsy Auto] GM_download từ blob thất bại/treo, thử tải thẳng từ URL:', loi.message);
+      console.warn('[Etsy Auto] Lấy dữ liệu / GM_download từ blob thất bại/treo, thử tải thẳng từ URL:', loi.message);
       if (loi.message.includes('không phản hồi sau') && typeof baoTreo === 'function') {
         baoTreo();
       }
     }
 
+    // Buoc 2: du phong - GM_download tai thang tu URL (khong can blob da fetch o buoc 1)
     try {
       return await voiThoiHan(
         taiBangGmDownloadTuUrl(url, tenFile),
@@ -497,13 +510,19 @@
         'GM_download (URL) không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's'
       );
     } catch (loi) {
-      console.warn('[Etsy Auto] GM_download từ URL cũng thất bại/treo, thử bằng thẻ <a>:', loi.message);
+      console.warn('[Etsy Auto] GM_download từ URL cũng thất bại/treo:', loi.message);
       if (loi.message.includes('không phản hồi sau') && typeof baoTreo === 'function') {
         baoTreo();
       }
     }
 
-    return taiBangTheA(blob, tenFile);
+    // Buoc 3 (cuoi cung): the <a download> - CHI dung duoc neu buoc 1 da fetch thanh cong du lieu.
+    // Neu ca viec fetch du lieu cung that bai thi khong co gi de dan qua the <a> -> bao loi anh nay.
+    if (blob) {
+      console.warn('[Etsy Auto] Thử phương án cuối: thẻ <a download>');
+      return taiBangTheA(blob, tenFile);
+    }
+    throw new Error('Cả 3 cách tải đều thất bại/treo (không lấy được dữ liệu ảnh)');
   }
 
   // Tai TUNG anh full size mot, luu thanh file rieng le xuong may (KHONG nen zip)

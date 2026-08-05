@@ -127,6 +127,12 @@ Nếu vẫn gặp trục trặc, xử lý theo thứ tự:
    đã chạy ổn định (`GM_xmlhttpRequest` lấy dữ liệu → `GM_download` lưu từ blob), chỉ thử
    "`GM_download` tải thẳng từ URL" làm phương án dự phòng nếu cách trên thất bại.
 
+   Bản 5.7 bọc thêm đồng hồ riêng cho chính bước **lấy dữ liệu ảnh** (`GM_xmlhttpRequest`), vì
+   trên Edge có trường hợp request bị treo ngay từ bước này (trước cả khi chạm tới `GM_download`)
+   — `edge://downloads` không hề có entry nào cho ảnh bị kẹt, chứng tỏ request chưa từng tới được
+   trình duyệt. Option `timeout` của `GM_xmlhttpRequest` gặp đúng vấn đề như `GM_download`: chỉ
+   tính giờ sau khi request đã bắt đầu, vô dụng nếu nó bị treo trước đó.
+
 5. **Violentmonkey** — vào *Settings* của script, kiểm tra `GM_download` và `GM_xmlhttpRequest`
    được cấp quyền, và `i.etsystatic.com` nằm trong danh sách `@connect`.
 
