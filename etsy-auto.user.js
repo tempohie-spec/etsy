@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.2
+// @version      5.3
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -13,6 +13,9 @@
 
 (function () {
   'use strict';
+
+  // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
+  const PHIEN_BAN = '5.3';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -168,19 +171,29 @@
     };
   }
 
-  // Ghi chuoi vao clipboard he thong. Dung GM_setClipboard truoc (dong bo, on dinh hon),
-  // neu khong co thi du phong bang navigator.clipboard.writeText.
+  // Ghi chuoi vao clipboard he thong. Thu CA HAI duong (GM_setClipboard va
+  // navigator.clipboard.writeText) vi tuy trinh duyet / tuy ban Violentmonkey ma mot trong hai
+  // co the im lang khong an gi. Ca hai cung ghi mot chuoi nen khong so xung dot.
   async function ghiClipboard(chuoi) {
+    let daGhi = false;
+
     if (typeof GM_setClipboard === 'function') {
-      GM_setClipboard(chuoi, 'text');
-      return true;
+      try {
+        GM_setClipboard(chuoi, 'text');
+        daGhi = true;
+      } catch (e) {
+        console.warn('[Etsy Auto] GM_setClipboard lỗi:', e);
+      }
     }
+
     try {
       await navigator.clipboard.writeText(chuoi);
-      return true;
+      daGhi = true;
     } catch (e) {
-      return false;
+      if (!daGhi) console.warn('[Etsy Auto] navigator.clipboard.writeText lỗi:', e);
     }
+
+    return daGhi;
   }
 
   // ================== TIM ANH TRONG KHOI "data-carousel-pagination-list" ==================
@@ -731,19 +744,46 @@
     );
   }
 
+  // Phan tu co dang hien tren man hinh khong.
+  // Dung getClientRects thay cho offsetParent vi hop thoai thuong la position:fixed
+  // -> offsetParent cua no luon la null du dang hien ro rang.
+  function dangHienThi(el) {
+    return !!el && el.getClientRects().length > 0;
+  }
+
+  // Danh sach CAC hop thoai dang mo. Trang chinh sua Etsy co san nhieu hop thoai an san,
+  // neu chi lay cai dau tien bang querySelector thi rat de bat nham cai an -> khong thay nut Done.
+  function layCacHopThoaiDangMo() {
+    const cacHopThoai = [...document.querySelectorAll('[data-clg-id="WtDialog"], [role="dialog"], .wt-dialog')];
+    return cacHopThoai.filter(dangHienThi);
+  }
+
   // Nut "Done" o cuoi hop thoai (bi khoa cho toi khi Field title co chu)
   function timNutDone() {
-    const hopThoai = document.querySelector('[data-clg-id="WtDialog"], [role="dialog"]');
-    const goc = hopThoai || document;
-    return [...goc.querySelectorAll('button')].find(
-      (b) => b.textContent.trim().toLowerCase() === 'done' && !b.disabled
-    );
+    const cacHopThoai = layCacHopThoaiDangMo();
+    const cacGoc = cacHopThoai.length ? cacHopThoai : [document];
+
+    // 1) Uu tien nut primary nam trong phan footer cua hop thoai (theo dung cau truc DOM cua Etsy)
+    for (const goc of cacGoc) {
+      const nut = goc.querySelector(
+        '[data-clg-id="WtDialogFooter"] button.wt-btn--primary, .wt-dialog__footer__container__buttons button.wt-btn--primary'
+      );
+      if (nut && !nut.disabled) return nut;
+    }
+
+    // 2) Du phong: bat ky nut nao hien chu "Done"
+    for (const goc of cacGoc) {
+      const nut = [...goc.querySelectorAll('button')].find(
+        (b) => b.textContent.trim().toLowerCase() === 'done' && !b.disabled
+      );
+      if (nut) return nut;
+    }
+    return null;
   }
 
   // Hop thoai "Add text box" con dang mo hay khong (dua vao o Field title)
   function hopThoaiTextBoxDangMo() {
-    const o = timOFieldTitle();
-    return !!(o && o.offsetParent !== null);
+    return dangHienThi(timOFieldTitle());
   }
 
   // Bam nut bang CHUOI SU KIEN CHUOT day du. Mot so nut cua Etsy nghe pointerdown/mousedown
@@ -943,11 +983,32 @@
     const ketQuaTieuDe = danTieuDeNoiBo(tieuDe);
     const ketQuaTag = await danTagNoiBo(tagText);
 
-    // Neu clipboard co du lieu ca nhan hoa thi tao them 1 Custom option dang Text box
+    // Neu clipboard co du lieu ca nhan hoa thi tao them 1 Custom option dang Text box.
+    // Boc trong try/catch de mot loi o day KHONG lam chet ca ham (truoc day loi o buoc nay
+    // se lam bo qua luon phan bam tab va phan chuan hoa lai Clipboard).
     let ketQuaPerso = { boQua: true, ok: false, ly_do: '' };
     if (persoNhan) {
       hienThongBao('⏳ Đang tạo ô cá nhân hoá (Add field → Text box)...', '#2563EB');
-      ketQuaPerso = await danCaNhanHoaNoiBo(persoNhan, persoHuongDan);
+      try {
+        ketQuaPerso = await danCaNhanHoaNoiBo(persoNhan, persoHuongDan);
+      } catch (loi) {
+        console.error('[Etsy Auto] Lỗi khi tạo ô cá nhân hoá:', loi);
+        ketQuaPerso = { boQua: false, ok: false, ly_do: '❌ Lỗi khi tạo ô cá nhân hoá: ' + loi.message };
+      }
+    }
+
+    // Ghi de Clipboard he thong: chi con lai TIEU DE (bo tag + ca nhan hoa + cac ky tu ngan cach),
+    // de sau do bam Ctrl+V thuong o bat ky o nao khac se dan duoc rieng tieu de.
+    // Chay NGAY sau khi da dan xong du lieu (tag va ca nhan hoa deu doc tu bien trong bo nho,
+    // khong con can Clipboard nua), de buoc nay khong bao gio bi bo qua vi loi o cac buoc sau.
+    let daGiuLaiTieuDe = false;
+    if (tieuDe) {
+      daGiuLaiTieuDe = await ghiClipboard(tieuDe);
+      console.log(
+        daGiuLaiTieuDe
+          ? '[Etsy Auto] Clipboard giờ chỉ còn tiêu đề, Ctrl+V ở đâu cũng dán được tiêu đề: ' + tieuDe
+          : '[Etsy Auto] KHÔNG ghi lại được Clipboard'
+      );
     }
 
     // Sau khi dan xong (it nhat 1 phan thanh cong), doi 1 chut roi tu dong bam vao tab "Photo & Video".
@@ -961,19 +1022,6 @@
         await cho(300);
         daBamTab = timVaBamTabPhotoVideo();
       }
-    }
-
-    // Ghi de Clipboard he thong: chi con lai TIEU DE (bo tag + ca nhan hoa + cac ky tu ngan cach),
-    // de sau do bam Ctrl+V thuong o bat ky o nao khac se dan duoc rieng tieu de.
-    // Chay o BUOC CUOI CUNG, sau khi da dan xong het moi thu.
-    let daGiuLaiTieuDe = false;
-    if (tieuDe) {
-      daGiuLaiTieuDe = await ghiClipboard(tieuDe);
-      console.log(
-        daGiuLaiTieuDe
-          ? '[Etsy Auto] Clipboard giờ chỉ còn tiêu đề, Ctrl+V ở đâu cũng dán được tiêu đề'
-          : '[Etsy Auto] KHÔNG ghi lại được Clipboard'
-      );
     }
 
     // Ghi chu them ve phan ca nhan hoa (chi hien khi clipboard co du lieu ca nhan hoa)
@@ -1180,6 +1228,11 @@
   }
 
   taoGiaoDien();
+
+  console.log(
+    `%c[Etsy Auto] Đã nạp script phiên bản ${PHIEN_BAN}`,
+    'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;'
+  );
 
   document.addEventListener('keydown', (e) => {
     if (!e.altKey) return;
