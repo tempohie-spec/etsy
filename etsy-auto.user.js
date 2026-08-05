@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.3
+// @version      5.4
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -15,7 +15,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '5.3';
+  const PHIEN_BAN = '5.4';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -529,6 +529,10 @@
   //        <p data-instructions>Examples:<br>• Pikachu<br>• Eevee ...</p>
   // -> lay chu trong [data-label] va [data-instructions]
   function layThongTinCaNhanHoa() {
+    // CHI dung cac selector rieng cua khu vuc ca nhan hoa.
+    // Tuyet doi KHONG dung selector chung nhu [data-label] lam du phong: cac o chon bien the
+    // (Style and Size, Color...) cua listing binh thuong cung dung data-label, se bi hieu nham
+    // thanh o ca nhan hoa.
     const cacSelectorVung = [
       '#enhanced-perso-content',
       '[data-appears-component-name="personalization"]',
@@ -542,14 +546,18 @@
       if (vung) break;
     }
 
-    // Du phong: neu khong khop selector nao, bam theo chinh thuoc tinh data-label / data-instructions
     if (!vung) {
-      const moc = document.querySelector('[data-instructions], [data-label]');
-      vung = moc ? moc.closest('li[id^="perso-field-"]') || moc.parentElement : null;
+      console.log('[Etsy Auto] Listing này KHÔNG có "Add personalization" — bỏ qua phần cá nhân hoá');
+      return { nhan: '', huongDan: '' };
     }
 
-    if (!vung) {
-      console.log('[Etsy Auto] Listing này không có ô "Add personalization"');
+    // Xac nhan lai day dung la khu vuc ca nhan hoa: ben trong phai co o nhap ca nhan hoa
+    // (id bat dau bang "perso-input-") hoac phan huong dan / o ca nhan hoa that su.
+    const dungLaVungPerso = !!vung.querySelector(
+      '[id^="perso-input-"], [data-instructions], li[id^="perso-field-"]'
+    );
+    if (!dungLaVungPerso) {
+      console.log('[Etsy Auto] Có khối cá nhân hoá nhưng rỗng — bỏ qua phần cá nhân hoá');
       return { nhan: '', huongDan: '' };
     }
 

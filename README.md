@@ -35,9 +35,10 @@ bật/tắt bằng hằng số `BO_ANH_CUOI_KHI_QUET_CA_TRANG`) và hiện cản
 
 ## Ô cá nhân hoá — "Add personalization" (v5.1)
 
-**Trang nguồn** (`Alt+G` / `Alt+C`): nếu listing có bật cá nhân hoá, script tìm khu vực
-`#enhanced-perso-content` (dự phòng: `[data-appears-component-name="personalization"]`,
-`li[id^="perso-field-"]`, `[data-selector="perso-text-field-content"]`) rồi lấy:
+**Trang nguồn** (`Alt+G` / `Alt+C`): script chỉ lấy khi listing **thật sự có** mục *Add personalization*.
+Nó tìm khu vực `#enhanced-perso-content` (dự phòng: `[data-appears-component-name="personalization"]`,
+`li[id^="perso-field-"]`, `[data-selector="perso-text-field-content"]`), xác nhận bên trong có
+`[id^="perso-input-"]` / `[data-instructions]` / `li[id^="perso-field-"]`, rồi mới lấy:
 
 - `[data-label]` → tiêu đề ô cá nhân hoá (dự phòng: thuộc tính `data-label-translation`)
 - `[data-instructions]` → phần hướng dẫn, `<br>` được đổi thành xuống dòng thật
@@ -49,6 +50,10 @@ tiêu đề |||TAGS||| tag |||PERSO_LABEL||| nhãn |||PERSO_INSTR||| hướng d�
 ```
 
 Listing không có cá nhân hoá thì 2 đoạn sau không xuất hiện, và chuỗi vẫn đọc được bởi bản 5.0 cũ.
+
+> **Không dùng `[data-label]` làm selector dự phòng.** Các ô chọn biến thể của listing thường
+> (*Style and Size*, *Color*…) cũng dùng `data-label`, nên bắt theo thuộc tính này sẽ tưởng nhầm
+> tên biến thể là ô cá nhân hoá trên những listing hoàn toàn không có cá nhân hoá.
 
 **Trang đích** (`Alt+V`): sau khi dán tiêu đề + tag, nếu Clipboard có phần cá nhân hoá thì script:
 
