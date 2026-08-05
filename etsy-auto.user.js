@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      5.1
+// @version      5.2
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -740,6 +740,57 @@
     );
   }
 
+  // Hop thoai "Add text box" con dang mo hay khong (dua vao o Field title)
+  function hopThoaiTextBoxDangMo() {
+    const o = timOFieldTitle();
+    return !!(o && o.offsetParent !== null);
+  }
+
+  // Bam nut bang CHUOI SU KIEN CHUOT day du. Mot so nut cua Etsy nghe pointerdown/mousedown
+  // chu khong chi nghe click, nen goi .click() don thuan co the khong an gi.
+  function bamBangChuoiSuKien(el) {
+    const chung = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 };
+    try {
+      el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    } catch (e) {
+      /* noop */
+    }
+    const coPointer = typeof PointerEvent === 'function';
+    if (coPointer) el.dispatchEvent(new PointerEvent('pointerdown', chung));
+    el.dispatchEvent(new MouseEvent('mousedown', chung));
+    if (typeof el.focus === 'function') el.focus();
+    if (coPointer) el.dispatchEvent(new PointerEvent('pointerup', { ...chung, buttons: 0 }));
+    el.dispatchEvent(new MouseEvent('mouseup', { ...chung, buttons: 0 }));
+    el.dispatchEvent(new MouseEvent('click', { ...chung, buttons: 0 }));
+  }
+
+  // Bam "Done" va KIEM TRA hop thoai da dong that chua. Neu chua, thu tiep cach khac.
+  // Chi leo thang sang cach manh hon khi cach truoc that bai -> khong bao gio bam Done 2 lan.
+  async function bamNutDoneChacChan() {
+    const cacCachBam = [
+      (nut) => nut.click(),
+      (nut) => bamBangChuoiSuKien(nut),
+      (nut) => {
+        const benTrong = nut.querySelector('*');
+        (benTrong || nut).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      },
+    ];
+
+    for (const cachBam of cacCachBam) {
+      const nut = await doiPhanTu(timNutDone, 3000);
+      if (!nut) break;
+      console.log('[Etsy Auto] Bấm nút "Done"...', nut);
+      cachBam(nut);
+      const daDong = await doiPhanTu(() => (hopThoaiTextBoxDangMo() ? null : true), 2500);
+      if (daDong) {
+        console.log('[Etsy Auto] Hộp thoại "Add text box" đã đóng');
+        return true;
+      }
+      console.warn('[Etsy Auto] Hộp thoại vẫn mở sau khi bấm Done, thử cách bấm khác...');
+    }
+    return !hopThoaiTextBoxDangMo();
+  }
+
   // Tim va bam vao tab "Photo & Video" (thuong la tab dau tien, co href chua #media)
   function timVaBamTabPhotoVideo() {
     // Uu tien tim theo href chua #media trong khu vuc menu tab
@@ -870,13 +921,11 @@
       await cho(250);
     }
 
-    const nutDone = await doiPhanTu(timNutDone, 4000);
-    console.log('[Etsy Auto] Kết quả tìm nút "Done":', nutDone);
-    if (!nutDone) {
-      return { ok: false, ly_do: '⚠️ Không bấm được nút "Done" (nút đang bị khoá?)' };
+    const daBamDone = await bamNutDoneChacChan();
+    if (!daBamDone) {
+      return { ok: false, daDien: true, ly_do: '⚠️ Đã điền xong nhưng KHÔNG bấm được "Done", hãy bấm tay' };
     }
-    nutDone.click();
-    await cho(400);
+    await cho(300);
 
     return { ok: true };
   }
@@ -901,31 +950,47 @@
       ketQuaPerso = await danCaNhanHoaNoiBo(persoNhan, persoHuongDan);
     }
 
-    // Sau khi dan xong (it nhat 1 phan thanh cong), doi 1 chut roi tu dong bam vao tab "Photo & Video"
+    // Sau khi dan xong (it nhat 1 phan thanh cong), doi 1 chut roi tu dong bam vao tab "Photo & Video".
+    // Neu hop thoai ca nhan hoa con dang mo (chua bam duoc Done) thi KHONG bam tab,
+    // vi hop thoai dang chan ca trang -> bam cung khong an gi.
+    let daBamTab = false;
     if (ketQuaTieuDe.ok || ketQuaTag.ok || ketQuaPerso.ok) {
-      await cho(300);
-      timVaBamTabPhotoVideo();
+      if (hopThoaiTextBoxDangMo()) {
+        console.warn('[Etsy Auto] Hộp thoại cá nhân hoá còn mở nên KHÔNG bấm tab Photo & Video');
+      } else {
+        await cho(300);
+        daBamTab = timVaBamTabPhotoVideo();
+      }
     }
 
-    // Ghi de Clipboard he thong: chi con lai TIEU DE (khong con phan tag/ky tu ngan cach),
-    // de sau do bam Ctrl+V thuong o bat ky o nao khac se dan duoc rieng tieu de
+    // Ghi de Clipboard he thong: chi con lai TIEU DE (bo tag + ca nhan hoa + cac ky tu ngan cach),
+    // de sau do bam Ctrl+V thuong o bat ky o nao khac se dan duoc rieng tieu de.
+    // Chay o BUOC CUOI CUNG, sau khi da dan xong het moi thu.
+    let daGiuLaiTieuDe = false;
     if (tieuDe) {
-      await ghiClipboard(tieuDe);
-      console.log('[Etsy Auto] Đã ghi lại Clipboard, chỉ còn tiêu đề để dùng Ctrl+V ở nơi khác');
+      daGiuLaiTieuDe = await ghiClipboard(tieuDe);
+      console.log(
+        daGiuLaiTieuDe
+          ? '[Etsy Auto] Clipboard giờ chỉ còn tiêu đề, Ctrl+V ở đâu cũng dán được tiêu đề'
+          : '[Etsy Auto] KHÔNG ghi lại được Clipboard'
+      );
     }
 
     // Ghi chu them ve phan ca nhan hoa (chi hien khi clipboard co du lieu ca nhan hoa)
-    const ghiChuPerso = ketQuaPerso.boQua ? '' : ketQuaPerso.ok ? ' + ô cá nhân hoá' : ` (${ketQuaPerso.ly_do})`;
+    const ghiChuPerso = ketQuaPerso.boQua ? '' : ketQuaPerso.ok ? ' + ô cá nhân hoá' : ` — ${ketQuaPerso.ly_do}`;
+    const ghiChuTab = daBamTab ? ' → đã mở Photo & Video' : '';
+    const ghiChuClipboard = daGiuLaiTieuDe ? ' (Clipboard giữ lại tiêu đề)' : '';
+    const persoOn = ketQuaPerso.boQua || ketQuaPerso.ok;
 
     if (ketQuaTieuDe.ok && ketQuaTag.ok) {
       hienThongBao(
-        `✅ Đã dán tiêu đề + ${ketQuaTag.soLuong} tag${ghiChuPerso}!`,
-        ketQuaPerso.boQua || ketQuaPerso.ok ? '#16A34A' : '#F59E0B'
+        `✅ Đã dán tiêu đề + ${ketQuaTag.soLuong} tag${ghiChuPerso}${ghiChuTab}${ghiChuClipboard}`,
+        persoOn ? '#16A34A' : '#F59E0B'
       );
     } else if (ketQuaTieuDe.ok) {
-      hienThongBao(`✅ Đã dán tiêu đề${ghiChuPerso}. ${ketQuaTag.ly_do}`, '#DC2626');
+      hienThongBao(`✅ Đã dán tiêu đề${ghiChuPerso}${ghiChuTab}. ${ketQuaTag.ly_do}`, '#DC2626');
     } else if (ketQuaTag.ok) {
-      hienThongBao(`✅ Đã dán ${ketQuaTag.soLuong} tag${ghiChuPerso}. ${ketQuaTieuDe.ly_do}`, '#DC2626');
+      hienThongBao(`✅ Đã dán ${ketQuaTag.soLuong} tag${ghiChuPerso}${ghiChuTab}. ${ketQuaTieuDe.ly_do}`, '#DC2626');
     } else {
       hienThongBao(`❌ ${ketQuaTieuDe.ly_do} | ${ketQuaTag.ly_do}${ghiChuPerso}`, '#DC2626');
     }
@@ -1064,9 +1129,9 @@
     const vungNut = document.createElement('div');
     vungNut.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:10px;';
     vungNut.innerHTML = `
-      <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh full size (Alt+G)</button>
-      <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy tiêu đề + tag (Alt+C)</button>
-      <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝🏷️ Dán tiêu đề + tag (Alt+V)</button>
+      <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh (Alt+G)</button>
+      <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy dữ liệu (Alt+C)</button>
+      <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu (Alt+V)</button>
     `;
     khungMoRong.appendChild(vungNut);
     khung.appendChild(khungMoRong);
