@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.2
+// @version      1.3
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -131,7 +131,31 @@
   //  MERCHIZE TAB
   // ===================================================================
   if (location.hostname === 'seller.merchize.com') {
+    // Scanning the whole document's <tr> list on every single lookup gets
+    // expensive fast on shops with a big order list (hundreds of rows, each
+    // with several nested tooltip/copy-button divs) — that's what was
+    // tipping the tab into a freeze/crash during long runs. Two cheap fixes:
+    //   1. Scope the scan to the actual orders <table> instead of the whole
+    //      document (skips sidebar/nav/etc. entirely).
+    //   2. Cache the resulting map for a couple seconds, since Etsy only
+    //      asks for a lookup once every ~2s anyway — no need to re-walk the
+    //      whole table that often.
+    let cachedTable = null;
+    let cachedMap = null;
+    let cachedAt = 0;
+    const SCAN_CACHE_TTL_MS = 2000;
+
+    function getOrdersTable() {
+      if (cachedTable && document.contains(cachedTable)) return cachedTable;
+      const anyCode = document.querySelector('td.OrderCodeCell');
+      cachedTable = anyCode ? anyCode.closest('table') : null;
+      return cachedTable;
+    }
+
     function scanMerchizeOrders() {
+      const now = Date.now();
+      if (cachedMap && now - cachedAt < SCAN_CACHE_TTL_MS) return cachedMap;
+
       // Walk all <tr> in document order. Whenever we see a row containing
       // td.OrderCodeCell we remember its <code> text as the "current"
       // external order number; the following tr.OrderExtendPackagesRow
@@ -144,7 +168,8 @@
       //   </td>
       const map = {};
       let currentExternal = null;
-      const rows = document.querySelectorAll('tr');
+      const table = getOrdersTable();
+      const rows = table ? table.querySelectorAll('tr') : document.querySelectorAll('tr');
 
       rows.forEach((tr) => {
         const codeEl = tr.querySelector('td.OrderCodeCell code');
@@ -176,6 +201,8 @@
         map[currentExternal].push({ tracking, carrier });
       });
 
+      cachedMap = map;
+      cachedAt = now;
       return map;
     }
 
@@ -268,10 +295,17 @@
 
     const container = trigger.closest('[data-dropdown-container="true"]');
     const menu = container.querySelector('[data-dropdown-target="true"]');
-    await waitFor(
-      () => menu.getAttribute('aria-hidden') === 'false' || !menu.classList.contains('is-closed'),
-      { timeout: 3000, desc: 'dropdown open for order ' + orderId }
-    );
+    try {
+      await waitFor(
+        () => menu.getAttribute('aria-hidden') === 'false' || !menu.classList.contains('is-closed'),
+        { timeout: 6000, desc: 'dropdown open for order ' + orderId }
+      );
+    } catch (e) {
+      // Dropdown never opened in time (page was busy/laggy). Try to close it
+      // again so it doesn't sit open and block clicks on the next order.
+      trigger.click();
+      throw e;
+    }
 
     const completeBtn = Array.from(menu.querySelectorAll('button')).find((b) =>
       b.textContent.trim().includes('Complete order')
@@ -461,6 +495,9 @@
         await processOrder(row);
       } catch (e) {
         log('ERROR processing row:', e.message);
+        // Best-effort cleanup: close any dropdown/modal left open by the
+        // failed step so it doesn't block clicks on the next order.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       }
       // Give the page (and the browser) a moment to settle between orders —
       // running back-to-back with no pause is what tends to freeze the tab.
