@@ -33,10 +33,16 @@
   // Luu vi tri + trang thai thu nho/mo rong cua panel
   const PANEL_STATE_KEY = 'etsy_scraper_panel_state_v1';
 
-  // So dien thoai ao, tu dong dien vao cot "phone" cho cac don o ngoai United States
-  // (khi khong doc duoc so that tren trang) - de tranh o phone bi trong khi in van don.
-  // Sua lai gia tri nay neu ban muon dung so khac.
-  const FAKE_PHONE_FOR_NON_US = '0123456789';
+  // Sinh 1 so dien thoai ao ngau nhien (10 chu so), dung de dien vao cot "phone" cho cac
+  // don o ngoai United States khi khong doc duoc so that tren trang - tranh o phone bi
+  // trong khi in van don. Moi don se ra 1 so khac nhau (khong dung chung 1 so co dinh).
+  function taoSoDienThoaiAo() {
+    let soDienThoai = '';
+    for (let i = 0; i < 10; i++) {
+      soDienThoai += Math.floor(Math.random() * 10);
+    }
+    return soDienThoai;
+  }
 
   // ====== SELECTOR PHUC VU LAY EARNINGS (chinh neu Etsy doi giao dien) ======
   const SEL = {
@@ -160,7 +166,7 @@
     // Don o ngoai United States ma chua doc duoc so dien thoai that -> tu dien so ao,
     // vi mot so noi (vd dich vu in van don) yeu cau o phone khong duoc de trong.
     if (!phone && country && country.trim().toLowerCase() !== 'united states') {
-      phone = FAKE_PHONE_FOR_NON_US;
+      phone = taoSoDienThoaiAo();
     }
 
     return {
