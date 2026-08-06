@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.3
+// @version      1.4
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -261,6 +261,7 @@
   // ===================================================================
 
   const RUN_KEY = 'AT_RUNNING';
+  const PAUSE_KEY = 'AT_PAUSED';
 
   function getOrderRows() {
     return Array.from(document.querySelectorAll('a[href*="order_id="]'))
@@ -290,16 +291,25 @@
     const trigger = findUpdateProgressTrigger(row);
     if (!trigger) return false; // no "Update progress" action on this row -> skip
 
-    trigger.click();
-    await sleep(200);
+    // Scroll the row into view first — some pages skip/deprioritise click
+    // handling on elements sitting outside the viewport.
+    row.scrollIntoView({ block: 'center' });
+    await sleep(150);
 
     const container = trigger.closest('[data-dropdown-container="true"]');
     const menu = container.querySelector('[data-dropdown-target="true"]');
+    // Check multiple signals (trigger's own aria-expanded as well as the
+    // menu's aria-hidden/class) since which one flips first can vary.
+    const isOpen = () =>
+      trigger.getAttribute('aria-expanded') === 'true' ||
+      menu.getAttribute('aria-hidden') === 'false' ||
+      !menu.classList.contains('is-closed');
+
+    trigger.click();
+    await sleep(250);
+
     try {
-      await waitFor(
-        () => menu.getAttribute('aria-hidden') === 'false' || !menu.classList.contains('is-closed'),
-        { timeout: 6000, desc: 'dropdown open for order ' + orderId }
-      );
+      await waitFor(isOpen, { timeout: 8000, desc: 'dropdown open for order ' + orderId });
     } catch (e) {
       // Dropdown never opened in time (page was busy/laggy). Try to close it
       // again so it doesn't sit open and block clicks on the next order.
@@ -482,6 +492,7 @@
 
   async function runAll() {
     GM_setValue(RUN_KEY, true);
+    GM_setValue(PAUSE_KEY, false);
     setStatus('Running...');
     const rows = getOrderRows();
     log(`Found ${rows.length} order(s) on this page.`);
@@ -491,6 +502,20 @@
         log('Stopped by user.');
         break;
       }
+
+      // Pause: block right here (loop position/rows array is kept, nothing
+      // is re-scanned) until Resume is clicked or Stop cancels the run.
+      while (GM_getValue(PAUSE_KEY)) {
+        setStatus('Paused');
+        await sleep(300);
+        if (!GM_getValue(RUN_KEY)) break;
+      }
+      if (!GM_getValue(RUN_KEY)) {
+        log('Stopped by user.');
+        break;
+      }
+      setStatus('Running...');
+
       try {
         await processOrder(row);
       } catch (e) {
@@ -505,7 +530,9 @@
     }
 
     GM_setValue(RUN_KEY, false);
+    GM_setValue(PAUSE_KEY, false);
     setStatus('Idle');
+    setPauseButtonLabel();
     log('All done.');
   }
 
@@ -519,6 +546,7 @@
     #at-panel button{width:100%;margin-top:6px;padding:6px 0;border:0;border-radius:6px;
       cursor:pointer;font:13px sans-serif;font-weight:600}
     #at-panel .start{background:#16a34a;color:#fff}
+    #at-panel .pause{background:#d97706;color:#fff}
     #at-panel .stop{background:#dc2626;color:#fff}
     #at-status{font:12px monospace;opacity:.8;margin-top:4px}
     .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
@@ -534,6 +562,7 @@
     <div class="at-drag-handle"><strong>Etsy Auto Tracking</strong></div>
     <div id="at-status">Idle</div>
     <button class="start" id="at-start">Start</button>
+    <button class="pause" id="at-pause">Pause</button>
     <button class="stop" id="at-stop">Stop</button>
     <div id="at-log" class="at-log"></div>
   `;
@@ -545,12 +574,37 @@
     if (el) el.textContent = text;
   }
 
+  function setPauseButtonLabel() {
+    const btn = document.getElementById('at-pause');
+    if (btn) btn.textContent = GM_getValue(PAUSE_KEY) ? 'Resume' : 'Pause';
+  }
+
+  // Start: begins a brand-new run (fresh scan of the current order list) if
+  // idle, or resumes if currently paused. Pause: temporarily halts the loop
+  // in place — same in-progress list, same position, nothing re-scanned.
+  // Stop: cancels the run entirely; the next Start rescans from the top.
   document.getElementById('at-start').addEventListener('click', () => {
-    if (GM_getValue(RUN_KEY)) return;
+    if (GM_getValue(RUN_KEY)) {
+      if (GM_getValue(PAUSE_KEY)) {
+        GM_setValue(PAUSE_KEY, false);
+        setPauseButtonLabel();
+        log('Resumed by user.');
+      }
+      return;
+    }
     runAll();
+  });
+  document.getElementById('at-pause').addEventListener('click', () => {
+    if (!GM_getValue(RUN_KEY)) return; // nothing running to pause
+    const nowPaused = !GM_getValue(PAUSE_KEY);
+    GM_setValue(PAUSE_KEY, nowPaused);
+    setPauseButtonLabel();
+    log(nowPaused ? 'Paused by user.' : 'Resumed by user.');
   });
   document.getElementById('at-stop').addEventListener('click', () => {
     GM_setValue(RUN_KEY, false);
+    GM_setValue(PAUSE_KEY, false);
+    setPauseButtonLabel();
     setStatus('Stopping...');
   });
 
