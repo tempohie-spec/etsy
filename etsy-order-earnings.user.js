@@ -201,11 +201,14 @@
     // co the dung CHUNG 1 URL anh mockup; loai trung se lam mat bot 1 anh va lam lech
     // vi tri img[i] so voi san pham thu i (vd don co 4 san pham nhung chi con 2 URL anh
     // sau khi loai trung -> san pham thu 4 se bi fallback nham ve img[0] thay vi dung anh).
-    // Loc bot cac phan tu ".flag" khong phai san pham (vd icon co quoc gia dung chung
-    // class "flag" o cho khac trong don hang) - chi giu lai khoi co ANH ("flag-img") va
-    // it nhat 1 gia tri dang "strong" (Quantity/Style & Size/Color) ben trong.
+    // Loc bot cac phan tu ".flag" khong phai san pham (vd flag avatar/note cua nguoi mua,
+    // icon co quoc gia... dung chung class "flag" o cho khac trong don hang) - chi giu lai
+    // khoi co ANH ("flag-img") VA co nhan "Quantity" rieng cua no. "Quantity" la dau hieu
+    // dang tin cay nhat de xac dinh day THAT SU la 1 san pham (khong phai chi can co anh +
+    // 1 "strong" bat ky, vi cac khoi khac cung co the co "strong" ma khong phai san pham,
+    // gay ra 1 dong "ma" thua o dau moi don voi title/color/size/quantity deu trong).
     const flagEls = Array.from(container.querySelectorAll('.flag')).filter(
-      (el) => el.querySelector('.flag-img') && el.querySelector('span.strong')
+      (el) => el.querySelector('.flag-img') && getLabelValues(el, 'Quantity').length > 0
     );
 
     if (flagEls.length > 0) {
