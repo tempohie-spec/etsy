@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.1
+// @version      1.2
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -322,9 +322,11 @@
     const proto = Object.getPrototypeOf(input);
     const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
     setter.call(input, value);
+    // Only 'input' + 'change' — dispatching 'blur' too has been seen to send
+    // this custom element (and Etsy's own React tree) into a heavy re-render
+    // loop that can hang/crash the tab, especially with DevTools open.
     input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-    input.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
   }
 
   async function fillAndSubmit(orderId, tracking, carrierRaw) {
@@ -337,6 +339,9 @@
       log(`  carrier "${carrierRaw}" -> "${matched.textContent.trim()}"`);
       setNativeValue(select, matched.value);
       select.dispatchEvent(new Event('change', { bubbles: true }));
+      // Let Etsy's own React tree finish re-rendering around the select
+      // before we touch anything else in the modal.
+      await sleep(500);
     } else {
       const other = Array.from(select.querySelectorAll('option')).find(
         (o) => o.textContent.trim().toLowerCase() === 'other'
@@ -345,12 +350,17 @@
       log(`  carrier "${carrierRaw}" -> Other (custom text)`);
       setNativeValue(select, other.value);
       select.dispatchEvent(new Event('change', { bubbles: true }));
+      // Selecting "Other" makes the custom carrier-name field appear/enable;
+      // give the app a moment to settle before we grab and fill it — doing
+      // this too fast back-to-back is what tends to freeze the tab.
+      await sleep(500);
 
       const carrierInput = await waitFor(
         () => document.querySelector(`clg-text-input[name="carrierName-${orderId}"]`),
         { timeout: 3000, desc: 'custom carrier text input' }
       );
       await setClgTextInputValue(carrierInput, carrierRaw);
+      await sleep(300);
     }
 
     const trackingInput = await waitFor(
@@ -359,7 +369,7 @@
     );
     await setClgTextInputValue(trackingInput, tracking);
 
-    await sleep(400);
+    await sleep(500);
 
     // The modal's own footer button, not the dropdown menu item -> exclude
     // anything still living inside a dropdown container.
@@ -452,7 +462,9 @@
       } catch (e) {
         log('ERROR processing row:', e.message);
       }
-      await sleep(1200);
+      // Give the page (and the browser) a moment to settle between orders —
+      // running back-to-back with no pause is what tends to freeze the tab.
+      await sleep(2000);
     }
 
     GM_setValue(RUN_KEY, false);
