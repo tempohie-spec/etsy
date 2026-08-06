@@ -364,6 +364,14 @@
     return out;
   }
 
+  // Cac size dang khoang (vd size tre em "5-6T", "7-8T") dung dau "-" tren Etsy, nhung
+  // muon xuat ra Excel dang "5/6T", "7/8T" (doi dau "-" thanh "/"). Chi ap dung cho dung
+  // dinh dang so-so+chu (khong dung cham vao cac size khac nhu "S", "M", "XL"...).
+  function cleanSizeForExport(size) {
+    if (!size) return size;
+    return size.replace(/^(\d+)-(\d+)([A-Za-z]*)$/, '$1/$2$3');
+  }
+
   // Thay dau nhay don cong (’) bang dau nhay don thang (') trong tat ca cac cot dang chu.
   function fixCurlyApostrophe(value) {
     if (typeof value !== 'string') return value;
@@ -376,6 +384,7 @@
       const out = {};
       HEADERS.forEach((h) => { out[h] = fixCurlyApostrophe(row[h] !== undefined ? row[h] : ''); });
       out.title = cleanTitleForExport(out.title);
+      out.size = cleanSizeForExport(out.size);
       out.mockUpFront = fixCFormatUrl(out.mockUpFront);
       return out;
     });
