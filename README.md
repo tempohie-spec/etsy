@@ -5,6 +5,63 @@ Userscript (Violentmonkey / Tampermonkey) cho trang Etsy.
 - File script: [`etsy-auto.user.js`](etsy-auto.user.js)
 - Cài đặt: mở Violentmonkey → **Create a new script** → dán toàn bộ nội dung file → **Save**.
 
+## Etsy Order Scraper + Earnings -> Excel
+
+Userscript riêng cho trang `https://www.etsy.com/your/orders*`.
+
+- File script: [`etsy-order-earnings.user.js`](etsy-order-earnings.user.js)
+- Cài đặt: mở Violentmonkey → **Create a new script** → dán toàn bộ nội dung file → **Save**.
+
+Panel nổi có thể thu nhỏ thành biểu tượng tròn "Order" và kéo thả tự do; vị trí được nhớ qua
+`GM_setValue`/`GM_getValue`. Có 3 chức năng tách riêng:
+
+| Nút | Việc làm |
+|---|---|
+| 🔍 Quét đơn + Earnings & tải Excel | Quét toàn bộ đơn đang hiển thị trên trang, sau đó với mỗi mã đơn: **bấm trực tiếp vào mã đơn** để mở bảng order details (không gõ vào ô tìm kiếm), bấm tab Earnings để lấy số tiền, rồi quay lại danh sách cho đơn tiếp theo. Nhờ không dùng ô tìm kiếm nên trang danh sách hiện tại không bị mất, xuất được đầy đủ các đơn còn lại. |
+| 📦 Quét đơn & tải Excel | Chỉ quét đơn và xuất Excel ngay, không lấy Earnings (cột `Earnings` để trống) — dùng khi cần xuất nhanh. |
+| 💰 Lấy Earnings theo mã đơn & tải Excel | Nhập tay danh sách mã đơn (mỗi dòng 1 mã), script dùng ô tìm kiếm để tra từng mã (giữ nguyên cách làm của bản gốc, vì các mã này có thể không nằm trong danh sách đang hiển thị), xuất file `earnings_result.xlsx` gồm 2 cột Mã đơn + Earnings. |
+
+So với bản gốc (chỉ quét đơn, không có Earnings):
+
+- Đã bỏ 2 cột `Printing` và `Account`.
+- Đã thêm cột `Earnings` ngay bên phải cột `Date Fulfil` (chỉ số tiền, không kèm ký hiệu `$`).
+  Nếu 1 đơn có nhiều sản phẩm (ra nhiều dòng), Earnings chỉ được điền vào **dòng đầu tiên**
+  của đơn đó, các dòng sau để trống.
+- Cột `size` dạng khoảng số (vd size trẻ em `5-6T`, `7-8T`) được đổi dấu `-` thành `/` khi
+  xuất Excel (`5-6T` → `5/6T`). Các size khác (`L`, `XL`, `2T`...) giữ nguyên.
+- Đơn giao ra **ngoài United States** mà không đọc được số điện thoại thật trên trang sẽ được
+  tự động điền 1 số điện thoại ảo (10 chữ số **ngẫu nhiên**, khác nhau cho từng đơn mỗi lần
+  chạy) vào cột `phone` — tránh để trống khi in vận đơn.
+- Cột `Date Fulfil` được **tự động điền ngày chạy script** theo định dạng `dd/mm/yyyy`.
+- File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
+
+### Đóng bảng "Order details" sau mỗi đơn
+
+Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
+sách**, không phải điều hướng sang trang khác. Nếu không đóng lại, overlay sẽ giữ nguyên đơn
+đầu tiên và mọi lần đọc Earnings sau đó đều ra cùng 1 số tiền (bị điền nhầm cho tất cả các đơn).
+Script tự động bấm nút đóng (✕, nút có `<span class="screen-reader-only">Close</span>`) sau khi
+đọc xong Earnings của mỗi đơn; nếu không tìm thấy nút thì gửi phím `ESC` để đóng.
+
+### Lỗi "XLSX is not defined"
+
+Script nạp thư viện đọc/ghi Excel (SheetJS) qua `@require` từ CDN. Nếu thấy thông báo đỏ
+"Chưa tải được thư viện Excel (XLSX)" (hoặc lỗi Console `XLSX is not defined`), nghĩa là
+Violentmonkey chưa tải được file đó — thường do mạng chặn CDN hoặc AdBlock. Cách khắc phục:
+
+1. Tải lại trang (F5) rồi thử lại — nhiều khi chỉ là lỗi mạng tạm thời.
+2. Kiểm tra AdBlock/uBlock Origin/tường lửa có đang chặn `cdn.jsdelivr.net` không, cho qua nếu có.
+3. Vào Violentmonkey → mở script này → **Save** lại 1 lần để buộc tải lại các tài nguyên `@require`.
+
+Script đã có kiểm tra trước khi chạy: nếu XLSX chưa sẵn sàng sẽ báo lỗi ngay, không để bạn
+đợi hết cả quá trình quét/lấy Earnings rồi mới báo lỗi lúc xuất file.
+
+### Nút Dừng
+
+Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),
+panel sẽ hiện thêm nút **"⏹ Dừng"**. Bấm nút này để dừng giữa chừng — script sẽ dừng sau khi xử
+lý xong đơn hiện tại, rồi vẫn xuất file Excel với dữ liệu đã lấy được đến thời điểm đó.
+
 ## Chức năng
 
 | Nút / Phím tắt | Việc làm |
