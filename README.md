@@ -73,3 +73,55 @@ Nếu vẫn gặp trục trặc, xử lý theo thứ tự:
 
 Mở Console (F12) khi chạy để xem log `[Etsy Auto]`: số ảnh tìm được, danh sách URL full size,
 và cách tải nào đã dùng cho từng file (`gm_download_url`, `gm_download_blob`, hay `a_tag`).
+
+---
+
+# Etsy Auto Tracking — Tự động điền tracking từ Merchize
+
+Userscript thứ hai trong repo này, độc lập với script phía trên.
+
+- File script: [`etsy-auto-tracking.user.js`](etsy-auto-tracking.user.js)
+- Cài đặt: mở Violentmonkey → **Create a new script** → dán toàn bộ nội dung file → **Save**.
+
+## Chức năng
+
+Tự động hoàn tất các đơn Etsy chưa có tracking bằng cách lấy tracking number + shipping carrier
+tương ứng từ trang quản lý fulfillment [Merchize](https://seller.merchize.com).
+
+Cần mở **cả 2 tab cùng lúc**:
+
+1. Tab Etsy: `Orders → Sold` (`https://www.etsy.com/your/orders/sold*`)
+2. Tab Merchize: `seller.merchize.com/a/orders?tab=shipping_status`
+
+Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start/Stop**. Trên tab Merchize có badge
+"AutoTrack: listening" xác nhận đang lắng nghe.
+
+## Logic xử lý (theo từng đơn trên trang Etsy)
+
+1. Dò mã đơn Etsy (order id trong link `?order_id=...`).
+2. **Trước khi mở bất kỳ ô nhập nào**, gửi mã đơn này sang tab Merchize để tra cứu.
+3. Tab Merchize quét các dòng `tr.OrderExtendPackagesRow` đang hiển thị trên trang, so khớp với
+   `External order number` (`td.OrderCodeCell code`) — không cần gõ vào ô tìm kiếm.
+   - Nếu **không tìm thấy** mã khớp → bỏ qua đơn này hoàn toàn, không đụng vào Update
+     progress/Complete order bên Etsy.
+   - Nếu **tìm thấy** → trả về tracking number + tên carrier (VD: `USPS`, `DHL eCommerce`).
+4. Chỉ khi có kết quả, tab Etsy mới: bấm **Update progress → Complete order** để mở modal, sau đó:
+   - Chọn carrier trong dropdown bằng cách so khớp text (VD: `DHL eCommerce` → chọn `DHL`).
+   - Nếu không có carrier tương ứng trong dropdown → chọn **Other** rồi gõ tay tên carrier gốc
+     (VD: `USPS` → Other → gõ `USPS`).
+   - Điền tracking number.
+   - Bấm **Complete order** để hoàn tất.
+5. Lặp lại cho từng đơn trên trang Etsy hiện tại.
+
+## Cơ chế giao tiếp giữa 2 tab
+
+Vì Etsy và Merchize là 2 domain khác nhau, script dùng `GM_setValue` / `GM_getValue` /
+`GM_addValueChangeListener` (bộ nhớ dùng chung của Violentmonkey cho cùng 1 script, không phụ
+thuộc domain) để tab Etsy gửi yêu cầu tra cứu và tab Merchize trả kết quả về — không cần
+`GM_xmlhttpRequest` hay mở tab ẩn.
+
+## Ghi chú
+
+- Danh sách carrier trong dropdown "Shipping carrier" khác nhau tuỳ tài khoản Etsy; có thể chỉnh
+  `CARRIER_ALIASES` ở đầu file nếu việc so khớp tự động (`matchCarrierOption`) chọn sai carrier.
+- Mở Console (F12) để xem log `[AutoTrack]` khi debug — có log riêng ở cả 2 tab.
