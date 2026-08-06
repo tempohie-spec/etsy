@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.0
+// @version      1.1
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -34,8 +34,82 @@
     // 'dhl ecommerce': 'DHL',
   };
 
-  const log = (...a) => console.log('%c[AutoTrack]', 'color:#0ea5e9;font-weight:bold', ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Short log lines shown inside the on-page panel (kept separate from the
+  // full console log, which stays verbose for debugging).
+  const MAX_UI_LOG_LINES = 12;
+
+  function uiLog(text) {
+    const box = document.getElementById('at-log');
+    if (!box) return;
+    const time = new Date().toLocaleTimeString('vi-VN', { hour12: false });
+    const line = document.createElement('div');
+    line.className = 'at-log-line';
+    line.textContent = `${time} ${text}`;
+    box.appendChild(line);
+    while (box.children.length > MAX_UI_LOG_LINES) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function log(...a) {
+    console.log('%c[AutoTrack]', 'color:#0ea5e9;font-weight:bold', ...a);
+    let text = a.map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ');
+    text = text.replace(/\s+/g, ' ').trim();
+    if (text.length > 90) text = text.slice(0, 87) + '...';
+    uiLog(text);
+  }
+
+  // Make `panel` draggable by its `handle` element, remembering position
+  // (per tab type) in localStorage so it persists across page reloads.
+  function makeDraggable(panel, handle, storageKey) {
+    let dragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+      if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+        panel.style.left = saved.left + 'px';
+        panel.style.top = saved.top + 'px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+      }
+    } catch (e) {
+      /* ignore malformed saved position */
+    }
+
+    handle.addEventListener('mousedown', (e) => {
+      dragging = true;
+      const rect = panel.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const maxLeft = window.innerWidth - panel.offsetWidth;
+      const maxTop = window.innerHeight - panel.offsetHeight;
+      const left = Math.max(0, Math.min(e.clientX - offsetX, maxLeft));
+      const top = Math.max(0, Math.min(e.clientY - offsetY, maxTop));
+      panel.style.left = left + 'px';
+      panel.style.top = top + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.style.userSelect = '';
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ left: parseInt(panel.style.left, 10), top: parseInt(panel.style.top, 10) })
+      );
+    });
+  }
 
   async function waitFor(fn, { timeout = 10000, interval = 200, desc = '' } = {}) {
     const start = Date.now();
@@ -57,8 +131,6 @@
   //  MERCHIZE TAB
   // ===================================================================
   if (location.hostname === 'seller.merchize.com') {
-    log('Merchize helper loaded.');
-
     function scanMerchizeOrders() {
       // Walk all <tr> in document order. Whenever we see a row containing
       // td.OrderCodeCell we remember its <code> text as the "current"
@@ -126,15 +198,33 @@
       handleRequest(newVal.orderId);
     });
 
-    // Small floating status badge so you know the helper is alive on this tab
+    // Small floating panel so you know the helper is alive on this tab, with
+    // a short rolling log of lookups it has answered. Draggable via its title bar.
     GM_addStyle(`
-      #at-merchize-badge{position:fixed;bottom:16px;right:16px;z-index:999999;
-        background:#111;color:#0f0;font:12px monospace;padding:6px 10px;border-radius:6px;opacity:.85}
+      #at-panel{position:fixed;bottom:16px;right:16px;z-index:999999;
+        background:#111;color:#fff;font:13px sans-serif;padding:10px 12px;
+        border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:240px}
+      .at-drag-handle{cursor:move;user-select:none;padding-bottom:6px;margin-bottom:6px;
+        border-bottom:1px solid rgba(255,255,255,.15)}
+      #at-status{font:12px monospace;opacity:.8}
+      .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
+        border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
+      .at-log-line{white-space:pre-wrap;word-break:break-word;
+        border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}
+      .at-log-line:last-child{border-bottom:none}
     `);
-    const badge = document.createElement('div');
-    badge.id = 'at-merchize-badge';
-    badge.textContent = 'AutoTrack: listening';
-    document.body.appendChild(badge);
+
+    const panel = document.createElement('div');
+    panel.id = 'at-panel';
+    panel.innerHTML = `
+      <div class="at-drag-handle"><strong>Merchize AutoTrack</strong></div>
+      <div id="at-status">Listening...</div>
+      <div id="at-log" class="at-log"></div>
+    `;
+    document.body.appendChild(panel);
+    makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_merchize');
+
+    log('Merchize helper loaded.');
 
     return; // nothing else to do on this domain
   }
@@ -374,23 +464,32 @@
   GM_addStyle(`
     #at-panel{position:fixed;bottom:16px;right:16px;z-index:999999;
       background:#111;color:#fff;font:13px sans-serif;padding:10px 12px;
-      border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:220px}
+      border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:240px}
+    .at-drag-handle{cursor:move;user-select:none;padding-bottom:6px;margin-bottom:6px;
+      border-bottom:1px solid rgba(255,255,255,.15)}
     #at-panel button{width:100%;margin-top:6px;padding:6px 0;border:0;border-radius:6px;
       cursor:pointer;font:13px sans-serif;font-weight:600}
     #at-panel .start{background:#16a34a;color:#fff}
     #at-panel .stop{background:#dc2626;color:#fff}
     #at-status{font:12px monospace;opacity:.8;margin-top:4px}
+    .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
+      border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
+    .at-log-line{white-space:pre-wrap;word-break:break-word;
+      border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}
+    .at-log-line:last-child{border-bottom:none}
   `);
 
   const panel = document.createElement('div');
   panel.id = 'at-panel';
   panel.innerHTML = `
-    <div><strong>Etsy Auto Tracking</strong></div>
+    <div class="at-drag-handle"><strong>Etsy Auto Tracking</strong></div>
     <div id="at-status">Idle</div>
     <button class="start" id="at-start">Start</button>
     <button class="stop" id="at-stop">Stop</button>
+    <div id="at-log" class="at-log"></div>
   `;
   document.body.appendChild(panel);
+  makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_etsy');
 
   function setStatus(text) {
     const el = document.getElementById('at-status');
