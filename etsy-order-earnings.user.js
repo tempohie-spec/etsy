@@ -448,9 +448,9 @@
     return String(orderNumber || '').trim();
   }
 
-  // Lay earnings tuan tu cho tung ma don hang duy nhat (bang cach bam vao ma don),
-  // ghi ket qua vao TAT CA cac dong (rows) co cung orderNumber (1 don co nhieu san pham
-  // se ra nhieu dong, nhung chi can lay Earnings 1 lan cho ca don roi dien lai cho het).
+  // Lay earnings tuan tu cho tung ma don hang duy nhat (bang cach bam vao ma don).
+  // Neu 1 don co nhieu dong (nhieu san pham) thi CHI dien Earnings vao DONG DAU TIEN
+  // cua don do, cac dong sau cua cung don giu nguyen trong.
   // Tra ve true neu bi nguoi dung bam nut Dung giua chung.
   async function fillEarningsForRowsByClick(rows, onProgress) {
     const uniqueOrderNumbers = [...new Set(rows.map((r) => chuanHoaMaDon(r.orderNumber)).filter(Boolean))];
@@ -477,11 +477,14 @@
 
     console.log('[Etsy Scraper] Bảng Earnings theo mã đơn:', Object.fromEntries(earningsByOrder));
 
+    // Chi dien vao dong DAU TIEN cua moi ma don, cac dong sau (cung 1 don) bo qua.
+    const daDienChoMaDon = new Set();
     let soDongDaDien = 0;
     rows.forEach((row) => {
       const key = chuanHoaMaDon(row.orderNumber);
-      if (earningsByOrder.has(key)) {
+      if (earningsByOrder.has(key) && !daDienChoMaDon.has(key)) {
         row.Earnings = earningsByOrder.get(key) || '';
+        daDienChoMaDon.add(key);
         soDongDaDien++;
       }
     });

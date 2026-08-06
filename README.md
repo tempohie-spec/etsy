@@ -25,6 +25,8 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
 
 - Đã bỏ 2 cột `Printing` và `Account`.
 - Đã thêm cột `Earnings` ngay bên phải cột `Date Fulfil` (chỉ số tiền, không kèm ký hiệu `$`).
+  Nếu 1 đơn có nhiều sản phẩm (ra nhiều dòng), Earnings chỉ được điền vào **dòng đầu tiên**
+  của đơn đó, các dòng sau để trống.
 - Cột `Date Fulfil` được **tự động điền ngày chạy script** theo định dạng `dd/mm/yyyy`.
 - File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
 
