@@ -12,20 +12,21 @@ Userscript riêng cho trang `https://www.etsy.com/your/orders*`.
 - File script: [`etsy-order-earnings.user.js`](etsy-order-earnings.user.js)
 - Cài đặt: mở Violentmonkey → **Create a new script** → dán toàn bộ nội dung file → **Save**.
 
-Chức năng: quét toàn bộ đơn hàng đang hiển thị trên trang, tự động tìm và lấy **Earnings**
-(số tiền kiếm được) cho từng mã đơn, sau đó xuất ra file Excel — dữ liệu cũ đã lưu sẽ bị
-xoá và thay bằng dữ liệu vừa quét.
+Panel nổi có thể thu nhỏ thành biểu tượng tròn "Order" và kéo thả tự do; vị trí được nhớ qua
+`GM_setValue`/`GM_getValue`. Có 3 chức năng tách riêng:
+
+| Nút | Việc làm |
+|---|---|
+| 🔍 Quét đơn + Earnings & tải Excel | Quét toàn bộ đơn đang hiển thị trên trang, sau đó với mỗi mã đơn: **bấm trực tiếp vào mã đơn** để mở bảng order details (không gõ vào ô tìm kiếm), bấm tab Earnings để lấy số tiền, rồi quay lại danh sách cho đơn tiếp theo. Nhờ không dùng ô tìm kiếm nên trang danh sách hiện tại không bị mất, xuất được đầy đủ các đơn còn lại. |
+| 📦 Quét đơn & tải Excel | Chỉ quét đơn và xuất Excel ngay, không lấy Earnings (cột `Earnings` để trống) — dùng khi cần xuất nhanh. |
+| 💰 Lấy Earnings theo mã đơn & tải Excel | Nhập tay danh sách mã đơn (mỗi dòng 1 mã), script dùng ô tìm kiếm để tra từng mã (giữ nguyên cách làm của bản gốc, vì các mã này có thể không nằm trong danh sách đang hiển thị), xuất file `earnings_result.xlsx` gồm 2 cột Mã đơn + Earnings. |
 
 So với bản gốc (chỉ quét đơn, không có Earnings):
 
 - Đã bỏ 2 cột `Printing` và `Account`.
 - Đã thêm cột `Earnings` ngay bên phải cột `Date Fulfil` (chỉ số tiền, không kèm ký hiệu `$`).
-- File Excel xuất ra **không có dòng header**.
-
-Panel nổi có thể thu nhỏ thành biểu tượng tròn "Order" và kéo thả tự do; vị trí được nhớ qua
-`GM_setValue`/`GM_getValue`. Bấm nút **"🔍 Quét đơn + Earnings & tải Excel"** để chạy — script sẽ
-lần lượt tìm kiếm từng mã đơn, mở tab Earnings để đọc số tiền (có thể mất vài giây cho mỗi đơn),
-rồi mới xuất file.
+- Cột `Date Fulfil` được **tự động điền ngày chạy script** theo định dạng `dd/mm/yyyy`.
+- File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
 
 ## Chức năng
 

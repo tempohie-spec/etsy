@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      1.0
-// @description  Quet don hang Etsy, tu dong lay Earnings tung don, xoa du lieu cu va xuat ngay ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
+// @version      2.0
+// @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -20,6 +20,7 @@
   // Cot L: "Personalization", dung de chua gia tri personalization cua san pham.
   // Da them 1 cot trong ngay ben phai cot "Personalization" (key: ' ')
   // Da xoa 2 cot "Printing" va "Account". Da them cot "Earnings" ngay ben phai "Date Fulfil".
+  // Cot "Date Fulfil" duoc TU DONG dien ngay chay script (dd/mm/yyyy), khong de trong nua.
   // File Excel xuat ra KHONG co dong header.
   const HEADERS = [
     'orderNumber', 'mockUpFront', 'Image',
@@ -34,11 +35,12 @@
 
   // ====== SELECTOR PHUC VU LAY EARNINGS (chinh neu Etsy doi giao dien) ======
   const SEL = {
-    // o input tim kiem don hang (dua vao aria-label "Search your orders")
+    // o input tim kiem don hang (dua vao aria-label "Search your orders") - chi dung cho
+    // chuc nang "Lay Earnings theo danh sach ma don nhap tay"
     searchInput: 'input[aria-label="Search your orders"]',
     // nut submit trong form tim kiem
     searchSubmitBtn: 'button[type="submit"]',
-    // tab "Earnings" trong trang chi tiet don - tim theo text vi class hay doi
+    // tab "Earnings" trong bang order details - tim theo text vi class hay doi
     earningsTabText: 'Earnings',
     // dong chu "You earned $xx.xx on this order" -> lay so trong <span>
     earningsAmountSelector: 'span.wt-text-title-large',
@@ -78,6 +80,15 @@
         }
       }, 200);
     });
+  }
+
+  // Ngay hien tai luc chay script, dinh dang dd/mm/yyyy
+  function getTodayDateStr() {
+    const d = new Date();
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
   }
 
   // Etsy co 2 dang duong dan anh:
@@ -239,6 +250,7 @@
 
     const seenContainers = new Set();
     const results = [];
+    const today = getTodayDateStr();
 
     orderLinks.forEach((link) => {
       const container = findOrderContainer(link);
@@ -271,7 +283,7 @@
           country: addr.country,
           phone: addr.phone,
           email: addr.email,
-          'Date Fulfil': '',
+          'Date Fulfil': today,
           Earnings: ''
         });
       });
@@ -319,7 +331,7 @@
     XLSX.writeFile(wb, filename);
   }
 
-  // ====== LAY EARNINGS THEO MA DON (dieu khien tren chinh trang /your/orders) ======
+  // ====== TIEN ICH DUNG CHUNG CHO CA 2 CACH LAY EARNINGS ======
 
   function setNativeValue(el, value) {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -351,11 +363,97 @@
   // Lay chuoi so tien "$xx.xx" va tra ve chi phan so (khong don vi tien te)
   function parseAmountToNumberString(amountText) {
     if (!amountText) return '';
-    const cleaned = amountText.replace(/[^0-9.\-]/g, '');
-    return cleaned;
+    return amountText.replace(/[^0-9.\-]/g, '');
   }
 
-  async function getEarningsForOrder(orderId) {
+  async function waitForEarningsAmount() {
+    const amountEl = await waitFor(() => {
+      const spans = document.querySelectorAll(SEL.earningsAmountSelector);
+      for (const s of spans) {
+        if (/^\$[\d,.]+$/.test(s.textContent.trim())) return s;
+      }
+      return null;
+    });
+    return parseAmountToNumberString(amountEl.textContent.trim());
+  }
+
+  // ====== CACH 1 (MOI): LAY EARNINGS BANG CACH BAM TRUC TIEP VAO MA DON ======
+  // (dung cho chuc nang "Quet don + Lay Earnings", vi don da san co tren trang,
+  // khong can go vao o tim kiem nen KHONG bi mat trang danh sach dang xem)
+
+  function findOrderLinkByOrderId(orderId) {
+    return document.querySelector(`a[href*="order_id=${orderId}"]`);
+  }
+
+  function findBackControl() {
+    return (
+      document.querySelector('a[href="/your/orders/sold"]') ||
+      document.querySelector('[aria-label*="Back" i]') ||
+      findClickableByText('Back to Orders') ||
+      findClickableByText('Back')
+    );
+  }
+
+  async function getEarningsByClickingOrder(orderId) {
+    // 1. Bam truc tiep vao ma don (link) de mo bang order details, khong dung o tim kiem
+    const link = await waitFor(() => findOrderLinkByOrderId(orderId));
+    link.click();
+    await sleep(STEP_DELAY);
+
+    // 2. Bam tab "Earnings" trong bang order details
+    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText));
+    earningsTab.click();
+    await sleep(STEP_DELAY);
+
+    // 3. Lay so tien
+    const amount = await waitForEarningsAmount();
+
+    // 4. Quay lai danh sach don hang (dung nut Back neu co, khong thi dung nut Back cua trinh duyet)
+    const backBtn = findBackControl();
+    if (backBtn) {
+      backBtn.click();
+    } else {
+      history.back();
+    }
+    await sleep(STEP_DELAY);
+    // Doi cho danh sach hien lai (co the bo qua neu khong tim thay, van tiep tuc don tiep theo)
+    await waitFor(() => findOrderLinkByOrderId(orderId), 6000).catch(() => {});
+
+    return amount;
+  }
+
+  // Lay earnings tuan tu cho tung ma don hang duy nhat (bang cach bam vao ma don),
+  // ghi ket qua vao tat ca cac dong (rows) co cung orderNumber.
+  async function fillEarningsForRowsByClick(rows, onProgress) {
+    const uniqueOrderNumbers = [...new Set(rows.map((r) => r.orderNumber).filter(Boolean))];
+    const earningsByOrder = {};
+
+    for (let i = 0; i < uniqueOrderNumbers.length; i++) {
+      const orderId = uniqueOrderNumbers[i];
+      if (typeof onProgress === 'function') {
+        onProgress(`⏳ (${i + 1}/${uniqueOrderNumbers.length}) Đang lấy Earnings đơn #${orderId}...`);
+      }
+      try {
+        earningsByOrder[orderId] = await getEarningsByClickingOrder(orderId);
+      } catch (err) {
+        console.error('[Etsy Scraper] Lỗi lấy Earnings cho đơn ' + orderId + ':', err);
+        earningsByOrder[orderId] = '';
+      }
+      await sleep(400);
+    }
+
+    rows.forEach((row) => {
+      row.Earnings = earningsByOrder[row.orderNumber] || '';
+    });
+
+    return rows;
+  }
+
+  // ====== CACH 2 (CU - GIU NGUYEN NHU BAN DAU): LAY EARNINGS QUA O TIM KIEM ======
+  // Dung rieng cho chuc nang "Lay Earnings theo danh sach ma don nhap tay", vi cac ma don
+  // nay co the KHONG nam trong danh sach dang hien thi tren trang, nen phai tim kiem.
+
+  async function getEarningsForOrderBySearch(orderId) {
     // 1. Tim o search, nhap ma don
     const input = await waitFor(() => document.querySelector(SEL.searchInput));
     input.focus();
@@ -381,48 +479,13 @@
     earningsTab.click();
     await sleep(STEP_DELAY);
 
-    // 5. Lay so tien - tim span chua "$" gan cum "You earned"
-    const amountEl = await waitFor(() => {
-      const spans = document.querySelectorAll(SEL.earningsAmountSelector);
-      for (const s of spans) {
-        if (/^\$[\d,.]+$/.test(s.textContent.trim())) return s;
-      }
-      return null;
-    });
-
-    return parseAmountToNumberString(amountEl.textContent.trim());
+    // 5. Lay so tien
+    return waitForEarningsAmount();
   }
 
-  // Lay earnings tuan tu cho tung ma don hang duy nhat, ghi ket qua vao
-  // tat ca cac dong (rows) co cung orderNumber. Bao tien do qua callback onProgress.
-  async function fillEarningsForRows(rows, onProgress) {
-    const uniqueOrderNumbers = [...new Set(rows.map((r) => r.orderNumber).filter(Boolean))];
-    const earningsByOrder = {};
+  // ====== CHUC NANG 1 + 2: QUET DON (CO HOAC KHONG LAY EARNINGS) ROI XUAT EXCEL ======
 
-    for (let i = 0; i < uniqueOrderNumbers.length; i++) {
-      const orderId = uniqueOrderNumbers[i];
-      if (typeof onProgress === 'function') {
-        onProgress(`⏳ (${i + 1}/${uniqueOrderNumbers.length}) Đang lấy Earnings đơn #${orderId}...`);
-      }
-      try {
-        earningsByOrder[orderId] = await getEarningsForOrder(orderId);
-      } catch (err) {
-        console.error('[Etsy Scraper] Lỗi lấy Earnings cho đơn ' + orderId + ':', err);
-        earningsByOrder[orderId] = '';
-      }
-      await sleep(400);
-    }
-
-    rows.forEach((row) => {
-      row.Earnings = earningsByOrder[row.orderNumber] || '';
-    });
-
-    return rows;
-  }
-
-  // Quet don tren trang hien tai: XOA het du lieu cu da luu, lay Earnings tung don,
-  // luu du lieu moi, roi xuat file Excel va tai xuong ngay lap tuc.
-  async function scanClearAndExport() {
+  async function scanAndExport(withEarnings) {
     const newRows = extractOrdersFromPage();
     if (newRows.length === 0) {
       hienThongBao('⚠️ Không tìm thấy đơn hàng nào trên trang hiện tại. Kiểm tra Console (F12) để xem log.', '#DC2626');
@@ -430,11 +493,15 @@
       return;
     }
 
-    scanBtn.disabled = true;
-    scanBtn.textContent = '⏳ Đang xử lý...';
+    setButtonsDisabled(true);
+    const originalText = btnScanEarnings.textContent;
+    if (withEarnings) btnScanEarnings.textContent = '⏳ Đang xử lý...';
+    else btnScanOnly.textContent = '⏳ Đang xử lý...';
 
     try {
-      await fillEarningsForRows(newRows, (msg) => hienThongBao(msg, '#2563EB'));
+      if (withEarnings) {
+        await fillEarningsForRowsByClick(newRows, (msg) => hienThongBao(msg, '#2563EB'));
+      }
 
       // Xoa du lieu cu, chi giu lai du lieu vua quet duoc
       saveData(newRows);
@@ -442,21 +509,79 @@
 
       exportToExcelFile(newRows);
 
-      hienThongBao(`✅ Đã quét ${newRows.length} dòng (kèm Earnings) và tải file Excel!`, '#16A34A');
+      const ghiChu = withEarnings ? ' (kèm Earnings)' : '';
+      hienThongBao(`✅ Đã quét ${newRows.length} dòng${ghiChu} và tải file Excel!`, '#16A34A');
       console.log('[Etsy Scraper] Scanned rows (đã thay thế toàn bộ dữ liệu cũ):', newRows);
     } catch (err) {
-      console.error('[Etsy Scraper] Lỗi trong quá trình quét + lấy Earnings:', err);
-      hienThongBao('❌ Lỗi khi lấy Earnings: ' + err.message, '#DC2626');
+      console.error('[Etsy Scraper] Lỗi trong quá trình quét:', err);
+      hienThongBao('❌ Lỗi: ' + err.message, '#DC2626');
     } finally {
-      scanBtn.disabled = false;
-      scanBtn.textContent = '🔍 Quét đơn + Earnings & tải Excel';
+      btnScanEarnings.textContent = originalText;
+      btnScanOnly.textContent = '📦 Quét đơn & tải Excel';
+      setButtonsDisabled(false);
+    }
+  }
+
+  // ====== CHUC NANG 3: LAY EARNINGS THEO DANH SACH MA DON NHAP TAY (NHU BAN DAU) ======
+
+  async function runEarningsOnlyExport() {
+    const raw = idsTextarea.value;
+    const ids = raw
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (ids.length === 0) {
+      hienThongBao('⚠️ Vui lòng nhập ít nhất 1 mã đơn.', '#DC2626');
+      return;
+    }
+
+    setButtonsDisabled(true);
+    btnEarningsOnly.textContent = '⏳ Đang xử lý...';
+
+    const results = [];
+    try {
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        hienThongBao(`⏳ (${i + 1}/${ids.length}) Đang lấy Earnings đơn #${id}...`, '#2563EB');
+        try {
+          const earnings = await getEarningsForOrderBySearch(id);
+          results.push({ 'Mã đơn': id, Earnings: earnings });
+        } catch (err) {
+          console.error('[Etsy Scraper] Lỗi lấy Earnings cho đơn ' + id + ':', err);
+          results.push({ 'Mã đơn': id, Earnings: 'LỖI: ' + err.message });
+        }
+        await sleep(400);
+      }
+
+      const ws = XLSX.utils.json_to_sheet(results);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Earnings');
+      XLSX.writeFile(wb, 'earnings_result.xlsx');
+
+      hienThongBao(`✅ Đã lấy Earnings cho ${ids.length} mã đơn và tải file Excel!`, '#16A34A');
+    } catch (err) {
+      console.error('[Etsy Scraper] Lỗi khi lấy Earnings theo danh sách mã đơn:', err);
+      hienThongBao('❌ Lỗi: ' + err.message, '#DC2626');
+    } finally {
+      btnEarningsOnly.textContent = '💰 Lấy Earnings theo mã đơn & tải Excel';
+      setButtonsDisabled(false);
     }
   }
 
   // ====== GIAO DIEN NOI (FLOATING PANEL): KEO THA + THU NHO/MO RONG ======
   let countLabel;
   let messageBox;
-  let scanBtn;
+  let btnScanEarnings;
+  let btnScanOnly;
+  let btnEarningsOnly;
+  let idsTextarea;
+
+  function setButtonsDisabled(disabled) {
+    [btnScanEarnings, btnScanOnly, btnEarningsOnly].forEach((btn) => {
+      if (btn) btn.disabled = disabled;
+    });
+  }
 
   function updatePanelCount() {
     if (countLabel) {
@@ -576,7 +701,7 @@
     const khungMoRong = document.createElement('div');
     khungMoRong.id = 'eos-expanded';
     khungMoRong.style.cssText = `
-      display:flex; flex-direction:column; width:220px;
+      display:flex; flex-direction:column; width:260px;
       background:#fff; border-radius:10px; overflow:hidden;
       box-shadow:0 6px 20px rgba(0,0,0,.25);
     `;
@@ -599,20 +724,48 @@
     khungMoRong.appendChild(thanhTieuDe);
 
     const vungNoiDung = document.createElement('div');
-    vungNoiDung.style.cssText = 'padding:10px; display:flex; flex-direction:column; gap:8px;';
+    vungNoiDung.style.cssText = 'padding:10px; display:flex; flex-direction:column; gap:8px; max-height:70vh; overflow-y:auto;';
 
     countLabel = document.createElement('div');
     countLabel.style.cssText = 'color:#555; font-size:12px;';
     vungNoiDung.appendChild(countLabel);
 
-    scanBtn = document.createElement('button');
-    scanBtn.textContent = '🔍 Quét đơn + Earnings & tải Excel';
-    scanBtn.style.cssText = `
+    btnScanEarnings = document.createElement('button');
+    btnScanEarnings.textContent = '🔍 Quét đơn + Earnings & tải Excel';
+    btnScanEarnings.style.cssText = `
       padding:8px 10px; background:#1a7f37; color:#fff; border:none;
       border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
     `;
-    scanBtn.onclick = scanClearAndExport;
-    vungNoiDung.appendChild(scanBtn);
+    btnScanEarnings.onclick = () => scanAndExport(true);
+    vungNoiDung.appendChild(btnScanEarnings);
+
+    btnScanOnly = document.createElement('button');
+    btnScanOnly.textContent = '📦 Quét đơn & tải Excel';
+    btnScanOnly.style.cssText = `
+      padding:8px 10px; background:#2563EB; color:#fff; border:none;
+      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
+    `;
+    btnScanOnly.onclick = () => scanAndExport(false);
+    vungNoiDung.appendChild(btnScanOnly);
+
+    const duongKe = document.createElement('div');
+    duongKe.style.cssText = 'border-top:1px solid #e5e7eb; margin:4px 0; padding-top:6px; font-size:11px; color:#6b7280; font-weight:bold;';
+    duongKe.textContent = 'Lấy Earnings theo danh sách mã đơn (nhập tay)';
+    vungNoiDung.appendChild(duongKe);
+
+    idsTextarea = document.createElement('textarea');
+    idsTextarea.placeholder = 'Mỗi mã đơn 1 dòng, ví dụ:\n4127701646\n4127701647';
+    idsTextarea.style.cssText = 'width:100%; height:70px; box-sizing:border-box; font-size:12px; resize:vertical;';
+    vungNoiDung.appendChild(idsTextarea);
+
+    btnEarningsOnly = document.createElement('button');
+    btnEarningsOnly.textContent = '💰 Lấy Earnings theo mã đơn & tải Excel';
+    btnEarningsOnly.style.cssText = `
+      padding:8px 10px; background:#F56400; color:#fff; border:none;
+      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
+    `;
+    btnEarningsOnly.onclick = runEarningsOnlyExport;
+    vungNoiDung.appendChild(btnEarningsOnly);
 
     messageBox = document.createElement('div');
     messageBox.id = 'eos-message';
