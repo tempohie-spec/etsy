@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.7
+// @version      1.8
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -263,17 +263,35 @@
   const RUN_KEY = 'AT_RUNNING';
   const PAUSE_KEY = 'AT_PAUSED';
 
-  function getOrderRows() {
+  function getOrderIds() {
     return Array.from(document.querySelectorAll('a[href*="order_id="]'))
-      .map((a) => a.closest('.panel-body-row'))
+      .map((a) => {
+        const m = a.href.match(/order_id=(\d+)/);
+        return m ? m[1] : null;
+      })
       .filter((v, i, arr) => v && arr.indexOf(v) === i);
   }
 
-  function getOrderId(row) {
-    const a = row.querySelector('a[href*="order_id="]');
-    if (!a) return null;
-    const m = a.href.match(/order_id=(\d+)/);
-    return m ? m[1] : null;
+  // Look the row up fresh by order id rather than keeping a DOM reference
+  // captured earlier — completing an order re-renders the list (the
+  // finished row disappears), which can leave previously-captured element
+  // references detached/stale, causing clicks on them to silently do
+  // nothing (symptom: "dropdown open" timeouts right after a completion).
+  function findRowByOrderId(orderId) {
+    const a = document.querySelector(`a[href*="order_id=${orderId}"]`);
+    return a ? a.closest('.panel-body-row') : null;
+  }
+
+  async function waitForRow(orderId, timeout = 4000) {
+    try {
+      return await waitFor(() => findRowByOrderId(orderId), {
+        timeout,
+        interval: 200,
+        desc: 'row for order ' + orderId,
+      });
+    } catch (e) {
+      return null;
+    }
   }
 
   function findUpdateProgressTrigger(row) {
@@ -538,10 +556,7 @@
     return requestMerchizeLookup(orderId);
   }
 
-  async function processOrder(row) {
-    const orderId = getOrderId(row);
-    if (!orderId) return;
-
+  async function processOrder(orderId) {
     const sourceLabel = dataSource === 'sheet' ? 'Sheet' : 'Merchize';
     log('Checking order', orderId, 'against', sourceLabel, '...');
 
@@ -554,6 +569,13 @@
       return;
     }
     log('  found:', result.tracking, '/', result.carrier);
+
+    // Fetch the row fresh right before touching it (see findRowByOrderId).
+    const row = await waitForRow(orderId);
+    if (!row) {
+      log('  row no longer on page -> skipped');
+      return;
+    }
 
     const opened = await openCompleteOrderModal(row, orderId);
     if (!opened) {
@@ -574,17 +596,17 @@
     GM_setValue(RUN_KEY, true);
     GM_setValue(PAUSE_KEY, false);
     setStatus('Running...');
-    const rows = getOrderRows();
-    log(`Found ${rows.length} order(s) on this page.`);
+    const orderIds = getOrderIds();
+    log(`Found ${orderIds.length} order(s) on this page.`);
 
-    for (const row of rows) {
+    for (const orderId of orderIds) {
       if (!GM_getValue(RUN_KEY)) {
         log('Stopped by user.');
         break;
       }
 
-      // Pause: block right here (loop position/rows array is kept, nothing
-      // is re-scanned) until Resume is clicked or Stop cancels the run.
+      // Pause: block right here (loop position/order id list is kept,
+      // nothing is re-scanned) until Resume is clicked or Stop cancels the run.
       while (GM_getValue(PAUSE_KEY)) {
         setStatus('Paused');
         await sleep(300);
@@ -597,7 +619,7 @@
       setStatus('Running...');
 
       try {
-        await processOrder(row);
+        await processOrder(orderId);
       } catch (e) {
         log('ERROR processing row:', e.message);
         // Best-effort cleanup: close any dropdown/modal left open by the
