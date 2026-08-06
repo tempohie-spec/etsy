@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.0
+// @version      2.1
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
-// @require      https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
+// @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -590,7 +590,25 @@
 
   // ====== CHUC NANG 1 + 2: QUET DON (CO HOAC KHONG LAY EARNINGS) ROI XUAT EXCEL ======
 
+  // Kiem tra thu vien XLSX (nap qua @require) da san sang chua. Neu CDN bi chan/loi mang,
+  // Violentmonkey se khong nap duoc thu vien nay va bien XLSX se khong ton tai - kiem tra
+  // truoc khi quet/lay Earnings de bao loi ngay, khong de nguoi dung cho xong roi moi bao loi.
+  function kiemTraXLSXSanSang() {
+    if (typeof XLSX === 'undefined') {
+      hienThongBao(
+        '❌ Chưa tải được thư viện Excel (XLSX). Thử tải lại trang (F5) rồi chạy lại; ' +
+        'nếu vẫn lỗi, kiểm tra AdBlock/tường lửa có đang chặn cdn.jsdelivr.net không.',
+        '#DC2626'
+      );
+      console.error('[Etsy Scraper] Bien XLSX chua duoc nap (kiem tra @require trong script va ket noi mang toi CDN).');
+      return false;
+    }
+    return true;
+  }
+
   async function scanAndExport(withEarnings) {
+    if (!kiemTraXLSXSanSang()) return;
+
     const newRows = extractOrdersFromPage();
     if (newRows.length === 0) {
       hienThongBao('⚠️ Không tìm thấy đơn hàng nào trên trang hiện tại. Kiểm tra Console (F12) để xem log.', '#DC2626');
@@ -635,6 +653,8 @@
   // ====== CHUC NANG 3: LAY EARNINGS THEO DANH SACH MA DON NHAP TAY (NHU BAN DAU) ======
 
   async function runEarningsOnlyExport() {
+    if (!kiemTraXLSXSanSang()) return;
+
     const raw = idsTextarea.value;
     const ids = raw
       .split('\n')

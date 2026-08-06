@@ -41,6 +41,19 @@ sách**, không phải điều hướng sang trang khác. Nếu không đóng l�
 Script tự động bấm nút đóng (✕, nút có `<span class="screen-reader-only">Close</span>`) sau khi
 đọc xong Earnings của mỗi đơn; nếu không tìm thấy nút thì gửi phím `ESC` để đóng.
 
+### Lỗi "XLSX is not defined"
+
+Script nạp thư viện đọc/ghi Excel (SheetJS) qua `@require` từ CDN. Nếu thấy thông báo đỏ
+"Chưa tải được thư viện Excel (XLSX)" (hoặc lỗi Console `XLSX is not defined`), nghĩa là
+Violentmonkey chưa tải được file đó — thường do mạng chặn CDN hoặc AdBlock. Cách khắc phục:
+
+1. Tải lại trang (F5) rồi thử lại — nhiều khi chỉ là lỗi mạng tạm thời.
+2. Kiểm tra AdBlock/uBlock Origin/tường lửa có đang chặn `cdn.jsdelivr.net` không, cho qua nếu có.
+3. Vào Violentmonkey → mở script này → **Save** lại 1 lần để buộc tải lại các tài nguyên `@require`.
+
+Script đã có kiểm tra trước khi chạy: nếu XLSX chưa sẵn sàng sẽ báo lỗi ngay, không để bạn
+đợi hết cả quá trình quét/lấy Earnings rồi mới báo lỗi lúc xuất file.
+
 ### Nút Dừng
 
 Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),
