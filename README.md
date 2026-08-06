@@ -72,12 +72,13 @@ Lưu ý: nút "Add field" nằm ở tab **Item Options** — nếu tab đó chư
 
 ## Không bị AdBlock / uBlock Origin chặn khi tải nhiều ảnh
 
-Script tải theo 3 cách, ưu tiên từ trên xuống — cách 1 gần như miễn nhiễm với adblock:
+Script tải theo 3 cách, ưu tiên từ trên xuống — 2 cách đầu gần như miễn nhiễm với adblock
+(thứ tự này đã đổi ở bản 5.6, xem mục 4b bên dưới):
 
 | Ưu tiên | Cách tải | Ai thực hiện request? | Bị adblock / popup "download multiple files"? |
 |---|---|---|---|
-| 1 | `GM_download` với **URL gốc** của ảnh | Tiện ích userscript | Không — request không đi qua trang web |
-| 2 | `GM_xmlhttpRequest` → Blob → `GM_download` | Tiện ích userscript | Không bị adblock lọc |
+| 1 | `GM_xmlhttpRequest` → Blob → `GM_download` | Tiện ích userscript | Không bị adblock lọc |
+| 2 | `GM_download` với **URL gốc** của ảnh | Tiện ích userscript | Không — request không đi qua trang web |
 | 3 | Thẻ `<a download>` với Blob URL | Chính trang web | Có thể bị chặn / hiện popup |
 
 Điểm mấu chốt: mọi request đều đi qua tiện ích userscript, **không phải** qua ngữ cảnh trang
