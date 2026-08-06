@@ -185,12 +185,54 @@
     return getLabelValues(container, 'Size');
   }
 
+  // Ghep 1 chuoi "Style & Size" thanh { title, size }, vd "Comfort-Adult Tee L" -> title "Comfort-Adult Tee", size "L"
+  function splitStyleSize(styleSize) {
+    const parts = (styleSize || '').trim().split(/\s+/).filter(Boolean);
+    const size = parts.length ? parts[parts.length - 1] : '';
+    const title = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+    return { title, size };
+  }
+
   function extractLineItems(container) {
-    // Luu y: khi 1 don co nhieu san pham CUNG 1 listing (vd ao dong phuc,
-    // moi cai chi khac ten in ca nhan hoa) thi tat ca cac san pham nay
-    // dung CHUNG 1 anh mockup. Vi vay khong the dua vao anh de dem so
-    // san pham - phai dua vao Quantity / Style & Size (so luong the nay
-    // luon dung bang so san pham thuc te trong don).
+    // Moi san pham trong don nam trong 1 khoi ".flag" RIENG cua no (anh + Quantity +
+    // Style & Size + Color + Personalization cua rieng san pham do). Phai lay anh/nhan
+    // THEO TUNG KHOI ".flag" nay, KHONG duoc gom het anh ca don lai roi loai trung theo
+    // URL - vi 2 san pham KHAC NHAU (vd 1 mau thuong + 1 mau "Vintage" cua cung listing)
+    // co the dung CHUNG 1 URL anh mockup; loai trung se lam mat bot 1 anh va lam lech
+    // vi tri img[i] so voi san pham thu i (vd don co 4 san pham nhung chi con 2 URL anh
+    // sau khi loai trung -> san pham thu 4 se bi fallback nham ve img[0] thay vi dung anh).
+    // Loc bot cac phan tu ".flag" khong phai san pham (vd icon co quoc gia dung chung
+    // class "flag" o cho khac trong don hang) - chi giu lai khoi co ANH ("flag-img") va
+    // it nhat 1 gia tri dang "strong" (Quantity/Style & Size/Color) ben trong.
+    const flagEls = Array.from(container.querySelectorAll('.flag')).filter(
+      (el) => el.querySelector('.flag-img') && el.querySelector('span.strong')
+    );
+
+    if (flagEls.length > 0) {
+      return flagEls.map((flagEl) => {
+        const img = flagEl.querySelector('.flag-img img[alt], img[alt][src*="etsystatic"]');
+        const quantity = getLabelValues(flagEl, 'Quantity')[0] || '';
+        const styleSize = getStyleSizeValues(flagEl)[0] || '';
+        const { title, size } = splitStyleSize(styleSize);
+        const color = getLabelValues(flagEl, 'Color')[0] || '';
+        const personalization = getLabelValues(flagEl, 'Personalization')[0] || '';
+        // Personalization xuat ra cot rieng ("Personalization"), khong ghep vao title.
+
+        return {
+          mockUpFront: img ? toBigImage(img.getAttribute('src')) : '',
+          title,
+          size,
+          quantity,
+          color,
+          personalization
+        };
+      });
+    }
+
+    // Du phong: khong tim thay khoi ".flag" nao (gap DOM khac ban thuong thay), quay ve
+    // cach cu la doc cac nhan Quantity/Style & Size/Color/Personalization o cap ca don
+    // hang. Cach nay co the bi lech anh khi nhieu san pham dung chung 1 URL anh (xem
+    // giai thich o tren) nhung van dung neu tung don chi co dung 1 san pham.
     const imgs = Array.from(
       container.querySelectorAll('.flag-img img[alt], img[alt][src*="etsystatic"]')
     );
@@ -215,18 +257,9 @@
     const items = [];
 
     for (let i = 0; i < count; i++) {
-      // Anh: neu co nhieu anh khac nhau thi lay theo dung thu tu i,
-      // neu chi co 1 anh chung (truong hop pho bien) thi dung anh do cho tat ca.
       const img = uniqueImgs[i] || uniqueImgs[0];
-      const styleSize = styleSizes[i] || styleSizes[0] || '';
-      const parts = styleSize.trim().split(/\s+/).filter(Boolean);
-      const size = parts.length ? parts[parts.length - 1] : '';
-      let title = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
-
+      const { title, size } = splitStyleSize(styleSizes[i] || styleSizes[0] || '');
       const personalization = personalizations[i] || '';
-      // Personalization xuat ra cot rieng ("Personalization"), khong ghep vao title.
-      // Van giu bien personalization de dung phan biet cac dong giong nhau
-      // (tranh bi coi la trung) khi can.
 
       items.push({
         mockUpFront: img ? toBigImage(img.getAttribute('src')) : '',
