@@ -115,7 +115,7 @@
     try {
       const url = new URL(link.href, location.origin);
       const oid = url.searchParams.get('order_id');
-      if (oid) return oid;
+      if (oid) return oid.trim();
     } catch (e) { /* noop */ }
     return link.textContent.trim().replace(/^#/, '');
   }
@@ -441,12 +441,20 @@
     return amount;
   }
 
+  // Chuan hoa ma don thanh chuoi, bo khoang trang thua, de tranh truong hop 1 vai dong
+  // co orderNumber le kieu so / co khoang trang an... khien so khop bi lech (Set/Map
+  // dung so sanh chuoi tuyet doi, "123" va "123 " la 2 gia tri khac nhau).
+  function chuanHoaMaDon(orderNumber) {
+    return String(orderNumber || '').trim();
+  }
+
   // Lay earnings tuan tu cho tung ma don hang duy nhat (bang cach bam vao ma don),
-  // ghi ket qua vao tat ca cac dong (rows) co cung orderNumber.
+  // ghi ket qua vao TAT CA cac dong (rows) co cung orderNumber (1 don co nhieu san pham
+  // se ra nhieu dong, nhung chi can lay Earnings 1 lan cho ca don roi dien lai cho het).
   // Tra ve true neu bi nguoi dung bam nut Dung giua chung.
   async function fillEarningsForRowsByClick(rows, onProgress) {
-    const uniqueOrderNumbers = [...new Set(rows.map((r) => r.orderNumber).filter(Boolean))];
-    const earningsByOrder = {};
+    const uniqueOrderNumbers = [...new Set(rows.map((r) => chuanHoaMaDon(r.orderNumber)).filter(Boolean))];
+    const earningsByOrder = new Map();
     let stopped = false;
 
     for (let i = 0; i < uniqueOrderNumbers.length; i++) {
@@ -459,17 +467,25 @@
         onProgress(`⏳ (${i + 1}/${uniqueOrderNumbers.length}) Đang lấy Earnings đơn #${orderId}...`);
       }
       try {
-        earningsByOrder[orderId] = await getEarningsByClickingOrder(orderId);
+        earningsByOrder.set(orderId, await getEarningsByClickingOrder(orderId));
       } catch (err) {
         console.error('[Etsy Scraper] Lỗi lấy Earnings cho đơn ' + orderId + ':', err);
-        earningsByOrder[orderId] = '';
+        earningsByOrder.set(orderId, '');
       }
       await sleep(400);
     }
 
+    console.log('[Etsy Scraper] Bảng Earnings theo mã đơn:', Object.fromEntries(earningsByOrder));
+
+    let soDongDaDien = 0;
     rows.forEach((row) => {
-      row.Earnings = earningsByOrder[row.orderNumber] || '';
+      const key = chuanHoaMaDon(row.orderNumber);
+      if (earningsByOrder.has(key)) {
+        row.Earnings = earningsByOrder.get(key) || '';
+        soDongDaDien++;
+      }
     });
+    console.log(`[Etsy Scraper] Đã điền Earnings cho ${soDongDaDien}/${rows.length} dòng.`);
 
     return stopped;
   }
