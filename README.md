@@ -195,13 +195,21 @@ tương ứng từ 1 trong 2 nguồn — chọn trong panel trên tab Etsy:
 
   Trên tab Merchize có badge "AutoTrack: listening" xác nhận đang lắng nghe.
 
-- **Dán từ Sheet**: khi dùng 1 sheet riêng (VD Google Sheets) để theo dõi tracking. Bôi đen cả
-  dòng header + các dòng dữ liệu trong sheet, Ctrl+C, dán (Ctrl+V) vào ô textarea trong panel rồi
-  bấm **Nạp dữ liệu Sheet**. Không cần mở tab Merchize ở chế độ này. Script tự dò cột theo tên
-  header (không phân biệt hoa/thường, không cần đúng thứ tự cột):
-  - Cột chứa `ORDER CODE` (hoặc `ORDER`) — bắt buộc, phải khớp với order id của Etsy.
-  - Cột chứa `TRACKING` — bắt buộc.
-  - Cột chứa `DVVC` hoặc `CARRIER` — tuỳ chọn, dùng làm tên shipping carrier.
+- **Dán từ Sheet**: khi dùng 1 sheet riêng (VD Google Sheets) để theo dõi tracking. Bôi đen
+  **chỉ các dòng dữ liệu** (KHÔNG cần dòng header), Ctrl+C, dán (Ctrl+V) vào ô textarea trong
+  panel rồi bấm **Nạp dữ liệu Sheet**. Không cần mở tab Merchize ở chế độ này.
+
+  Vì không có header, script quy ước vị trí cột cố định theo đúng layout của sheet gốc (chỉnh
+  hằng số `ORDER_CODE_COLUMN_INDEX` ở đầu file nếu sheet của bạn khác layout):
+  - Cột đầu tiên (`ORDER DATE`) — dùng để nhận diện điểm bắt đầu 1 đơn (dạng ngày/tháng/năm,
+    VD `5/8/26`), không lấy dữ liệu.
+  - Cột thứ 2 = **ORDER CODE**, phải khớp với order id của Etsy.
+  - Cột **cuối cùng** của mỗi dòng = **carrier (DVVC)**.
+  - Cột **áp chót** = **TRACKING**.
+
+  Nếu 1 ô trong sheet có xuống dòng thủ công (Alt+Enter) — VD tên/địa chỉ bị wrap — khi copy nó
+  sẽ tràn xuống nhiều dòng vật lý; script tự nhận biết dòng nào thực sự là "đơn mới" (bắt đầu
+  bằng ngày tháng) và tự ghép các dòng còn lại vào đúng đơn đó, không cần bạn chỉnh sửa gì thêm.
 
   Vì tracking trong sheet cập nhật liên tục, mỗi lần muốn chạy lại chỉ cần copy vùng dữ liệu mới
   nhất rồi bấm **Nạp dữ liệu Sheet** lại — không cần cài lại script.

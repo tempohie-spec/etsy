@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.6
+// @version      1.7
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -460,46 +460,71 @@
   }
 
   // ---------------------------------------------------------------------
-  // Alternative data source: paste a copy of the tracking sheet (e.g. from
-  // Google Sheets — select the range including the header row, Ctrl+C, then
-  // paste into the textarea) instead of relying on the Merchize tab. Columns
-  // are matched by header name so the exact layout doesn't matter, as long
-  // as there's a column with "ORDER CODE"/"ORDER" in its header and one with
-  // "TRACKING"; a "DVVC"/"CARRIER" column is used for carrier if present.
+  // Alternative data source: paste a copy of the tracking sheet's DATA ROWS
+  // ONLY (no header) — select the range in Google Sheets, Ctrl+C, paste into
+  // the textarea — instead of relying on the Merchize tab.
+  //
+  // No header means columns can't be matched by name, so this uses a fixed
+  // positional convention instead (adjust the constants below if your sheet
+  // is laid out differently):
+  //   - column index 1 (the 2nd column) = ORDER CODE
+  //   - the LAST column of each row     = carrier (DVVC)
+  //   - the 2nd-to-last column          = TRACKING
+  //
+  // The tricky part: a cell with a manual line break (Alt+Enter) — e.g. a
+  // wrapped name or address — copies as a literal newline embedded in the
+  // clipboard text, which would otherwise look like "the next row" to a
+  // naive line-by-line parser. To handle that, a line only starts a NEW row
+  // if its first cell looks like a date (matches column 0 / ORDER DATE);
+  // any other line is treated as a continuation and glued onto the row
+  // being built (its first cell merges into the previous row's last cell,
+  // the rest become new cells) — this keeps every column correctly aligned
+  // by the time a row is complete.
   // ---------------------------------------------------------------------
 
   let dataSource = localStorage.getItem('at_data_source') || 'merchize';
   let sheetMap = null; // orderId -> { tracking, carrier }
 
+  const ORDER_CODE_COLUMN_INDEX = 1;
+  const ROW_START_DATE_RE = /^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}$/;
+
   function parseSheetPaste(text) {
-    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
-    if (!lines.length) return null;
+    const rawLines = text.split(/\r?\n/);
+    const rows = [];
+    let current = null;
 
-    const header = lines[0].split('\t').map((h) => h.trim().toUpperCase());
-    const findCol = (...keywords) => header.findIndex((h) => keywords.some((k) => h.includes(k)));
+    for (const rawLine of rawLines) {
+      if (rawLine.trim() === '') continue; // skip blank separator lines
+      const cells = rawLine.split('\t');
+      const looksLikeRowStart = ROW_START_DATE_RE.test((cells[0] || '').trim());
 
-    const colOrder = findCol('ORDER CODE', 'ORDER ID', 'MA DON', 'MÃ ĐƠN', 'ORDER');
-    const colTracking = findCol('TRACKING');
-    const colCarrier = findCol('DVVC', 'CARRIER', 'VAN CHUYEN', 'VẬN CHUYỂN');
-
-    if (colOrder === -1 || colTracking === -1) {
-      // Return enough info for the UI to explain exactly what's missing,
-      // instead of a plain "couldn't read it" message.
-      return { ok: false, header, colOrder, colTracking };
+      if (looksLikeRowStart) {
+        if (current) rows.push(current);
+        current = cells.slice();
+      } else if (current) {
+        // Continuation line from a wrapped cell: glue its first field onto
+        // the row's last cell so far, append the rest as new cells.
+        current[current.length - 1] += '\n' + cells[0];
+        for (let i = 1; i < cells.length; i++) current.push(cells[i]);
+      }
+      // A line before any row has started (e.g. a stray header) is ignored.
     }
+    if (current) rows.push(current);
+
+    if (!rows.length) return { ok: false, rowCount: 0 };
 
     const map = {};
     let count = 0;
-    for (let i = 1; i < lines.length; i++) {
-      const cells = lines[i].split('\t');
-      const orderId = (cells[colOrder] || '').trim();
-      const tracking = (cells[colTracking] || '').trim();
-      const carrier = colCarrier !== -1 ? (cells[colCarrier] || '').trim() : '';
-      if (!orderId || !tracking) continue; // skip blank/filter rows
+    for (const cells of rows) {
+      if (cells.length < ORDER_CODE_COLUMN_INDEX + 3) continue; // not enough columns
+      const orderId = (cells[ORDER_CODE_COLUMN_INDEX] || '').trim();
+      const carrier = (cells[cells.length - 1] || '').trim();
+      const tracking = (cells[cells.length - 2] || '').trim();
+      if (!orderId || !tracking) continue; // order not shipped yet -> skip
       map[orderId] = { tracking, carrier };
       count++;
     }
-    return { ok: true, map, count };
+    return { ok: true, map, count, rowCount: rows.length };
   }
 
   async function lookupTracking(orderId) {
@@ -630,7 +655,7 @@
       <label><input type="radio" name="at-source" value="sheet"> Nguồn: dán từ Sheet</label>
     </div>
     <div id="at-sheet-import">
-      <textarea id="at-sheet-paste" rows="3" placeholder="Bôi đen cả header + các dòng trong Google Sheet, Ctrl+C, rồi dán (Ctrl+V) vào đây"></textarea>
+      <textarea id="at-sheet-paste" rows="3" placeholder="Bôi đen các dòng dữ liệu trong Sheet (KHÔNG cần dòng header), Ctrl+C, rồi dán (Ctrl+V) vào đây"></textarea>
       <button class="start" id="at-sheet-load">Nạp dữ liệu Sheet</button>
       <div id="at-sheet-info"></div>
     </div>
@@ -672,17 +697,18 @@
     }
 
     const result = parseSheetPaste(text);
-    if (!result || !result.ok) {
-      const header = result ? result.header : [];
-      const missing = [];
-      if (!result || result.colOrder === -1) missing.push('ORDER CODE');
-      if (!result || result.colTracking === -1) missing.push('TRACKING');
+    if (!result.ok) {
       info.textContent =
-        `Thiếu cột: ${missing.join(', ')}.\n` +
-        `Dòng đầu tiên đọc được ${header.length} cột: ${header.join(' | ') || '(rỗng)'}\n` +
-        `-> Nhớ bôi đen TỪ dòng header (dòng có chữ "ORDER CODE", "TRACKING"...) TỚI hết các ` +
-        `dòng dữ liệu, và phải bao gồm cả cột ORDER CODE, rồi mới Ctrl+C.`;
-      log('Sheet import failed, missing column(s):', missing.join(', '));
+        'Không dò được dòng đơn nào.\n' +
+        '-> Mỗi đơn phải bắt đầu bằng cột ORDER DATE dạng ngày/tháng/năm (VD: 5/8/26).';
+      log('Sheet import failed: no rows detected.');
+      return;
+    }
+    if (result.count === 0) {
+      info.textContent =
+        `Đọc được ${result.rowCount} dòng đơn nhưng không đơn nào có TRACKING để nạp ` +
+        `(có thể các đơn chưa có tracking, hoặc thiếu cột mã đơn/tracking ở cuối mỗi dòng).`;
+      log(`Sheet import: ${result.rowCount} row(s) read, 0 with tracking.`);
       return;
     }
 
