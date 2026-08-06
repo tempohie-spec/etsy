@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.5
+// @version      1.6
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -481,7 +481,12 @@
     const colOrder = findCol('ORDER CODE', 'ORDER ID', 'MA DON', 'MÃ ĐƠN', 'ORDER');
     const colTracking = findCol('TRACKING');
     const colCarrier = findCol('DVVC', 'CARRIER', 'VAN CHUYEN', 'VẬN CHUYỂN');
-    if (colOrder === -1 || colTracking === -1) return null;
+
+    if (colOrder === -1 || colTracking === -1) {
+      // Return enough info for the UI to explain exactly what's missing,
+      // instead of a plain "couldn't read it" message.
+      return { ok: false, header, colOrder, colTracking };
+    }
 
     const map = {};
     let count = 0;
@@ -494,7 +499,7 @@
       map[orderId] = { tracking, carrier };
       count++;
     }
-    return { map, count };
+    return { ok: true, map, count };
   }
 
   async function lookupTracking(orderId) {
@@ -660,12 +665,27 @@
   document.getElementById('at-sheet-load').addEventListener('click', () => {
     const text = document.getElementById('at-sheet-paste').value;
     const info = document.getElementById('at-sheet-info');
-    const result = parseSheetPaste(text);
-    if (!result) {
-      info.textContent = 'Không đọc được — dòng đầu tiên cần có cột chứa "ORDER CODE" và "TRACKING".';
-      log('Sheet import failed: missing ORDER CODE / TRACKING column.');
+
+    if (!text.trim()) {
+      info.textContent = 'Ô dán đang trống.';
       return;
     }
+
+    const result = parseSheetPaste(text);
+    if (!result || !result.ok) {
+      const header = result ? result.header : [];
+      const missing = [];
+      if (!result || result.colOrder === -1) missing.push('ORDER CODE');
+      if (!result || result.colTracking === -1) missing.push('TRACKING');
+      info.textContent =
+        `Thiếu cột: ${missing.join(', ')}.\n` +
+        `Dòng đầu tiên đọc được ${header.length} cột: ${header.join(' | ') || '(rỗng)'}\n` +
+        `-> Nhớ bôi đen TỪ dòng header (dòng có chữ "ORDER CODE", "TRACKING"...) TỚI hết các ` +
+        `dòng dữ liệu, và phải bao gồm cả cột ORDER CODE, rồi mới Ctrl+C.`;
+      log('Sheet import failed, missing column(s):', missing.join(', '));
+      return;
+    }
+
     sheetMap = result.map;
     info.textContent = `Đã nạp ${result.count} đơn từ Sheet.`;
     log(`Sheet import: loaded ${result.count} order(s).`);
