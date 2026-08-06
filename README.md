@@ -5,6 +5,28 @@ Userscript (Violentmonkey / Tampermonkey) cho trang Etsy.
 - File script: [`etsy-auto.user.js`](etsy-auto.user.js)
 - Cài đặt: mở Violentmonkey → **Create a new script** → dán toàn bộ nội dung file → **Save**.
 
+## Etsy Order Scraper + Earnings -> Excel
+
+Userscript riêng cho trang `https://www.etsy.com/your/orders*`.
+
+- File script: [`etsy-order-earnings.user.js`](etsy-order-earnings.user.js)
+- Cài đặt: mở Violentmonkey → **Create a new script** → dán toàn bộ nội dung file → **Save**.
+
+Chức năng: quét toàn bộ đơn hàng đang hiển thị trên trang, tự động tìm và lấy **Earnings**
+(số tiền kiếm được) cho từng mã đơn, sau đó xuất ra file Excel — dữ liệu cũ đã lưu sẽ bị
+xoá và thay bằng dữ liệu vừa quét.
+
+So với bản gốc (chỉ quét đơn, không có Earnings):
+
+- Đã bỏ 2 cột `Printing` và `Account`.
+- Đã thêm cột `Earnings` ngay bên phải cột `Date Fulfil` (chỉ số tiền, không kèm ký hiệu `$`).
+- File Excel xuất ra **không có dòng header**.
+
+Panel nổi có thể thu nhỏ thành biểu tượng tròn "Order" và kéo thả tự do; vị trí được nhớ qua
+`GM_setValue`/`GM_getValue`. Bấm nút **"🔍 Quét đơn + Earnings & tải Excel"** để chạy — script sẽ
+lần lượt tìm kiếm từng mã đơn, mở tab Earnings để đọc số tiền (có thể mất vài giây cho mỗi đơn),
+rồi mới xuất file.
+
 ## Chức năng
 
 | Nút / Phím tắt | Việc làm |
