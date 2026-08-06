@@ -33,6 +33,11 @@
   // Luu vi tri + trang thai thu nho/mo rong cua panel
   const PANEL_STATE_KEY = 'etsy_scraper_panel_state_v1';
 
+  // So dien thoai ao, tu dong dien vao cot "phone" cho cac don o ngoai United States
+  // (khi khong doc duoc so that tren trang) - de tranh o phone bi trong khi in van don.
+  // Sua lai gia tri nay neu ban muon dung so khac.
+  const FAKE_PHONE_FOR_NON_US = '0123456789';
+
   // ====== SELECTOR PHUC VU LAY EARNINGS (chinh neu Etsy doi giao dien) ======
   const SEL = {
     // o input tim kiem don hang (dua vao aria-label "Search your orders") - chi dung cho
@@ -147,6 +152,17 @@
       ? emailLink.getAttribute('href').replace(/^mailto:/i, '').split('?')[0].trim()
       : '';
 
+    const country = q('span.country-name');
+    // CHUA CHAC CHAN: chua co vi du HTML co so dien thoai.
+    // Tam thoi thu vai class pho bien, ban kiem tra lai giup minh.
+    let phone = q('span.phone') || q('.phone-number') || q('[class*="phone"]');
+
+    // Don o ngoai United States ma chua doc duoc so dien thoai that -> tu dien so ao,
+    // vi mot so noi (vd dich vu in van don) yeu cau o phone khong duoc de trong.
+    if (!phone && country && country.trim().toLowerCase() !== 'united states') {
+      phone = FAKE_PHONE_FOR_NON_US;
+    }
+
     return {
       name: q('span.name'),
       address1: q('span.first-line'),
@@ -154,10 +170,8 @@
       city: q('span.city'),
       state: q('span.state'),
       postalCode: q('span.zip'),
-      country: q('span.country-name'),
-      // CHUA CHAC CHAN: chua co vi du HTML co so dien thoai.
-      // Tam thoi thu vai class pho bien, ban kiem tra lai giup minh.
-      phone: q('span.phone') || q('.phone-number') || q('[class*="phone"]'),
+      country,
+      phone,
       email
     };
   }

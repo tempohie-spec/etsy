@@ -27,6 +27,9 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
 - Đã thêm cột `Earnings` ngay bên phải cột `Date Fulfil` (chỉ số tiền, không kèm ký hiệu `$`).
   Nếu 1 đơn có nhiều sản phẩm (ra nhiều dòng), Earnings chỉ được điền vào **dòng đầu tiên**
   của đơn đó, các dòng sau để trống.
+- Đơn giao ra **ngoài United States** mà không đọc được số điện thoại thật trên trang sẽ được
+  tự động điền 1 số điện thoại ảo vào cột `phone` (tránh để trống khi in vận đơn). Sửa hằng số
+  `FAKE_PHONE_FOR_NON_US` ở đầu file script nếu muốn đổi số khác.
 - Cột `Date Fulfil` được **tự động điền ngày chạy script** theo định dạng `dd/mm/yyyy`.
 - File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
 
