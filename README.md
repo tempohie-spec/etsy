@@ -186,32 +186,48 @@ Userscript thứ hai trong repo này, độc lập với script phía trên.
 ## Chức năng
 
 Tự động hoàn tất các đơn Etsy chưa có tracking bằng cách lấy tracking number + shipping carrier
-tương ứng từ trang quản lý fulfillment [Merchize](https://seller.merchize.com).
+tương ứng từ 1 trong 2 nguồn — chọn trong panel trên tab Etsy:
 
-Cần mở **cả 2 tab cùng lúc**:
+- **Merchize (tab)**: lấy trực tiếp từ trang quản lý fulfillment
+  [Merchize](https://seller.merchize.com). Cần mở **cả 2 tab cùng lúc**:
+  1. Tab Etsy: `Orders → Sold` (`https://www.etsy.com/your/orders/sold*`)
+  2. Tab Merchize: `seller.merchize.com/a/orders?tab=shipping_status`
 
-1. Tab Etsy: `Orders → Sold` (`https://www.etsy.com/your/orders/sold*`)
-2. Tab Merchize: `seller.merchize.com/a/orders?tab=shipping_status`
+  Trên tab Merchize có badge "AutoTrack: listening" xác nhận đang lắng nghe.
 
-Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start/Stop**. Trên tab Merchize có badge
-"AutoTrack: listening" xác nhận đang lắng nghe.
+- **Dán từ Sheet**: khi dùng 1 sheet riêng (VD Google Sheets) để theo dõi tracking. Bôi đen cả
+  dòng header + các dòng dữ liệu trong sheet, Ctrl+C, dán (Ctrl+V) vào ô textarea trong panel rồi
+  bấm **Nạp dữ liệu Sheet**. Không cần mở tab Merchize ở chế độ này. Script tự dò cột theo tên
+  header (không phân biệt hoa/thường, không cần đúng thứ tự cột):
+  - Cột chứa `ORDER CODE` (hoặc `ORDER`) — bắt buộc, phải khớp với order id của Etsy.
+  - Cột chứa `TRACKING` — bắt buộc.
+  - Cột chứa `DVVC` hoặc `CARRIER` — tuỳ chọn, dùng làm tên shipping carrier.
+
+  Vì tracking trong sheet cập nhật liên tục, mỗi lần muốn chạy lại chỉ cần copy vùng dữ liệu mới
+  nhất rồi bấm **Nạp dữ liệu Sheet** lại — không cần cài lại script.
+
+Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**.
 
 ## Logic xử lý (theo từng đơn trên trang Etsy)
 
 1. Dò mã đơn Etsy (order id trong link `?order_id=...`).
-2. **Trước khi mở bất kỳ ô nhập nào**, gửi mã đơn này sang tab Merchize để tra cứu.
-3. Tab Merchize quét các dòng `tr.OrderExtendPackagesRow` đang hiển thị trên trang, so khớp với
-   `External order number` (`td.OrderCodeCell code`) — không cần gõ vào ô tìm kiếm.
+2. **Trước khi mở bất kỳ ô nhập nào**, tra cứu mã đơn này theo nguồn dữ liệu đang chọn:
+   - *Merchize*: gửi mã đơn sang tab Merchize, tab đó quét các dòng `tr.OrderExtendPackagesRow`
+     đang hiển thị, so khớp với `External order number` (`td.OrderCodeCell code`) — không cần gõ
+     vào ô tìm kiếm.
+   - *Sheet*: tra trực tiếp trong dữ liệu đã dán/nạp, so khớp theo cột `ORDER CODE`.
    - Nếu **không tìm thấy** mã khớp → bỏ qua đơn này hoàn toàn, không đụng vào Update
      progress/Complete order bên Etsy.
-   - Nếu **tìm thấy** → trả về tracking number + tên carrier (VD: `USPS`, `DHL eCommerce`).
-4. Chỉ khi có kết quả, tab Etsy mới: bấm **Update progress → Complete order** để mở modal, sau đó:
+   - Nếu **tìm thấy** → có tracking number + tên carrier (VD: `USPS`, `DHL eCommerce`).
+3. Chỉ khi có kết quả, tab Etsy mới: bấm **Update progress → Complete order** để mở modal, sau đó:
    - Chọn carrier trong dropdown bằng cách so khớp text (VD: `DHL eCommerce` → chọn `DHL`).
    - Nếu không có carrier tương ứng trong dropdown → chọn **Other** rồi gõ tay tên carrier gốc
      (VD: `USPS` → Other → gõ `USPS`).
    - Điền tracking number.
    - Bấm **Complete order** để hoàn tất.
-5. Lặp lại cho từng đơn trên trang Etsy hiện tại.
+4. Lặp lại cho từng đơn trên trang Etsy hiện tại. Có thể **Pause** để tạm dừng đúng vị trí đang
+   chạy (bấm lại Start để tiếp tục), hoặc **Stop** để huỷ hẳn — lần Start sau sẽ quét lại từ đầu
+   danh sách đơn hiện có trên trang.
 
 ## Cơ chế giao tiếp giữa 2 tab
 

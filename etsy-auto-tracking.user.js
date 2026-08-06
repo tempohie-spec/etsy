@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.4
+// @version      1.5
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -459,18 +459,68 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Alternative data source: paste a copy of the tracking sheet (e.g. from
+  // Google Sheets — select the range including the header row, Ctrl+C, then
+  // paste into the textarea) instead of relying on the Merchize tab. Columns
+  // are matched by header name so the exact layout doesn't matter, as long
+  // as there's a column with "ORDER CODE"/"ORDER" in its header and one with
+  // "TRACKING"; a "DVVC"/"CARRIER" column is used for carrier if present.
+  // ---------------------------------------------------------------------
+
+  let dataSource = localStorage.getItem('at_data_source') || 'merchize';
+  let sheetMap = null; // orderId -> { tracking, carrier }
+
+  function parseSheetPaste(text) {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
+    if (!lines.length) return null;
+
+    const header = lines[0].split('\t').map((h) => h.trim().toUpperCase());
+    const findCol = (...keywords) => header.findIndex((h) => keywords.some((k) => h.includes(k)));
+
+    const colOrder = findCol('ORDER CODE', 'ORDER ID', 'MA DON', 'MÃ ĐƠN', 'ORDER');
+    const colTracking = findCol('TRACKING');
+    const colCarrier = findCol('DVVC', 'CARRIER', 'VAN CHUYEN', 'VẬN CHUYỂN');
+    if (colOrder === -1 || colTracking === -1) return null;
+
+    const map = {};
+    let count = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const cells = lines[i].split('\t');
+      const orderId = (cells[colOrder] || '').trim();
+      const tracking = (cells[colTracking] || '').trim();
+      const carrier = colCarrier !== -1 ? (cells[colCarrier] || '').trim() : '';
+      if (!orderId || !tracking) continue; // skip blank/filter rows
+      map[orderId] = { tracking, carrier };
+      count++;
+    }
+    return { map, count };
+  }
+
+  async function lookupTracking(orderId) {
+    if (dataSource === 'sheet') {
+      if (!sheetMap) return { orderId, found: false };
+      const entry = sheetMap[orderId];
+      return entry
+        ? { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier }
+        : { orderId, found: false };
+    }
+    return requestMerchizeLookup(orderId);
+  }
+
   async function processOrder(row) {
     const orderId = getOrderId(row);
     if (!orderId) return;
 
-    log('Checking order', orderId, 'against Merchize...');
+    const sourceLabel = dataSource === 'sheet' ? 'Sheet' : 'Merchize';
+    log('Checking order', orderId, 'against', sourceLabel, '...');
 
-    // Look up Merchize FIRST. Only open the "Complete order" modal at all
-    // if we actually have tracking data to put into it.
-    const result = await requestMerchizeLookup(orderId);
+    // Look up the tracking source FIRST. Only open the "Complete order"
+    // modal at all if we actually have tracking data to put into it.
+    const result = await lookupTracking(orderId);
 
     if (!result.found) {
-      log('  not found in Merchize -> skipped (no modal opened)');
+      log(`  not found in ${sourceLabel} -> skipped (no modal opened)`);
       return;
     }
     log('  found:', result.tracking, '/', result.carrier);
@@ -549,6 +599,12 @@
     #at-panel .pause{background:#d97706;color:#fff}
     #at-panel .stop{background:#dc2626;color:#fff}
     #at-status{font:12px monospace;opacity:.8;margin-top:4px}
+    .at-source{margin-top:8px;font:12px sans-serif}
+    .at-source label{display:block;margin-top:2px;cursor:pointer}
+    #at-sheet-import textarea{width:100%;box-sizing:border-box;margin-top:6px;
+      font:10px monospace;resize:vertical;background:#1a1a1a;color:#e5e7eb;
+      border:1px solid #333;border-radius:4px;padding:4px}
+    #at-sheet-info{font:11px monospace;opacity:.75;margin-top:4px;white-space:pre-wrap}
     .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
       border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
     .at-log-line{white-space:pre-wrap;word-break:break-word;
@@ -564,6 +620,15 @@
     <button class="start" id="at-start">Start</button>
     <button class="pause" id="at-pause">Pause</button>
     <button class="stop" id="at-stop">Stop</button>
+    <div class="at-source">
+      <label><input type="radio" name="at-source" value="merchize"> Nguồn: Merchize (tab)</label>
+      <label><input type="radio" name="at-source" value="sheet"> Nguồn: dán từ Sheet</label>
+    </div>
+    <div id="at-sheet-import">
+      <textarea id="at-sheet-paste" rows="3" placeholder="Bôi đen cả header + các dòng trong Google Sheet, Ctrl+C, rồi dán (Ctrl+V) vào đây"></textarea>
+      <button class="start" id="at-sheet-load">Nạp dữ liệu Sheet</button>
+      <div id="at-sheet-info"></div>
+    </div>
     <div id="at-log" class="at-log"></div>
   `;
   document.body.appendChild(panel);
@@ -573,6 +638,38 @@
     const el = document.getElementById('at-status');
     if (el) el.textContent = text;
   }
+
+  function applyDataSourceUI() {
+    panel.querySelectorAll('input[name="at-source"]').forEach((r) => {
+      r.checked = r.value === dataSource;
+    });
+    document.getElementById('at-sheet-import').style.display =
+      dataSource === 'sheet' ? 'block' : 'none';
+  }
+  applyDataSourceUI();
+
+  panel.querySelectorAll('input[name="at-source"]').forEach((r) => {
+    r.addEventListener('change', (e) => {
+      dataSource = e.target.value;
+      localStorage.setItem('at_data_source', dataSource);
+      applyDataSourceUI();
+      log('Data source ->', dataSource);
+    });
+  });
+
+  document.getElementById('at-sheet-load').addEventListener('click', () => {
+    const text = document.getElementById('at-sheet-paste').value;
+    const info = document.getElementById('at-sheet-info');
+    const result = parseSheetPaste(text);
+    if (!result) {
+      info.textContent = 'Không đọc được — dòng đầu tiên cần có cột chứa "ORDER CODE" và "TRACKING".';
+      log('Sheet import failed: missing ORDER CODE / TRACKING column.');
+      return;
+    }
+    sheetMap = result.map;
+    info.textContent = `Đã nạp ${result.count} đơn từ Sheet.`;
+    log(`Sheet import: loaded ${result.count} order(s).`);
+  });
 
   function setPauseButtonLabel() {
     const btn = document.getElementById('at-pause');
