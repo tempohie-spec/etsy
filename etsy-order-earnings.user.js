@@ -380,18 +380,45 @@
   // ====== CACH 1 (MOI): LAY EARNINGS BANG CACH BAM TRUC TIEP VAO MA DON ======
   // (dung cho chuc nang "Quet don + Lay Earnings", vi don da san co tren trang,
   // khong can go vao o tim kiem nen KHONG bi mat trang danh sach dang xem)
+  //
+  // Bang "Order details" hien ra la 1 OVERLAY (peek panel) de tren danh sach, KHONG
+  // phai dieu huong sang trang khac. Vi vay bat buoc phai dong overlay nay lai (bam nut X
+  // hoac nhan ESC) truoc khi xu ly don tiep theo - neu khong overlay se giu nguyen don dau
+  // tien va moi lan doc Earnings sau do deu ra cung 1 so tien (dinh vao tat ca cac don).
 
   function findOrderLinkByOrderId(orderId) {
     return document.querySelector(`a[href*="order_id=${orderId}"]`);
   }
 
-  function findBackControl() {
-    return (
-      document.querySelector('a[href="/your/orders/sold"]') ||
-      document.querySelector('[aria-label*="Back" i]') ||
-      findClickableByText('Back to Orders') ||
-      findClickableByText('Back')
-    );
+  // Nut dong overlay: <button ...><svg class="etsy-icon">...</svg><span class="screen-reader-only">Close</span></button>
+  function findCloseOrderDetailButton() {
+    const spans = document.querySelectorAll('span.screen-reader-only');
+    for (const span of spans) {
+      if (span.textContent.trim().toLowerCase() === 'close') {
+        const btn = span.closest('button');
+        if (btn) return btn;
+      }
+    }
+    return null;
+  }
+
+  function pressEscape() {
+    const opts = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true };
+    document.dispatchEvent(new KeyboardEvent('keydown', opts));
+    document.dispatchEvent(new KeyboardEvent('keyup', opts));
+  }
+
+  // Dong bang order details: uu tien bam nut X, khong co thi nhan ESC.
+  async function closeOrderDetailPanel() {
+    const closeBtn = findCloseOrderDetailButton();
+    if (closeBtn) {
+      closeBtn.click();
+    } else {
+      pressEscape();
+    }
+    await sleep(STEP_DELAY);
+    // Doi overlay bien mat hoan toan roi moi xu ly don tiep theo
+    await waitFor(() => !findCloseOrderDetailButton(), 6000).catch(() => {});
   }
 
   async function getEarningsByClickingOrder(orderId) {
@@ -408,27 +435,25 @@
     // 3. Lay so tien
     const amount = await waitForEarningsAmount();
 
-    // 4. Quay lai danh sach don hang (dung nut Back neu co, khong thi dung nut Back cua trinh duyet)
-    const backBtn = findBackControl();
-    if (backBtn) {
-      backBtn.click();
-    } else {
-      history.back();
-    }
-    await sleep(STEP_DELAY);
-    // Doi cho danh sach hien lai (co the bo qua neu khong tim thay, van tiep tuc don tiep theo)
-    await waitFor(() => findOrderLinkByOrderId(orderId), 6000).catch(() => {});
+    // 4. BAT BUOC dong overlay lai (bam X hoac nhan ESC) truoc khi sang don tiep theo
+    await closeOrderDetailPanel();
 
     return amount;
   }
 
   // Lay earnings tuan tu cho tung ma don hang duy nhat (bang cach bam vao ma don),
   // ghi ket qua vao tat ca cac dong (rows) co cung orderNumber.
+  // Tra ve true neu bi nguoi dung bam nut Dung giua chung.
   async function fillEarningsForRowsByClick(rows, onProgress) {
     const uniqueOrderNumbers = [...new Set(rows.map((r) => r.orderNumber).filter(Boolean))];
     const earningsByOrder = {};
+    let stopped = false;
 
     for (let i = 0; i < uniqueOrderNumbers.length; i++) {
+      if (cancelRequested) {
+        stopped = true;
+        break;
+      }
       const orderId = uniqueOrderNumbers[i];
       if (typeof onProgress === 'function') {
         onProgress(`⏳ (${i + 1}/${uniqueOrderNumbers.length}) Đang lấy Earnings đơn #${orderId}...`);
@@ -446,7 +471,7 @@
       row.Earnings = earningsByOrder[row.orderNumber] || '';
     });
 
-    return rows;
+    return stopped;
   }
 
   // ====== CACH 2 (CU - GIU NGUYEN NHU BAN DAU): LAY EARNINGS QUA O TIM KIEM ======
@@ -480,7 +505,12 @@
     await sleep(STEP_DELAY);
 
     // 5. Lay so tien
-    return waitForEarningsAmount();
+    const amount = await waitForEarningsAmount();
+
+    // 6. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
+    await closeOrderDetailPanel();
+
+    return amount;
   }
 
   // ====== CHUC NANG 1 + 2: QUET DON (CO HOAC KHONG LAY EARNINGS) ROI XUAT EXCEL ======
@@ -493,14 +523,15 @@
       return;
     }
 
-    setButtonsDisabled(true);
     const originalText = btnScanEarnings.textContent;
+    setRunningState(true);
     if (withEarnings) btnScanEarnings.textContent = '⏳ Đang xử lý...';
     else btnScanOnly.textContent = '⏳ Đang xử lý...';
 
     try {
+      let stopped = false;
       if (withEarnings) {
-        await fillEarningsForRowsByClick(newRows, (msg) => hienThongBao(msg, '#2563EB'));
+        stopped = await fillEarningsForRowsByClick(newRows, (msg) => hienThongBao(msg, '#2563EB'));
       }
 
       // Xoa du lieu cu, chi giu lai du lieu vua quet duoc
@@ -509,8 +540,12 @@
 
       exportToExcelFile(newRows);
 
-      const ghiChu = withEarnings ? ' (kèm Earnings)' : '';
-      hienThongBao(`✅ Đã quét ${newRows.length} dòng${ghiChu} và tải file Excel!`, '#16A34A');
+      if (stopped) {
+        hienThongBao(`⏹ Đã dừng theo yêu cầu. Đã xuất ${newRows.length} dòng (Earnings chưa lấy hết cho tất cả đơn).`, '#F59E0B');
+      } else {
+        const ghiChu = withEarnings ? ' (kèm Earnings)' : '';
+        hienThongBao(`✅ Đã quét ${newRows.length} dòng${ghiChu} và tải file Excel!`, '#16A34A');
+      }
       console.log('[Etsy Scraper] Scanned rows (đã thay thế toàn bộ dữ liệu cũ):', newRows);
     } catch (err) {
       console.error('[Etsy Scraper] Lỗi trong quá trình quét:', err);
@@ -518,7 +553,7 @@
     } finally {
       btnScanEarnings.textContent = originalText;
       btnScanOnly.textContent = '📦 Quét đơn & tải Excel';
-      setButtonsDisabled(false);
+      setRunningState(false);
     }
   }
 
@@ -536,12 +571,17 @@
       return;
     }
 
-    setButtonsDisabled(true);
+    setRunningState(true);
     btnEarningsOnly.textContent = '⏳ Đang xử lý...';
 
     const results = [];
+    let stopped = false;
     try {
       for (let i = 0; i < ids.length; i++) {
+        if (cancelRequested) {
+          stopped = true;
+          break;
+        }
         const id = ids[i];
         hienThongBao(`⏳ (${i + 1}/${ids.length}) Đang lấy Earnings đơn #${id}...`, '#2563EB');
         try {
@@ -554,18 +594,27 @@
         await sleep(400);
       }
 
+      if (results.length === 0) {
+        hienThongBao('⏹ Đã dừng, chưa lấy được Earnings nào.', '#F59E0B');
+        return;
+      }
+
       const ws = XLSX.utils.json_to_sheet(results);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Earnings');
       XLSX.writeFile(wb, 'earnings_result.xlsx');
 
-      hienThongBao(`✅ Đã lấy Earnings cho ${ids.length} mã đơn và tải file Excel!`, '#16A34A');
+      if (stopped) {
+        hienThongBao(`⏹ Đã dừng theo yêu cầu. Đã lấy Earnings cho ${results.length}/${ids.length} mã đơn và tải file Excel!`, '#F59E0B');
+      } else {
+        hienThongBao(`✅ Đã lấy Earnings cho ${ids.length} mã đơn và tải file Excel!`, '#16A34A');
+      }
     } catch (err) {
       console.error('[Etsy Scraper] Lỗi khi lấy Earnings theo danh sách mã đơn:', err);
       hienThongBao('❌ Lỗi: ' + err.message, '#DC2626');
     } finally {
       btnEarningsOnly.textContent = '💰 Lấy Earnings theo mã đơn & tải Excel';
-      setButtonsDisabled(false);
+      setRunningState(false);
     }
   }
 
@@ -575,12 +624,23 @@
   let btnScanEarnings;
   let btnScanOnly;
   let btnEarningsOnly;
+  let btnStop;
   let idsTextarea;
 
-  function setButtonsDisabled(disabled) {
+  // Co bao nguoi dung yeu cau dung tien trinh dang chay hay khong. Cac vong lap
+  // lay Earnings kiem tra co nay giua moi don de dung lai som.
+  let cancelRequested = false;
+
+  function setRunningState(isRunning) {
     [btnScanEarnings, btnScanOnly, btnEarningsOnly].forEach((btn) => {
-      if (btn) btn.disabled = disabled;
+      if (btn) btn.disabled = isRunning;
     });
+    if (btnStop) {
+      btnStop.style.display = isRunning ? 'block' : 'none';
+      btnStop.disabled = false;
+      btnStop.textContent = '⏹ Dừng';
+    }
+    cancelRequested = false;
   }
 
   function updatePanelCount() {
@@ -766,6 +826,20 @@
     `;
     btnEarningsOnly.onclick = runEarningsOnlyExport;
     vungNoiDung.appendChild(btnEarningsOnly);
+
+    btnStop = document.createElement('button');
+    btnStop.textContent = '⏹ Dừng';
+    btnStop.style.cssText = `
+      display:none; padding:8px 10px; background:#DC2626; color:#fff; border:none;
+      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
+    `;
+    btnStop.onclick = () => {
+      cancelRequested = true;
+      btnStop.disabled = true;
+      btnStop.textContent = '⏳ Đang dừng...';
+      hienThongBao('⏳ Đang dừng, vui lòng đợi đến khi xong bước hiện tại...', '#F59E0B');
+    };
+    vungNoiDung.appendChild(btnStop);
 
     messageBox = document.createElement('div');
     messageBox.id = 'eos-message';

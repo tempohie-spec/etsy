@@ -28,6 +28,20 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
 - Cột `Date Fulfil` được **tự động điền ngày chạy script** theo định dạng `dd/mm/yyyy`.
 - File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
 
+### Đóng bảng "Order details" sau mỗi đơn
+
+Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
+sách**, không phải điều hướng sang trang khác. Nếu không đóng lại, overlay sẽ giữ nguyên đơn
+đầu tiên và mọi lần đọc Earnings sau đó đều ra cùng 1 số tiền (bị điền nhầm cho tất cả các đơn).
+Script tự động bấm nút đóng (✕, nút có `<span class="screen-reader-only">Close</span>`) sau khi
+đọc xong Earnings của mỗi đơn; nếu không tìm thấy nút thì gửi phím `ESC` để đóng.
+
+### Nút Dừng
+
+Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),
+panel sẽ hiện thêm nút **"⏹ Dừng"**. Bấm nút này để dừng giữa chừng — script sẽ dừng sau khi xử
+lý xong đơn hiện tại, rồi vẫn xuất file Excel với dữ liệu đã lấy được đến thời điểm đó.
+
 ## Chức năng
 
 | Nút / Phím tắt | Việc làm |
