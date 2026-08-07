@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.1
+// @version      2.2
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -77,7 +77,7 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  function waitFor(checkFn, timeout = WAIT_TIMEOUT) {
+  function waitFor(checkFn, timeout = WAIT_TIMEOUT, label = '') {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       const interval = setInterval(() => {
@@ -87,7 +87,7 @@
           resolve(result);
         } else if (Date.now() - start > timeout) {
           clearInterval(interval);
-          reject(new Error('Timeout cho phan tu'));
+          reject(new Error(label ? `Timeout cho phan tu: ${label}` : 'Timeout cho phan tu'));
         }
       }, 200);
     });
@@ -438,7 +438,7 @@
         if (/^\$[\d,.]+$/.test(s.textContent.trim())) return s;
       }
       return null;
-    });
+    }, WAIT_TIMEOUT, 'so tien Earnings');
     return parseAmountToNumberString(amountEl.textContent.trim());
   }
 
@@ -488,12 +488,12 @@
 
   async function getEarningsByClickingOrder(orderId) {
     // 1. Bam truc tiep vao ma don (link) de mo bang order details, khong dung o tim kiem
-    const link = await waitFor(() => findOrderLinkByOrderId(orderId));
+    const link = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId}`);
     link.click();
     await sleep(STEP_DELAY);
 
     // 2. Bam tab "Earnings" trong bang order details
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText));
+    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
     earningsTab.click();
     await sleep(STEP_DELAY);
 
@@ -564,7 +564,7 @@
 
   async function getEarningsForOrderBySearch(orderId) {
     // 1. Tim o search, nhap ma don
-    const input = await waitFor(() => document.querySelector(SEL.searchInput));
+    const input = await waitFor(() => document.querySelector(SEL.searchInput), WAIT_TIMEOUT, 'o tim kiem don hang');
     input.focus();
     setNativeValue(input, orderId);
     await sleep(300);
@@ -578,13 +578,18 @@
     }
     await sleep(STEP_DELAY);
 
-    // 3. Doi ket qua xuat hien, tim dong chua "#<ma don>" va click vao
-    const orderRow = await waitFor(() => findClickableByText('#' + orderId));
-    orderRow.click();
+    // 3. Doi ket qua xuat hien, bam vao ma don de mo bang order details.
+    // Dung findOrderLinkByOrderId (khop theo href chua order_id, giong CACH 1) thay vi tim
+    // theo NOI DUNG CHU "#<ma don>": khi tim theo chu, ham findClickableByText co the vo
+    // tinh khop nham vao 1 the <div>/<span> BAO NGOAI ca khoi ket qua tim kiem (vi no cung
+    // "chua" doan chu do), khong phai chinh the <a> co the bam duoc - bam vao do khong co
+    // tac dung gi, lam cac buoc sau (tim tab Earnings) bi timeout vi overlay khong bao gio mo.
+    const orderLink = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId} trong ket qua tim kiem`);
+    orderLink.click();
     await sleep(STEP_DELAY);
 
     // 4. Click tab "Earnings"
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText));
+    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
     earningsTab.click();
     await sleep(STEP_DELAY);
 
