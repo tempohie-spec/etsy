@@ -259,6 +259,19 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
 - Cột `Date Fulfil` được **tự động điền ngày chạy script** theo định dạng `dd/mm/yyyy`.
 - File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
 
+## Không cần bấm sang tab Earnings
+
+Etsy đã render sẵn nội dung của cả 2 tab ("Order details" và "Earnings") ngay trong DOM
+từ lúc mở bảng order details, chỉ ẩn/hiện bằng CSS chứ không tải lại khi đổi tab. Vì vậy
+script chỉ cần mở bảng order details (bấm vào mã đơn) rồi đọc thẳng dòng "You earned $x.xx"
+là đủ, không cần bấm sang tab Earnings nữa — nhanh hơn và ít phụ thuộc vào việc bấm đúng tab.
+
+## Ghi chú trong panel
+
+Panel có thêm 1 ô ghi chú nhỏ (ngay dưới dòng "Đã lưu: N dòng") để bạn tự ghi lại, ví dụ
+tài khoản nào cần lấy Earnings, tài khoản nào bỏ qua. Ô này chỉ để tham khảo, không ảnh hưởng
+đến logic quét/lấy Earnings, và được lưu lại qua `GM_setValue` nên vẫn còn khi tải lại trang.
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh

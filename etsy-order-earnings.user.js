@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.3
+// @version      2.4
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -32,6 +32,9 @@
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
   const PANEL_STATE_KEY = 'etsy_scraper_panel_state_v1';
+  // Ghi chu rieng cua nguoi dung (vd: acc nao can lay Earnings, acc nao bo qua) - chi de
+  // hien thi/luu lai trong panel, khong anh huong logic quet/lay Earnings.
+  const NOTE_KEY = 'etsy_scraper_note_v1';
 
   // Sinh 1 so dien thoai ao ngau nhien (10 chu so), dung de dien vao cot "phone" cho cac
   // don o ngoai United States khi khong doc duoc so that tren trang - tranh o phone bi
@@ -51,8 +54,6 @@
     searchInput: 'input[aria-label="Search your orders"]',
     // nut submit trong form tim kiem
     searchSubmitBtn: 'button[type="submit"]',
-    // tab "Earnings" trong bang order details - tim theo text vi class hay doi
-    earningsTabText: 'Earnings',
     // dong chu "You earned $xx.xx on this order" -> lay so trong <span>
     earningsAmountSelector: 'span.wt-text-title-large',
   };
@@ -404,27 +405,6 @@
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // tim phan tu clickable (a, button, div...) chua doan text cho truoc
-  function findClickableByText(text, root = document) {
-    const candidates = root.querySelectorAll('a, button, div, span, li');
-    for (const el of candidates) {
-      if (
-        el.children.length === 0 &&
-        el.textContent &&
-        el.textContent.trim() === text
-      ) {
-        return el;
-      }
-    }
-    // fallback: chua text (khong can khop tuyet doi)
-    for (const el of candidates) {
-      if (el.textContent && el.textContent.includes(text)) {
-        return el;
-      }
-    }
-    return null;
-  }
-
   // Lay chuoi so tien "$xx.xx" va tra ve chi phan so (khong don vi tien te)
   function parseAmountToNumberString(amountText) {
     if (!amountText) return '';
@@ -492,15 +472,13 @@
     link.click();
     await sleep(STEP_DELAY);
 
-    // 2. Bam tab "Earnings" trong bang order details
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
-    earningsTab.click();
-    await sleep(STEP_DELAY);
-
-    // 3. Lay so tien
+    // 2. KHONG CAN bam sang tab "Earnings" - Etsy render san noi dung ca 2 tab (Order details
+    // VA Earnings) ngay trong DOM tu luc mo bang order details, chi an/hien bang CSS. Vi vay
+    // chi can mo bang order details roi doc thang so tien "You earned $x.xx" la du, khong can
+    // click chuyen tab (nhanh hon, bot 1 buoc co the loi neu doi giao dien).
     const amount = await waitForEarningsAmount();
 
-    // 4. BAT BUOC dong overlay lai (bam X hoac nhan ESC) truoc khi sang don tiep theo
+    // 3. BAT BUOC dong overlay lai (bam X hoac nhan ESC) truoc khi sang don tiep theo
     await closeOrderDetailPanel();
 
     return amount;
@@ -580,23 +558,18 @@
 
     // 3. Doi ket qua xuat hien, bam vao ma don de mo bang order details.
     // Dung findOrderLinkByOrderId (khop theo href chua order_id, giong CACH 1) thay vi tim
-    // theo NOI DUNG CHU "#<ma don>": khi tim theo chu, ham findClickableByText co the vo
-    // tinh khop nham vao 1 the <div>/<span> BAO NGOAI ca khoi ket qua tim kiem (vi no cung
-    // "chua" doan chu do), khong phai chinh the <a> co the bam duoc - bam vao do khong co
-    // tac dung gi, lam cac buoc sau (tim tab Earnings) bi timeout vi overlay khong bao gio mo.
+    // theo NOI DUNG CHU "#<ma don>": tim theo chu de bam nham vao 1 the <div>/<span> BAO NGOAI
+    // ca khoi ket qua tim kiem (vi no cung "chua" doan chu do), khong phai chinh the <a> co
+    // the bam duoc - bam vao do khong co tac dung gi, lam buoc sau (doc Earnings) bi timeout.
     const orderLink = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId} trong ket qua tim kiem`);
     orderLink.click();
     await sleep(STEP_DELAY);
 
-    // 4. Click tab "Earnings"
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
-    earningsTab.click();
-    await sleep(STEP_DELAY);
-
-    // 5. Lay so tien
+    // 4. KHONG CAN bam tab "Earnings" - so tien "You earned $x.xx" da co san trong DOM
+    // ngay khi bang order details mo ra (Etsy render san ca 2 tab, chi an/hien bang CSS).
     const amount = await waitForEarningsAmount();
 
-    // 6. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
+    // 5. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
     await closeOrderDetailPanel();
 
     return amount;
@@ -909,6 +882,15 @@
     countLabel = document.createElement('div');
     countLabel.style.cssText = 'color:#555; font-size:12px;';
     vungNoiDung.appendChild(countLabel);
+
+    const noteTextarea = document.createElement('textarea');
+    noteTextarea.placeholder = 'Ghi chú (vd: acc nào lấy Earnings, acc nào bỏ qua)...';
+    noteTextarea.value = GM_getValue(NOTE_KEY, '');
+    noteTextarea.style.cssText = 'width:100%; height:44px; box-sizing:border-box; font-size:12px; resize:vertical;';
+    noteTextarea.addEventListener('input', () => {
+      GM_setValue(NOTE_KEY, noteTextarea.value);
+    });
+    vungNoiDung.appendChild(noteTextarea);
 
     btnScanEarnings = document.createElement('button');
     btnScanEarnings.textContent = '🔍 Quét đơn + Earnings & tải Excel';
