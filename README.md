@@ -243,7 +243,7 @@ Panel nổi có thể thu nhỏ thành biểu tượng tròn "Order" và kéo th
 |---|---|
 | 🔍 Quét đơn + Earnings & tải Excel | Quét toàn bộ đơn đang hiển thị trên trang, sau đó với mỗi mã đơn: **bấm trực tiếp vào mã đơn** để mở bảng order details (không gõ vào ô tìm kiếm), bấm tab Earnings để lấy số tiền, rồi quay lại danh sách cho đơn tiếp theo. Nhờ không dùng ô tìm kiếm nên trang danh sách hiện tại không bị mất, xuất được đầy đủ các đơn còn lại. |
 | 📦 Quét đơn & tải Excel | Chỉ quét đơn và xuất Excel ngay, không lấy Earnings (cột `Earnings` để trống) — dùng khi cần xuất nhanh. |
-| 💰 Lấy Earnings theo mã đơn & tải Excel | Nhập tay danh sách mã đơn (mỗi dòng 1 mã), script dùng ô tìm kiếm để tra từng mã (giữ nguyên cách làm của bản gốc, vì các mã này có thể không nằm trong danh sách đang hiển thị), xuất file `earnings_result.xlsx` gồm 2 cột Mã đơn + Earnings. |
+| 💰 Lấy Earnings theo mã đơn & tải Excel | Nhập tay danh sách mã đơn (mỗi dòng 1 mã), script dùng ô tìm kiếm để tra từng mã (giữ nguyên cách làm của bản gốc, vì các mã này có thể không nằm trong danh sách đang hiển thị), xuất file `earnings_result.xlsx` gồm 2 cột Mã đơn + Earnings. Nếu danh sách nhập có **mã đơn trùng nhau**, chỉ lấy Earnings cho lần xuất hiện đầu tiên, các dòng trùng sau đó để trống Earnings (không tra lại). |
 
 So với bản gốc (chỉ quét đơn, không có Earnings):
 
@@ -258,6 +258,19 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
   chạy) vào cột `phone` — tránh để trống khi in vận đơn.
 - Cột `Date Fulfil` được **tự động điền ngày chạy script** theo định dạng `dd/mm/yyyy`.
 - File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
+
+## Không cần bấm sang tab Earnings
+
+Etsy đã render sẵn nội dung của cả 2 tab ("Order details" và "Earnings") ngay trong DOM
+từ lúc mở bảng order details, chỉ ẩn/hiện bằng CSS chứ không tải lại khi đổi tab. Vì vậy
+script chỉ cần mở bảng order details (bấm vào mã đơn) rồi đọc thẳng dòng "You earned $x.xx"
+là đủ, không cần bấm sang tab Earnings nữa — nhanh hơn và ít phụ thuộc vào việc bấm đúng tab.
+
+## Ghi chú trong panel
+
+Panel có thêm 1 ô ghi chú nhỏ (ngay dưới dòng "Đã lưu: N dòng") để bạn tự ghi lại, ví dụ
+tài khoản nào cần lấy Earnings, tài khoản nào bỏ qua. Ô này chỉ để tham khảo, không ảnh hưởng
+đến logic quét/lấy Earnings, và được lưu lại qua `GM_setValue` nên vẫn còn khi tải lại trang.
 
 ## Đóng bảng "Order details" sau mỗi đơn
 
