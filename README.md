@@ -214,7 +214,13 @@ tương ứng từ 1 trong 2 nguồn — chọn trong panel trên tab Etsy:
   Vì tracking trong sheet cập nhật liên tục, mỗi lần muốn chạy lại chỉ cần copy vùng dữ liệu mới
   nhất rồi bấm **Nạp dữ liệu Sheet** lại — không cần cài lại script.
 
-Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**.
+  Ở chế độ này, vòng lặp chạy theo **thứ tự đơn trong Sheet** (từ đầu tới cuối) chứ không theo
+  thứ tự trên trang Etsy: với mỗi mã đơn trong Sheet, script kiểm tra xem đơn đó có đang hiển thị
+  trên trang Etsy hay không — nếu không có thì bỏ qua gần như ngay lập tức (không cần chờ), nếu có
+  thì mới lấy tracking + DVVC của đơn đó (đã lấy sẵn khi nạp dữ liệu) để điền và Complete order.
+
+Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**. Bấm **Stop** cũng sẽ
+xoá nội dung ô dán Sheet và log trong panel.
 
 ## Logic xử lý (theo từng đơn trên trang Etsy)
 

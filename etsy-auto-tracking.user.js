@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.8
+// @version      1.9
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -502,6 +502,7 @@
 
   let dataSource = localStorage.getItem('at_data_source') || 'merchize';
   let sheetMap = null; // orderId -> { tracking, carrier }
+  let sheetOrder = null; // order ids, in the order they appear in the pasted sheet
 
   const ORDER_CODE_COLUMN_INDEX = 1;
   const ROW_START_DATE_RE = /^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}$/;
@@ -532,6 +533,7 @@
     if (!rows.length) return { ok: false, rowCount: 0 };
 
     const map = {};
+    const order = []; // unique order ids, first-appearance order
     let count = 0;
     for (const cells of rows) {
       if (cells.length < ORDER_CODE_COLUMN_INDEX + 3) continue; // not enough columns
@@ -539,10 +541,11 @@
       const carrier = (cells[cells.length - 1] || '').trim();
       const tracking = (cells[cells.length - 2] || '').trim();
       if (!orderId || !tracking) continue; // order not shipped yet -> skip
-      map[orderId] = { tracking, carrier };
+      if (!(orderId in map)) order.push(orderId);
+      map[orderId] = { tracking, carrier }; // last occurrence wins if duplicated
       count++;
     }
-    return { ok: true, map, count, rowCount: rows.length };
+    return { ok: true, map, order, count, rowCount: rows.length };
   }
 
   async function lookupTracking(orderId) {
@@ -556,8 +559,21 @@
     return requestMerchizeLookup(orderId);
   }
 
+  // Returns true if a real "open modal / fill / submit" attempt happened
+  // (used by runAll to decide how long to pause before the next order —
+  // a quick skip shouldn't cost the same settle time as a real completion).
   async function processOrder(orderId) {
     const sourceLabel = dataSource === 'sheet' ? 'Sheet' : 'Merchize';
+
+    if (dataSource === 'sheet') {
+      // Driving the loop off the sheet means scanning every order number in
+      // it from the top and matching against what's on the Etsy page — the
+      // sheet can hold far more history than the page currently shows, so
+      // check page presence first (cheap, synchronous) and skip near-
+      // instantly (no log line) for anything not currently on the page.
+      if (!findRowByOrderId(orderId)) return false;
+    }
+
     log('Checking order', orderId, 'against', sourceLabel, '...');
 
     // Look up the tracking source FIRST. Only open the "Complete order"
@@ -566,7 +582,7 @@
 
     if (!result.found) {
       log(`  not found in ${sourceLabel} -> skipped (no modal opened)`);
-      return;
+      return false;
     }
     log('  found:', result.tracking, '/', result.carrier);
 
@@ -574,13 +590,13 @@
     const row = await waitForRow(orderId);
     if (!row) {
       log('  row no longer on page -> skipped');
-      return;
+      return false;
     }
 
     const opened = await openCompleteOrderModal(row, orderId);
     if (!opened) {
       log('  no "Complete order" action available on this row -> skipped');
-      return;
+      return false;
     }
 
     try {
@@ -590,14 +606,29 @@
       log('  ERROR filling modal:', e.message);
       closeModalIfOpen(orderId);
     }
+    return true;
   }
 
   async function runAll() {
     GM_setValue(RUN_KEY, true);
     GM_setValue(PAUSE_KEY, false);
     setStatus('Running...');
-    const orderIds = getOrderIds();
-    log(`Found ${orderIds.length} order(s) on this page.`);
+
+    let orderIds;
+    if (dataSource === 'sheet') {
+      // Driven by the sheet: scan every order number in it, top to bottom,
+      // and match each against the current Etsy page (see processOrder).
+      if (!sheetOrder || !sheetOrder.length) {
+        log('Chưa có dữ liệu Sheet — bấm "Nạp dữ liệu Sheet" trước.');
+        orderIds = [];
+      } else {
+        orderIds = sheetOrder;
+        log(`Scanning ${orderIds.length} order(s) from Sheet against this page...`);
+      }
+    } else {
+      orderIds = getOrderIds();
+      log(`Found ${orderIds.length} order(s) on this page.`);
+    }
 
     for (const orderId of orderIds) {
       if (!GM_getValue(RUN_KEY)) {
@@ -618,17 +649,20 @@
       }
       setStatus('Running...');
 
+      let attempted = false;
       try {
-        await processOrder(orderId);
+        attempted = await processOrder(orderId);
       } catch (e) {
         log('ERROR processing row:', e.message);
         // Best-effort cleanup: close any dropdown/modal left open by the
         // failed step so it doesn't block clicks on the next order.
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        attempted = true;
       }
-      // Give the page (and the browser) a moment to settle between orders —
-      // running back-to-back with no pause is what tends to freeze the tab.
-      await sleep(2000);
+      // Only pay the full "let the page settle" pause after a real
+      // open-modal/fill/submit attempt; a quick non-match skip (common when
+      // scanning a large sheet against a much shorter page) doesn't need it.
+      await sleep(attempted ? 2000 : 150);
     }
 
     GM_setValue(RUN_KEY, false);
@@ -735,6 +769,7 @@
     }
 
     sheetMap = result.map;
+    sheetOrder = result.order;
     info.textContent = `Đã nạp ${result.count} đơn từ Sheet.`;
     log(`Sheet import: loaded ${result.count} order(s).`);
   });
@@ -771,6 +806,12 @@
     GM_setValue(PAUSE_KEY, false);
     setPauseButtonLabel();
     setStatus('Stopping...');
+
+    // Wipe the pasted-sheet textarea and the on-page log per user request.
+    const paste = document.getElementById('at-sheet-paste');
+    if (paste) paste.value = '';
+    const logBox = document.getElementById('at-log');
+    if (logBox) logBox.innerHTML = '';
   });
 
   log('Etsy helper loaded. Open the Merchize "Shipment Status" tab too, then click Start.');
