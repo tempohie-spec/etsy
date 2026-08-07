@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      1.9
+// @version      2.0
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -565,15 +565,6 @@
   async function processOrder(orderId) {
     const sourceLabel = dataSource === 'sheet' ? 'Sheet' : 'Merchize';
 
-    if (dataSource === 'sheet') {
-      // Driving the loop off the sheet means scanning every order number in
-      // it from the top and matching against what's on the Etsy page — the
-      // sheet can hold far more history than the page currently shows, so
-      // check page presence first (cheap, synchronous) and skip near-
-      // instantly (no log line) for anything not currently on the page.
-      if (!findRowByOrderId(orderId)) return false;
-    }
-
     log('Checking order', orderId, 'against', sourceLabel, '...');
 
     // Look up the tracking source FIRST. Only open the "Complete order"
@@ -614,21 +605,14 @@
     GM_setValue(PAUSE_KEY, false);
     setStatus('Running...');
 
-    let orderIds;
-    if (dataSource === 'sheet') {
-      // Driven by the sheet: scan every order number in it, top to bottom,
-      // and match each against the current Etsy page (see processOrder).
-      if (!sheetOrder || !sheetOrder.length) {
-        log('Chưa có dữ liệu Sheet — bấm "Nạp dữ liệu Sheet" trước.');
-        orderIds = [];
-      } else {
-        orderIds = sheetOrder;
-        log(`Scanning ${orderIds.length} order(s) from Sheet against this page...`);
-      }
-    } else {
-      orderIds = getOrderIds();
-      log(`Found ${orderIds.length} order(s) on this page.`);
+    // Always driven by the Etsy page: scan every order currently shown on
+    // this page first, then check each one against the selected data source
+    // (Merchize tab or the loaded Sheet data) for a match.
+    if (dataSource === 'sheet' && (!sheetOrder || !sheetOrder.length)) {
+      log('Chưa có dữ liệu Sheet — bấm "Nạp dữ liệu Sheet" trước.');
     }
+    const orderIds = getOrderIds();
+    log(`Found ${orderIds.length} order(s) on this page.`);
 
     for (const orderId of orderIds) {
       if (!GM_getValue(RUN_KEY)) {
