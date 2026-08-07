@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.2
+// @version      2.3
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -684,6 +684,10 @@
     btnEarningsOnly.textContent = '⏳ Đang xử lý...';
 
     const results = [];
+    // Neu danh sach nhap tay co ma don TRUNG NHAU, chi lay Earnings cho LAN XUAT HIEN DAU
+    // TIEN cua ma don do; cac dong sau cung ma don de trong Earnings (khong tim kiem lai,
+    // do ket qua se giong het lan dau).
+    const daXuLyMaDon = new Set();
     let stopped = false;
     try {
       for (let i = 0; i < ids.length; i++) {
@@ -692,6 +696,13 @@
           break;
         }
         const id = ids[i];
+
+        if (daXuLyMaDon.has(id)) {
+          results.push({ 'Mã đơn': id, Earnings: '' });
+          continue;
+        }
+        daXuLyMaDon.add(id);
+
         hienThongBao(`⏳ (${i + 1}/${ids.length}) Đang lấy Earnings đơn #${id}...`, '#2563EB');
         try {
           const earnings = await getEarningsForOrderBySearch(id);
