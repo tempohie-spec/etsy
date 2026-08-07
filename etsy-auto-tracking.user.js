@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      2.0
+// @version      2.1
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -62,10 +62,16 @@
 
   // Make `panel` draggable by its `handle` element, remembering position
   // (per tab type) in localStorage so it persists across page reloads.
-  function makeDraggable(panel, handle, storageKey) {
+  // `onTap` (optional) fires when the handle was clicked WITHOUT being
+  // dragged (moved less than a few px) — used to toggle collapse/expand
+  // without that also firing on the tail end of a drag.
+  function makeDraggable(panel, handle, storageKey, onTap) {
     let dragging = false;
+    let moved = false;
     let offsetX = 0;
     let offsetY = 0;
+    let startX = 0;
+    let startY = 0;
 
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
@@ -81,6 +87,9 @@
 
     handle.addEventListener('mousedown', (e) => {
       dragging = true;
+      moved = false;
+      startX = e.clientX;
+      startY = e.clientY;
       const rect = panel.getBoundingClientRect();
       offsetX = e.clientX - rect.left;
       offsetY = e.clientY - rect.top;
@@ -92,6 +101,7 @@
 
     document.addEventListener('mousemove', (e) => {
       if (!dragging) return;
+      if (Math.abs(e.clientX - startX) > 4 || Math.abs(e.clientY - startY) > 4) moved = true;
       const maxLeft = window.innerWidth - panel.offsetWidth;
       const maxTop = window.innerHeight - panel.offsetHeight;
       const left = Math.max(0, Math.min(e.clientX - offsetX, maxLeft));
@@ -104,10 +114,14 @@
       if (!dragging) return;
       dragging = false;
       document.body.style.userSelect = '';
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({ left: parseInt(panel.style.left, 10), top: parseInt(panel.style.top, 10) })
-      );
+      if (moved) {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify({ left: parseInt(panel.style.left, 10), top: parseInt(panel.style.top, 10) })
+        );
+      } else if (onTap) {
+        onTap();
+      }
     });
   }
 
@@ -231,8 +245,12 @@
       #at-panel{position:fixed;bottom:16px;right:16px;z-index:999999;
         background:#111;color:#fff;font:13px sans-serif;padding:10px 12px;
         border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:240px}
-      .at-drag-handle{cursor:move;user-select:none;padding-bottom:6px;margin-bottom:6px;
-        border-bottom:1px solid rgba(255,255,255,.15)}
+      .at-drag-handle{cursor:pointer;user-select:none;padding-bottom:6px;margin-bottom:6px;
+        border-bottom:1px solid rgba(255,255,255,.15);display:flex;align-items:center;
+        justify-content:space-between}
+      #at-panel.at-collapsed .at-drag-handle{padding-bottom:0;margin-bottom:0;border-bottom:none}
+      #at-panel.at-collapsed > *:not(.at-drag-handle){display:none}
+      #at-toggle-icon-merchize{opacity:.6;font-size:10px;margin-left:8px}
       #at-status{font:12px monospace;opacity:.8}
       .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
         border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
@@ -244,12 +262,26 @@
     const panel = document.createElement('div');
     panel.id = 'at-panel';
     panel.innerHTML = `
-      <div class="at-drag-handle"><strong>Merchize AutoTrack</strong></div>
+      <div class="at-drag-handle"><strong>Merchize AutoTrack</strong><span id="at-toggle-icon-merchize">▾</span></div>
       <div id="at-status">Listening...</div>
       <div id="at-log" class="at-log"></div>
     `;
     document.body.appendChild(panel);
-    makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_merchize');
+
+    const MERCHIZE_PANEL_COLLAPSED_KEY = 'at_panel_collapsed_merchize';
+    function applyMerchizeCollapsedUI() {
+      const collapsed = localStorage.getItem(MERCHIZE_PANEL_COLLAPSED_KEY) === '1';
+      panel.classList.toggle('at-collapsed', collapsed);
+      const icon = document.getElementById('at-toggle-icon-merchize');
+      if (icon) icon.textContent = collapsed ? '▸' : '▾';
+    }
+    applyMerchizeCollapsedUI();
+
+    makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_merchize', () => {
+      const collapsed = localStorage.getItem(MERCHIZE_PANEL_COLLAPSED_KEY) === '1';
+      localStorage.setItem(MERCHIZE_PANEL_COLLAPSED_KEY, collapsed ? '0' : '1');
+      applyMerchizeCollapsedUI();
+    });
 
     log('Merchize helper loaded.');
 
@@ -661,8 +693,12 @@
     #at-panel{position:fixed;bottom:16px;right:16px;z-index:999999;
       background:#111;color:#fff;font:13px sans-serif;padding:10px 12px;
       border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:240px}
-    .at-drag-handle{cursor:move;user-select:none;padding-bottom:6px;margin-bottom:6px;
-      border-bottom:1px solid rgba(255,255,255,.15)}
+    .at-drag-handle{cursor:pointer;user-select:none;padding-bottom:6px;margin-bottom:6px;
+      border-bottom:1px solid rgba(255,255,255,.15);display:flex;align-items:center;
+      justify-content:space-between}
+    #at-panel.at-collapsed .at-drag-handle{padding-bottom:0;margin-bottom:0;border-bottom:none}
+    #at-panel.at-collapsed > *:not(.at-drag-handle){display:none}
+    #at-toggle-icon-etsy{opacity:.6;font-size:10px;margin-left:8px}
     #at-panel button{width:100%;margin-top:6px;padding:6px 0;border:0;border-radius:6px;
       cursor:pointer;font:13px sans-serif;font-weight:600}
     #at-panel .start{background:#16a34a;color:#fff}
@@ -685,7 +721,7 @@
   const panel = document.createElement('div');
   panel.id = 'at-panel';
   panel.innerHTML = `
-    <div class="at-drag-handle"><strong>Etsy Auto Tracking</strong></div>
+    <div class="at-drag-handle"><strong>Etsy Auto Tracking</strong><span id="at-toggle-icon-etsy">▾</span></div>
     <div id="at-status">Idle</div>
     <button class="start" id="at-start">Start</button>
     <button class="pause" id="at-pause">Pause</button>
@@ -702,7 +738,21 @@
     <div id="at-log" class="at-log"></div>
   `;
   document.body.appendChild(panel);
-  makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_etsy');
+
+  const PANEL_COLLAPSED_KEY = 'at_panel_collapsed_etsy';
+  function applyCollapsedUI() {
+    const collapsed = localStorage.getItem(PANEL_COLLAPSED_KEY) === '1';
+    panel.classList.toggle('at-collapsed', collapsed);
+    const icon = document.getElementById('at-toggle-icon-etsy');
+    if (icon) icon.textContent = collapsed ? '▸' : '▾';
+  }
+  applyCollapsedUI();
+
+  makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_etsy', () => {
+    const collapsed = localStorage.getItem(PANEL_COLLAPSED_KEY) === '1';
+    localStorage.setItem(PANEL_COLLAPSED_KEY, collapsed ? '0' : '1');
+    applyCollapsedUI();
+  });
 
   function setStatus(text) {
     const el = document.getElementById('at-status');
@@ -727,35 +777,48 @@
     });
   });
 
-  document.getElementById('at-sheet-load').addEventListener('click', () => {
+  // Parses whatever is currently in the paste textarea and loads it into
+  // sheetMap/sheetOrder. Returns true if there's now usable sheet data to
+  // run with (either freshly parsed, or — when the textarea is empty —
+  // whatever was already loaded before), false otherwise. Shared by the
+  // "Nạp dữ liệu Sheet" button and by Start (so pasted data can be run
+  // directly without an extra click).
+  function loadSheetFromTextarea() {
     const text = document.getElementById('at-sheet-paste').value;
     const info = document.getElementById('at-sheet-info');
 
     if (!text.trim()) {
-      info.textContent = 'Ô dán đang trống.';
-      return;
+      // Nothing new pasted — keep whatever was already loaded, if any.
+      return !!sheetMap;
     }
 
     const result = parseSheetPaste(text);
     if (!result.ok) {
-      info.textContent =
-        'Không dò được dòng đơn nào.\n' +
-        '-> Mỗi đơn phải bắt đầu bằng cột ORDER DATE dạng ngày/tháng/năm (VD: 5/8/26).';
+      if (info)
+        info.textContent =
+          'Không dò được dòng đơn nào.\n' +
+          '-> Mỗi đơn phải bắt đầu bằng cột ORDER DATE dạng ngày/tháng/năm (VD: 5/8/26).';
       log('Sheet import failed: no rows detected.');
-      return;
+      return false;
     }
     if (result.count === 0) {
-      info.textContent =
-        `Đọc được ${result.rowCount} dòng đơn nhưng không đơn nào có TRACKING để nạp ` +
-        `(có thể các đơn chưa có tracking, hoặc thiếu cột mã đơn/tracking ở cuối mỗi dòng).`;
+      if (info)
+        info.textContent =
+          `Đọc được ${result.rowCount} dòng đơn nhưng không đơn nào có TRACKING để nạp ` +
+          `(có thể các đơn chưa có tracking, hoặc thiếu cột mã đơn/tracking ở cuối mỗi dòng).`;
       log(`Sheet import: ${result.rowCount} row(s) read, 0 with tracking.`);
-      return;
+      return false;
     }
 
     sheetMap = result.map;
     sheetOrder = result.order;
-    info.textContent = `Đã nạp ${result.count} đơn từ Sheet.`;
+    if (info) info.textContent = `Đã nạp ${result.count} đơn từ Sheet.`;
     log(`Sheet import: loaded ${result.count} order(s).`);
+    return true;
+  }
+
+  document.getElementById('at-sheet-load').addEventListener('click', () => {
+    loadSheetFromTextarea();
   });
 
   function setPauseButtonLabel() {
@@ -774,6 +837,10 @@
         setPauseButtonLabel();
         log('Resumed by user.');
       }
+      return;
+    }
+    if (dataSource === 'sheet' && !loadSheetFromTextarea()) {
+      log('Không có dữ liệu Sheet hợp lệ để chạy — dán dữ liệu vào ô rồi bấm Start lại.');
       return;
     }
     runAll();

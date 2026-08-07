@@ -212,7 +212,9 @@ tương ứng từ 1 trong 2 nguồn — chọn trong panel trên tab Etsy:
   bằng ngày tháng) và tự ghép các dòng còn lại vào đúng đơn đó, không cần bạn chỉnh sửa gì thêm.
 
   Vì tracking trong sheet cập nhật liên tục, mỗi lần muốn chạy lại chỉ cần copy vùng dữ liệu mới
-  nhất rồi bấm **Nạp dữ liệu Sheet** lại — không cần cài lại script.
+  nhất rồi dán đè vào ô — **không bắt buộc phải bấm "Nạp dữ liệu Sheet"** nữa: cứ bấm **Start**
+  là script tự đọc dữ liệu mới nhất đang có trong ô trước khi chạy. Nút "Nạp dữ liệu Sheet" vẫn
+  còn để bạn kiểm tra trước (xem đọc được bao nhiêu đơn) mà chưa cần chạy ngay.
 
   Ở chế độ này, vòng lặp chạy theo **thứ tự đơn trên trang Etsy** (giống hệt chế độ Merchize):
   quét toàn bộ đơn đang hiển thị trên trang Etsy trước, sau đó với mỗi đơn mới kiểm tra xem có
@@ -221,6 +223,11 @@ tương ứng từ 1 trong 2 nguồn — chọn trong panel trên tab Etsy:
 
 Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**. Bấm **Stop** cũng sẽ
 xoá nội dung ô dán Sheet và log trong panel.
+
+Panel có thể **thu gọn / xổ ra**: bấm vào dòng tiêu đề (chữ "Etsy Auto Tracking" hoặc "Merchize
+AutoTrack") để đóng panel lại chỉ còn thanh tiêu đề, bấm lại để mở ra như cũ. Trạng thái thu gọn
+và vị trí kéo thả đều được nhớ qua `localStorage`, giữ nguyên giữa các lần load lại trang. Kéo thả
+vẫn hoạt động bình thường (chỉ coi là "bấm" khi con trỏ gần như không di chuyển).
 
 ## Logic xử lý (theo từng đơn trên trang Etsy)
 
