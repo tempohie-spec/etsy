@@ -226,26 +226,39 @@ function processImportedCostFiles(files) {
 
   try {
     files.forEach(file => {
-      // Convert file Excel -> Google Sheet tạm để đọc dữ liệu
-      const blob = Utilities.newBlob(Utilities.base64Decode(file.base64), file.mimeType, file.name);
-      const resource = {
-        title: "TEMP_IMPORT_" + file.name + "_" + new Date().getTime(),
-        mimeType: MimeType.GOOGLE_SHEETS
-      };
-      const driveFile = Drive.Files.insert(resource, blob, { convert: true });
-      tempFileIds.push(driveFile.id);
+      const isCsv = /\.csv$/i.test(file.name) || file.mimeType === "text/csv";
+      let data;
 
-      const tempSs = SpreadsheetApp.openById(driveFile.id);
-      const tempSheet = tempSs.getSheets()[0];
-      const lastRow = tempSheet.getLastRow();
-      const lastCol = tempSheet.getLastColumn();
+      if (isCsv) {
+        // Đọc thẳng nội dung CSV dưới dạng text (Utilities.parseCsv) thay vì convert sang
+        // Google Sheet. Khi convert CSV -> Google Sheet, Sheets tự đoán kiểu dữ liệu theo
+        // locale và có thể hiểu nhầm 1 số tiền dạng "13.4" thành ngày 13/4 (day.month), làm
+        // Fulfillment cost/Total/Earnings bị đọc thành Date thay vì số. Đọc CSV trực tiếp giữ
+        // nguyên mọi ô dưới dạng chuỗi, tránh hoàn toàn lỗi này.
+        const csvText = Utilities.newBlob(Utilities.base64Decode(file.base64)).getDataAsString("UTF-8");
+        data = Utilities.parseCsv(csvText);
+      } else {
+        // File Excel (.xlsx/.xls): vẫn cần convert sang Google Sheet tạm để đọc dữ liệu.
+        const blob = Utilities.newBlob(Utilities.base64Decode(file.base64), file.mimeType, file.name);
+        const resource = {
+          title: "TEMP_IMPORT_" + file.name + "_" + new Date().getTime(),
+          mimeType: MimeType.GOOGLE_SHEETS
+        };
+        const driveFile = Drive.Files.insert(resource, blob, { convert: true });
+        tempFileIds.push(driveFile.id);
 
-      if (lastRow < 2) {
+        const tempSs = SpreadsheetApp.openById(driveFile.id);
+        const tempSheet = tempSs.getSheets()[0];
+        const lastRow = tempSheet.getLastRow();
+        const lastCol = tempSheet.getLastColumn();
+        data = lastRow < 1 ? [] : tempSheet.getRange(1, 1, lastRow, lastCol).getValues();
+      }
+
+      if (data.length < 2) {
         fileReports.push(`⚠️ ${file.name}: file không có dữ liệu, bỏ qua.`);
         return;
       }
 
-      const data = tempSheet.getRange(1, 1, lastRow, lastCol).getValues();
       const headerRow = data[0].map(normalizeHeader);
 
       const extIdx = headerRow.indexOf("external number");
