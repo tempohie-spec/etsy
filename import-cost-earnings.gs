@@ -98,6 +98,22 @@ function normalizeNumericValue(val) {
   return stripped;
 }
 
+// Mô tả 1 ô nguồn (kiểu dữ liệu + giá trị) để đưa vào báo cáo debug khi giá cost/earnings
+// bị coi là rỗng/không hợp lệ - giúp xác định vì sao (ô thực sự trống, hay bị đọc nhầm dạng
+// ngày giờ/text lạ do lệch cột).
+function describeRawValue(val) {
+  if (val === null || val === undefined || val === "") return "(ô trống)";
+  if (Object.prototype.toString.call(val) === "[object Date]") return "[Date] " + val.toISOString();
+  return `[${typeof val}] "${val}"`;
+}
+
+// Với tối đa 8 mã đơn đầu tiên bị coi là "chưa có cost/earnings", in ra giá trị GỐC (kèm
+// kiểu dữ liệu) đã đọc được từ file import, để dễ tra vì sao giá trị đó bị coi là rỗng.
+function buildBlankDebugLines(blankOrderKeys, rawMap, label) {
+  const uniqueKeys = Array.from(new Set(blankOrderKeys)).slice(0, 8);
+  return uniqueKeys.map(k => `   • ${label} - mã đơn ${k}: giá trị gốc đọc được = ${rawMap[k] || "(không xác định)"}`);
+}
+
 // ============ DIALOG IMPORT EXCEL ============
 function showImportCostDialog() {
   const html = HtmlService.createHtmlOutput(`
@@ -203,6 +219,8 @@ function processImportedCostFiles(files) {
   const activeSheet = ss.getActiveSheet();
   const costPriceMap = {};     // orderKey -> giá cost (đã strip ký tự lạ)
   const earningsMap = {};      // orderKey -> giá earnings (đã strip "$")
+  const costRawMap = {};       // orderKey -> giá trị GỐC đọc từ file (để debug khi giá bị coi là rỗng/không hợp lệ)
+  const earningsRawMap = {};   // orderKey -> giá trị GỐC đọc từ file (để debug)
   const fileReports = [];
   const tempFileIds = [];
 
@@ -245,7 +263,8 @@ function processImportedCostFiles(files) {
         for (let i = 1; i < data.length; i++) {
           const orderKey = normalizeKey(data[i][extIdx]);
           if (!orderKey) continue;
-          const price = normalizeNumericValue(data[i][priceColIdx]);
+          const rawCell = data[i][priceColIdx];
+          const price = normalizeNumericValue(rawCell);
           if (costPriceMap[orderKey] === undefined) {
             costPriceMap[orderKey] = price;
             addedCount++;
@@ -253,6 +272,9 @@ function processImportedCostFiles(files) {
             // Mã đơn trùng nhiều dòng trong file: dòng đầu tiên gặp lại không có giá trị hợp lệ
             // -> ưu tiên lấy giá trị thật ở dòng sau, không để dòng rỗng "khoá" mất giá trị đúng.
             costPriceMap[orderKey] = price;
+          }
+          if (price === "" && costRawMap[orderKey] === undefined) {
+            costRawMap[orderKey] = describeRawValue(rawCell);
           }
         }
         fileReports.push(`✅ ${file.name}: nhận diện là file COST (cột "${priceColLabel}"), thêm ${addedCount} mã đơn vào danh sách tra cứu.`);
@@ -264,12 +286,16 @@ function processImportedCostFiles(files) {
         for (let i = 1; i < data.length; i++) {
           const orderKey = normalizeKey(data[i][maDonIdx]);
           if (!orderKey) continue;
-          const value = normalizeNumericValue(data[i][earningsIdx]);
+          const rawCell = data[i][earningsIdx];
+          const value = normalizeNumericValue(rawCell);
           if (earningsMap[orderKey] === undefined) {
             earningsMap[orderKey] = value;
             addedCount++;
           } else if (earningsMap[orderKey] === "" && value !== "") {
             earningsMap[orderKey] = value;
+          }
+          if (value === "" && earningsRawMap[orderKey] === undefined) {
+            earningsRawMap[orderKey] = describeRawValue(rawCell);
           }
         }
         fileReports.push(`✅ ${file.name}: nhận diện là file EARNINGS, thêm ${addedCount} mã đơn vào danh sách tra cứu.`);
@@ -318,6 +344,7 @@ function processImportedCostFiles(files) {
     });
 
     const parts = [];
+    const debugLines = [];
 
     // -- Điền Base Cost (cột đích dò theo header "Base Cost") --
     if (Object.keys(costPriceMap).length > 0) {
@@ -327,6 +354,7 @@ function processImportedCostFiles(files) {
         totalCostAlready = res.alreadyCorrect;
         totalCostNoOrder = res.noOrder;
         parts.push(`Cost: điền/ghi đè ${res.filled} dòng, đã đúng sẵn ${res.alreadyCorrect} dòng, ${res.noOrder} dòng có mã đơn nhưng không có trong file import (điền chưa ff), ${res.keptExisting} dòng có mã đơn không khớp import nhưng ô đã có sẵn giá trị (giữ nguyên), ${res.noOrderNumber} dòng chưa có mã đơn ở sheet đích (bỏ qua, không điền)`);
+        debugLines.push(...buildBlankDebugLines(res.blankOrderKeys, costRawMap, "Cost"));
       } else {
         parts.push(`Cost: không tìm thấy cột "Base Cost" trong trang tính này, bỏ qua`);
       }
@@ -340,6 +368,7 @@ function processImportedCostFiles(files) {
         totalEarningsAlready = res.alreadyCorrect;
         totalEarningsNoOrder = res.noOrder;
         parts.push(`Earnings: điền/ghi đè ${res.filled} dòng, đã đúng sẵn ${res.alreadyCorrect} dòng, ${res.noOrder} dòng có mã đơn nhưng không có trong file import (điền chưa ff), ${res.keptExisting} dòng có mã đơn không khớp import nhưng ô đã có sẵn giá trị (giữ nguyên), ${res.noOrderNumber} dòng chưa có mã đơn ở sheet đích (bỏ qua, không điền)`);
+        debugLines.push(...buildBlankDebugLines(res.blankOrderKeys, earningsRawMap, "Earnings"));
       } else {
         parts.push(`Earnings: không tìm thấy cột "Earnings" trong trang tính này, bỏ qua`);
       }
@@ -347,6 +376,10 @@ function processImportedCostFiles(files) {
 
     if (parts.length > 0) {
       perSheetReports.push(`📄 ${activeSheet.getName()}: ` + parts.join(" | "));
+    }
+    if (debugLines.length > 0) {
+      perSheetReports.push("🔍 Debug - giá trị GỐC đọc được cho các mã đơn bị coi là \"chưa có cost/earnings\":");
+      perSheetReports.push(...debugLines);
     }
   }
 
@@ -416,12 +449,13 @@ function isEmptyValue(val) {
 // - Nếu orderNumber trùng nhiều dòng trong sheet -> chỉ điền dòng đầu tiên khớp được.
 function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, noValueLabel) {
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { filled: 0, alreadyCorrect: 0, noOrder: 0, noOrderNumber: 0, keptExisting: 0 };
+  if (lastRow < 2) return { filled: 0, alreadyCorrect: 0, noOrder: 0, noOrderNumber: 0, keptExisting: 0, blankOrderKeys: [] };
 
   const orderNumbers = sheet.getRange(2, orderColIndex, lastRow - 1, 1).getValues();
   const currentVals = sheet.getRange(2, targetColIndex, lastRow - 1, 1).getValues();
 
   const filledOrder = new Set();
+  const blankOrderKeys = []; // mã đơn khớp import nhưng giá trị rỗng (đang hiển thị noValueLabel)
   let filled = 0;
   let alreadyCorrect = 0;
   let noOrder = 0;
@@ -459,6 +493,7 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
     filledOrder.add(orderKey);
 
     const newValue = valueMap[orderKey] !== "" ? valueMap[orderKey] : noValueLabel;
+    if (valueMap[orderKey] === "") blankOrderKeys.push(orderKey);
     if (sameValue(existingValue, newValue)) {
       alreadyCorrect++;
       return [existingValue];
@@ -480,7 +515,7 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
   });
   sheet.getRange(2, targetColIndex, colors.length, 1).setBackgrounds(colors);
 
-  return { filled, alreadyCorrect, noOrder, noOrderNumber, keptExisting };
+  return { filled, alreadyCorrect, noOrder, noOrderNumber, keptExisting, blankOrderKeys };
 }
 
 // ============ (GIỮ NGUYÊN) CÁCH LÀM CŨ QUA SHEET "Cost", PHÒNG KHI CẦN DÙNG LẠI ============
