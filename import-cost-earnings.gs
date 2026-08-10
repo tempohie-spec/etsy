@@ -15,16 +15,19 @@
 //    sheet ETSY_ khác.
 //  - Cả 2 cột đích (Base Cost, Earnings) đều được DÒ THEO TÊN HEADER trong dòng tiêu đề
 //    của trang tính hiện tại (không hardcode số cột).
-//  - CHỈ điền những dòng có mã đơn KHỚP với dữ liệu trong file/sheet đã import. Mã đơn nào
-//    không xuất hiện trong dữ liệu import thì bỏ qua hoàn toàn, không đụng vào ô đó.
+//  - CHỈ điền những dòng ở TRANG TÍNH HIỆN TẠI mà CÓ mã đơn (cột C):
+//      + Nếu mã đơn đó khớp với dữ liệu trong file/sheet đã import -> điền/ghi đè giá trị thật.
+//      + Nếu mã đơn đó KHÔNG có trong dữ liệu import -> điền "chưa ff".
+//    Dòng KHÔNG có mã đơn ở trang tính hiện tại -> bỏ qua hoàn toàn, không điền gì cả
+//    (không điền "chưa ff" cho những dòng này).
 //  - Nếu 1 orderNumber xuất hiện nhiều dòng trong sheet hiện tại -> chỉ điền dòng đầu tiên
-//  - Nếu giá trị mới (từ import) khác với giá trị đang có trong ô -> GHI ĐÈ bằng giá trị mới
-//    (kể cả khi ô đang có sẵn text như "chưa ff"/"chưa có cost" từ lần chạy trước, hoặc một
-//    con số cũ khác). Nếu giá trị mới trùng với giá trị đang có -> không cần ghi lại.
-//  - Nếu dòng KHÔNG có mã đơn -> điền "chưa ff" (không tính là "khớp import", chỉ là trạng
-//    thái mặc định khi chưa có mã đơn)
-//  - Kết thúc, báo cáo số dòng đã điền/ghi đè được giá trị thật và số dòng có mã đơn nhưng
-//    không khớp được với dữ liệu import (giữ nguyên, không đụng tới) trên trang tính hiện tại.
+//  - Nếu giá trị mới (từ import, hoặc "chưa ff") khác với giá trị đang có trong ô -> GHI ĐÈ
+//    bằng giá trị mới (kể cả khi ô đang có sẵn text "chưa ff"/"chưa có cost" từ lần chạy
+//    trước, hoặc một con số cũ khác). Nếu giá trị mới trùng với giá trị đang có -> không cần
+//    ghi lại.
+//  - Kết thúc, báo cáo số dòng đã điền/ghi đè được giá trị thật, số dòng có mã đơn nhưng
+//    không khớp import (đã điền "chưa ff"), và số dòng không có mã đơn (bỏ qua) trên trang
+//    tính hiện tại.
 //
 // CÀI ĐẶT TRƯỚC KHI DÙNG:
 // 1. Mở Apps Script Editor (Extensions > Apps Script)
@@ -115,10 +118,10 @@ function showImportCostDialog() {
       • File Earnings: cần cột "Mã đơn" + "Earnings"<br>
       Ngoài file Excel, nếu file hiện tại có sẵn sheet "Cost" thì dữ liệu cost trong đó
       cũng được dùng để tra cứu.<br>
-      Chỉ điền những mã đơn CÓ trong file/sheet đã import; mã đơn không khớp sẽ được giữ
-      nguyên. Nếu ô đang có giá trị khác (kể cả "chưa ff"/"chưa có cost" từ lần chạy trước)
-      mà nay đã tra được giá trị thật -> ghi đè bằng giá trị mới. Dòng không có mã đơn ->
-      điền "chưa ff".
+      Chỉ xét những dòng CÓ mã đơn ở trang tính hiện tại: mã đơn khớp với file/sheet import
+      -> điền/ghi đè giá trị thật; mã đơn KHÔNG khớp -> điền "chưa ff". Dòng KHÔNG có mã đơn
+      thì bỏ qua hoàn toàn, không điền gì. Nếu ô đang có giá trị khác (kể cả "chưa ff"/"chưa
+      có cost" từ lần chạy trước) mà nay đã tra được giá trị thật -> ghi đè bằng giá trị mới.
     </div>
 
     <div id="preview"></div>
@@ -285,8 +288,8 @@ function processImportedCostFiles(files) {
   // ==== ÁP DỤNG VÀO TRANG TÍNH HIỆN TẠI (KHÔNG ĐỤNG CÁC SHEET KHÁC) ====
   const lastRow = activeSheet.getLastRow();
   const perSheetReports = [];
-  let totalCostFilled = 0, totalCostAlready = 0, totalCostUnmatched = 0;
-  let totalEarningsFilled = 0, totalEarningsAlready = 0, totalEarningsUnmatched = 0;
+  let totalCostFilled = 0, totalCostAlready = 0, totalCostNoOrder = 0;
+  let totalEarningsFilled = 0, totalEarningsAlready = 0, totalEarningsNoOrder = 0;
 
   if (lastRow < 2) {
     perSheetReports.push(`⚠️ Trang tính "${activeSheet.getName()}" không có dữ liệu, bỏ qua.`);
@@ -309,8 +312,8 @@ function processImportedCostFiles(files) {
         const res = fillColumnByOrderMap(activeSheet, ORDER_NUMBER_COL_INDEX, baseCostColIdx, costPriceMap, NO_COST_LABEL);
         totalCostFilled = res.filled;
         totalCostAlready = res.alreadyCorrect;
-        totalCostUnmatched = res.unmatched;
-        parts.push(`Cost: điền/ghi đè ${res.filled} dòng, đã đúng sẵn ${res.alreadyCorrect} dòng, ${res.unmatched} dòng có mã đơn nhưng không có trong file import (giữ nguyên), ${res.noOrder} dòng chưa có mã đơn (chưa ff)`);
+        totalCostNoOrder = res.noOrder;
+        parts.push(`Cost: điền/ghi đè ${res.filled} dòng, đã đúng sẵn ${res.alreadyCorrect} dòng, ${res.noOrder} dòng có mã đơn nhưng không có trong file import (điền chưa ff), ${res.noOrderNumber} dòng chưa có mã đơn ở sheet đích (bỏ qua, không điền)`);
       } else {
         parts.push(`Cost: không tìm thấy cột "Base Cost" trong trang tính này, bỏ qua`);
       }
@@ -322,8 +325,8 @@ function processImportedCostFiles(files) {
         const res = fillColumnByOrderMap(activeSheet, ORDER_NUMBER_COL_INDEX, earningsColIdx, earningsMap, NO_EARNINGS_LABEL);
         totalEarningsFilled = res.filled;
         totalEarningsAlready = res.alreadyCorrect;
-        totalEarningsUnmatched = res.unmatched;
-        parts.push(`Earnings: điền/ghi đè ${res.filled} dòng, đã đúng sẵn ${res.alreadyCorrect} dòng, ${res.unmatched} dòng có mã đơn nhưng không có trong file import (giữ nguyên), ${res.noOrder} dòng chưa có mã đơn (chưa ff)`);
+        totalEarningsNoOrder = res.noOrder;
+        parts.push(`Earnings: điền/ghi đè ${res.filled} dòng, đã đúng sẵn ${res.alreadyCorrect} dòng, ${res.noOrder} dòng có mã đơn nhưng không có trong file import (điền chưa ff), ${res.noOrderNumber} dòng chưa có mã đơn ở sheet đích (bỏ qua, không điền)`);
       } else {
         parts.push(`Earnings: không tìm thấy cột "Earnings" trong trang tính này, bỏ qua`);
       }
@@ -340,8 +343,8 @@ function processImportedCostFiles(files) {
     "— Kết quả điền vào trang tính hiện tại —",
     ...perSheetReports,
     "",
-    `TỔNG: Cost điền/ghi đè ${totalCostFilled} / đã đúng sẵn ${totalCostAlready} / không khớp import ${totalCostUnmatched}` +
-      ` | Earnings điền/ghi đè ${totalEarningsFilled} / đã đúng sẵn ${totalEarningsAlready} / không khớp import ${totalEarningsUnmatched}`
+    `TỔNG: Cost điền/ghi đè ${totalCostFilled} / đã đúng sẵn ${totalCostAlready} / chưa ff ${totalCostNoOrder}` +
+      ` | Earnings điền/ghi đè ${totalEarningsFilled} / đã đúng sẵn ${totalEarningsAlready} / chưa ff ${totalEarningsNoOrder}`
   ];
 
   return summary.join("\n");
@@ -382,16 +385,15 @@ function sameValue(existingValue, newValue) {
 }
 
 // ============ HÀM ĐIỀN 1 CỘT DỰA TRÊN MAP orderNumber -> giá trị ============
-// - Chỉ xử lý những dòng có mã đơn KHỚP với valueMap (dữ liệu từ file/sheet đã import).
-//   Mã đơn không có trong valueMap -> bỏ qua hoàn toàn, giữ nguyên ô đích (unmatched).
+// - Dòng KHÔNG có mã đơn ở sheet đích -> bỏ qua hoàn toàn, không điền gì cả (noOrderNumber).
+// - Dòng CÓ mã đơn ở sheet đích nhưng mã đơn đó KHÔNG có trong dữ liệu import (valueMap)
+//   -> điền NO_ORDER_LABEL ("chưa ff") (noOrder), trừ khi ô đã sẵn đúng giá trị đó rồi.
+// - Dòng có mã đơn VÀ khớp với valueMap -> điền/ghi đè giá trị thật (filled), hoặc bỏ qua
+//   nếu ô đã sẵn đúng giá trị rồi (alreadyCorrect).
 // - Nếu orderNumber trùng nhiều dòng trong sheet -> chỉ điền dòng đầu tiên khớp được.
-// - Nếu giá trị mới khác giá trị đang có trong ô -> ghi đè (filled). Nếu đã trùng sẵn rồi
-//   thì không cần ghi lại (alreadyCorrect).
-// - Nếu dòng không có mã đơn -> điền NO_ORDER_LABEL ("chưa ff") (noOrder), trừ khi ô đã sẵn
-//   đúng giá trị đó rồi.
 function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, noValueLabel) {
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { filled: 0, alreadyCorrect: 0, noOrder: 0, unmatched: 0 };
+  if (lastRow < 2) return { filled: 0, alreadyCorrect: 0, noOrder: 0, noOrderNumber: 0 };
 
   const orderNumbers = sheet.getRange(2, orderColIndex, lastRow - 1, 1).getValues();
   const currentVals = sheet.getRange(2, targetColIndex, lastRow - 1, 1).getValues();
@@ -400,7 +402,7 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
   let filled = 0;
   let alreadyCorrect = 0;
   let noOrder = 0;
-  let unmatched = 0;
+  let noOrderNumber = 0;
   let touched = false;
 
   const updates = orderNumbers.map((row, i) => {
@@ -408,6 +410,11 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
     const existingValue = currentVals[i][0];
 
     if (!orderKey) {
+      noOrderNumber++;
+      return [existingValue];
+    }
+
+    if (valueMap[orderKey] === undefined) {
       if (sameValue(existingValue, NO_ORDER_LABEL)) {
         noOrder++;
         return [existingValue];
@@ -415,11 +422,6 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
       noOrder++;
       touched = true;
       return [NO_ORDER_LABEL];
-    }
-
-    if (valueMap[orderKey] === undefined) {
-      unmatched++;
-      return [existingValue];
     }
 
     if (filledOrder.has(orderKey)) return [existingValue];
@@ -438,7 +440,7 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
   if (touched) {
     sheet.getRange(2, targetColIndex, updates.length, 1).setValues(updates);
   }
-  return { filled, alreadyCorrect, noOrder, unmatched };
+  return { filled, alreadyCorrect, noOrder, noOrderNumber };
 }
 
 // ============ (GIỮ NGUYÊN) CÁCH LÀM CŨ QUA SHEET "Cost", PHÒNG KHI CẦN DÙNG LẠI ============
@@ -525,5 +527,5 @@ function fillBaseCostWithSheetName(mainSheetName) {
   if (baseCostColIdx === -1) throw new Error(`Không tìm thấy cột "Base Cost" trong sheet: ${mainSheetName}`);
 
   const res = fillColumnByOrderMap(mainSheet, ORDER_NUMBER_COL_INDEX, baseCostColIdx, priceMap, NO_COST_LABEL);
-  return `Đã điền/ghi đè ${res.filled} đơn, ${res.alreadyCorrect} đơn đã đúng sẵn, ${res.unmatched} đơn không có trong sheet Cost (giữ nguyên), ${res.noOrder} dòng chưa có mã đơn (chưa ff)`;
+  return `Đã điền/ghi đè ${res.filled} đơn, ${res.alreadyCorrect} đơn đã đúng sẵn, ${res.noOrder} đơn không có trong sheet Cost (điền chưa ff), ${res.noOrderNumber} dòng chưa có mã đơn (bỏ qua, không điền)`;
 }
