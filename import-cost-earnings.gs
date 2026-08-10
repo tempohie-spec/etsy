@@ -249,6 +249,10 @@ function processImportedCostFiles(files) {
           if (costPriceMap[orderKey] === undefined) {
             costPriceMap[orderKey] = price;
             addedCount++;
+          } else if (costPriceMap[orderKey] === "" && price !== "") {
+            // Mã đơn trùng nhiều dòng trong file: dòng đầu tiên gặp lại không có giá trị hợp lệ
+            // -> ưu tiên lấy giá trị thật ở dòng sau, không để dòng rỗng "khoá" mất giá trị đúng.
+            costPriceMap[orderKey] = price;
           }
         }
         fileReports.push(`✅ ${file.name}: nhận diện là file COST (cột "${priceColLabel}"), thêm ${addedCount} mã đơn vào danh sách tra cứu.`);
@@ -264,6 +268,8 @@ function processImportedCostFiles(files) {
           if (earningsMap[orderKey] === undefined) {
             earningsMap[orderKey] = value;
             addedCount++;
+          } else if (earningsMap[orderKey] === "" && value !== "") {
+            earningsMap[orderKey] = value;
           }
         }
         fileReports.push(`✅ ${file.name}: nhận diện là file EARNINGS, thêm ${addedCount} mã đơn vào danh sách tra cứu.`);
@@ -283,7 +289,7 @@ function processImportedCostFiles(files) {
   const costSheetMap = buildCostMapFromCostSheet(ss);
   let costSheetAdded = 0;
   Object.keys(costSheetMap).forEach(orderKey => {
-    if (costPriceMap[orderKey] === undefined) {
+    if (costPriceMap[orderKey] === undefined || (costPriceMap[orderKey] === "" && costSheetMap[orderKey] !== "")) {
       costPriceMap[orderKey] = costSheetMap[orderKey];
       costSheetAdded++;
     }
@@ -378,7 +384,11 @@ function buildCostMapFromCostSheet(ss) {
     const orderKey = normalizeKey(data[i][1]); // Cột B = orderNumber trong sheet Cost cũ
     if (!orderKey) continue;
     const price = normalizeNumericValue(data[i][priceColIdx]);
-    if (map[orderKey] === undefined) map[orderKey] = price;
+    if (map[orderKey] === undefined) {
+      map[orderKey] = price;
+    } else if (map[orderKey] === "" && price !== "") {
+      map[orderKey] = price;
+    }
   }
   return map;
 }
