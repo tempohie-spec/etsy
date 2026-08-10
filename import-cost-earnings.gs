@@ -71,11 +71,23 @@ function normalizeKey(val) {
   return String(val).trim().replace(/\s+/g, "").replace(/\.0+$/, "");
 }
 
+// Chuyển 1 ô về giá trị tiền tệ dạng chuỗi số hợp lệ, hoặc "" nếu ô đó không thực sự là
+// một con số tiền (VD: lỡ đọc nhầm phải cột ngày giờ do lệch cột "Fulfillment cost"/"Total").
+// Trước đây hàm này chỉ strip ký tự lạ mà không kiểm tra kết quả, nên một giá trị datetime
+// như "2026-08-06 10:22 +00:00" bị strip thành chuỗi số dài (giữ lại dấu "-") rồi bị Sheets
+// tự làm tròn thành số khổng lồ kiểu "2520261400000700" khi ghi vào ô.
 function normalizeNumericValue(val) {
+  if (val === null || val === undefined || val === "") return "";
+  if (Object.prototype.toString.call(val) === "[object Date]") return ""; // không phải tiền
+
   // Bỏ mọi ký tự không phải số/dấu chấm/dấu trừ (bỏ luôn "$", ",", v.v.)
-  return String(val === null || val === undefined ? "" : val)
-    .replace(/[^0-9.\-]/g, "")
-    .trim();
+  const stripped = String(val).replace(/[^0-9.\-]/g, "").trim();
+
+  // Chỉ chấp nhận dạng số tiền hợp lệ: tối đa 1 dấu trừ ở đầu, tối đa 1 dấu chấm,
+  // không quá 9 chữ số phần nguyên (loại bỏ chuỗi ngày/giờ bị đọc nhầm cột).
+  if (!/^-?\d{1,9}(\.\d+)?$/.test(stripped)) return "";
+
+  return stripped;
 }
 
 // ============ DIALOG IMPORT EXCEL ============
