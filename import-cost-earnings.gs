@@ -24,7 +24,10 @@
 //        đè, giữ nguyên giá trị đó.
 //    Dòng KHÔNG có mã đơn ở trang tính hiện tại -> bỏ qua hoàn toàn, không điền gì cả
 //    (không điền "chưa ff" cho những dòng này).
-//  - Nếu 1 orderNumber xuất hiện nhiều dòng trong sheet hiện tại -> chỉ điền dòng đầu tiên
+//  - Nếu 1 orderNumber xuất hiện nhiều dòng trong sheet hiện tại -> CHỈ xử lý (điền giá trị
+//    thật, hoặc điền "chưa ff") ở dòng đầu tiên; các dòng trùng sau đó giữ nguyên.
+//  - Ô nào đang hiển thị "chưa ff" hoặc "chưa có cost"/"chưa có earnings" sẽ được tô nền màu
+//    đỏ để dễ nhận biết; ô đã có giá trị thật thì không tô (được bỏ màu nếu trước đó bị đỏ).
 //  - Kết thúc, báo cáo số dòng đã điền/ghi đè được giá trị thật, số dòng có mã đơn nhưng
 //    không khớp import (đã điền "chưa ff"), số dòng không khớp import nhưng đã có sẵn giá
 //    trị nên được giữ nguyên, và số dòng không có mã đơn (bỏ qua) trên trang
@@ -44,6 +47,7 @@ const COST_SHEET_NAME = "Cost";        // Sheet phụ (nếu có) dùng làm ngu
 const NO_ORDER_LABEL = "chưa ff";      // Dòng không có mã đơn
 const NO_COST_LABEL = "chưa có cost";  // Có mã đơn nhưng không tìm thấy cost tương ứng
 const NO_EARNINGS_LABEL = "chưa có earnings"; // Có mã đơn nhưng không tìm thấy earnings tương ứng
+const FLAG_COLOR = "#f4cccc"; // Màu nền đỏ đánh dấu ô "chưa ff" / "chưa có cost" / "chưa có earnings"
 
 // Dò 1 cột trong sheet theo tên header (dòng 1), trả về chỉ số cột (1-based) hoặc -1 nếu không thấy
 function findColumnByHeader(sheet, headerText) {
@@ -122,7 +126,9 @@ function showImportCostDialog() {
       Chỉ xét những dòng CÓ mã đơn ở trang tính hiện tại: mã đơn khớp với file/sheet import
       -> điền/ghi đè giá trị thật (kể cả ghi đè "chưa ff"/"chưa có cost" cũ). Mã đơn KHÔNG
       khớp -> chỉ điền "chưa ff" nếu ô đang trống, còn nếu ô đã có sẵn giá trị khác thì giữ
-      nguyên, không ghi đè. Dòng KHÔNG có mã đơn thì bỏ qua hoàn toàn, không điền gì.
+      nguyên, không ghi đè. Dòng KHÔNG có mã đơn thì bỏ qua hoàn toàn, không điền gì. Mã đơn
+      trùng nhiều dòng thì chỉ dòng đầu tiên được xử lý. Các ô "chưa ff"/"chưa có cost"/"chưa
+      có earnings" sẽ được tô nền màu đỏ.
     </div>
 
     <div id="preview"></div>
@@ -423,6 +429,9 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
     }
 
     if (valueMap[orderKey] === undefined) {
+      if (filledOrder.has(orderKey)) return [existingValue];
+      filledOrder.add(orderKey);
+
       if (sameValue(existingValue, NO_ORDER_LABEL)) {
         noOrder++;
         return [existingValue];
@@ -452,6 +461,15 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
   if (touched) {
     sheet.getRange(2, targetColIndex, updates.length, 1).setValues(updates);
   }
+
+  // Tô đỏ các ô đang hiển thị "chưa ff" hoặc noValueLabel (VD "chưa có cost"/"chưa có
+  // earnings"); các ô khác được bỏ màu (về mặc định) để phản ánh đúng trạng thái hiện tại.
+  const colors = updates.map(u => {
+    const v = u[0];
+    return [(sameValue(v, NO_ORDER_LABEL) || sameValue(v, noValueLabel)) ? FLAG_COLOR : null];
+  });
+  sheet.getRange(2, targetColIndex, colors.length, 1).setBackgrounds(colors);
+
   return { filled, alreadyCorrect, noOrder, noOrderNumber, keptExisting };
 }
 
