@@ -191,9 +191,13 @@ tương ứng từ 1 trong 2 nguồn — chọn trong panel trên tab Etsy:
 - **Merchize (tab)**: lấy trực tiếp từ trang quản lý fulfillment
   [Merchize](https://seller.merchize.com). Cần mở **cả 2 tab cùng lúc**:
   1. Tab Etsy: `Orders → Sold` (`https://www.etsy.com/your/orders/sold*`)
-  2. Tab Merchize: `seller.merchize.com/a/orders?tab=shipping_status`
+  2. Tab Merchize: danh sách "All orders" — `seller.merchize.com/a/orders`
 
-  Trên tab Merchize có badge "AutoTrack: listening" xác nhận đang lắng nghe.
+  Trên tab Merchize có badge "AutoTrack: listening" xác nhận đang lắng nghe. Ở trang này, mã
+  tracking không nằm sẵn trong HTML mà chỉ hiện trong tooltip khi hover vào icon ở cột
+  **Tracking** (✓ xanh = đã có tracking, ✗ đỏ = chưa có) — script tự giả lập việc hover đó để đọc
+  tracking + nhận diện carrier qua domain của link tracking (USPS, DHL eCommerce, UPS, FedEx,
+  Canada Post). Carrier từ domain lạ sẽ để trống và bên Etsy sẽ tự chọn "Other".
 
 - **Dán từ Sheet**: khi dùng 1 sheet riêng (VD Google Sheets) để theo dõi tracking. Bôi đen
   **chỉ các dòng dữ liệu** (KHÔNG cần dòng header), Ctrl+C, dán (Ctrl+V) vào ô textarea trong
