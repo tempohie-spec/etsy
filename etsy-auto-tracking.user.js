@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      2.1
+// @version      3.1
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -145,98 +145,110 @@
   //  MERCHIZE TAB
   // ===================================================================
   if (location.hostname === 'seller.merchize.com') {
-    // Scanning the whole document's <tr> list on every single lookup gets
-    // expensive fast on shops with a big order list (hundreds of rows, each
-    // with several nested tooltip/copy-button divs) — that's what was
-    // tipping the tab into a freeze/crash during long runs. Two cheap fixes:
-    //   1. Scope the scan to the actual orders <table> instead of the whole
-    //      document (skips sidebar/nav/etc. entirely).
-    //   2. Cache the resulting map for a couple seconds, since Etsy only
-    //      asks for a lookup once every ~2s anyway — no need to re-walk the
-    //      whole table that often.
-    let cachedTable = null;
-    let cachedMap = null;
-    let cachedAt = 0;
-    const SCAN_CACHE_TTL_MS = 2000;
+    // The main "All orders" list (https://seller.merchize.com/a/orders) uses
+    // a different TrackingColumn than the old Shipment Status tab: it does
+    // NOT carry the tracking number in static HTML. Instead:
+    //   <td class="TrackingColumn text-center">
+    //     <div class="TooltipStatusOrderStyle Left-Custom">
+    //       <div id="TrackingOrderTooltip_<id>" class="TooltipHelp">
+    //         <i class="fas fa-check text-success" title="Completed"></i>   <- has tracking
+    //         <i class="fas fa-times text-danger" title="Missing"></i>     <- no tracking yet
+    //       </div>
+    //     </div>
+    //     <span class="badge ...">pre_transit</span>
+    //   </td>
+    // The actual tracking number/link only renders into the DOM (a Bootstrap
+    // tooltip) once you hover the icon — confirmed to appear instantly, no
+    // network request. So: find the row by its external order number
+    // (td.OrderCodeCell code — same as before), check the icon, and if it's
+    // the "has tracking" one, simulate a hover to force the tooltip's
+    // <a class="TrackingFulfillmentTooltipLink" href="...carrier's tracking URL...">
+    // to mount, read it, then un-hover.
 
-    function getOrdersTable() {
-      if (cachedTable && document.contains(cachedTable)) return cachedTable;
-      const anyCode = document.querySelector('td.OrderCodeCell');
-      cachedTable = anyCode ? anyCode.closest('table') : null;
-      return cachedTable;
+    function findMerchizeRow(orderId) {
+      const codeEls = document.querySelectorAll('td.OrderCodeCell code');
+      for (const codeEl of codeEls) {
+        if (codeEl.textContent.trim() === orderId) return codeEl.closest('tr');
+      }
+      return null;
     }
 
-    function scanMerchizeOrders() {
-      const now = Date.now();
-      if (cachedMap && now - cachedAt < SCAN_CACHE_TTL_MS) return cachedMap;
+    // Carrier can only be inferred from the tracking URL's domain here (the
+    // tooltip has no separate carrier text) — extend this if your shop uses
+    // other carriers whose domains aren't covered yet.
+    function carrierFromTrackingUrl(url) {
+      if (/usps\.com/i.test(url)) return 'USPS';
+      if (/dhlglobalmail\.com/i.test(url)) return 'DHL eCommerce';
+      if (/\bups\.com/i.test(url)) return 'UPS';
+      if (/fedex\.com/i.test(url)) return 'FedEx';
+      if (/canadapost/i.test(url)) return 'Canada Post';
+      if (/auspost\.com\.au/i.test(url)) return 'Australia Post';
+      return ''; // unrecognized domain -> leave blank (Etsy side falls back to "Other")
+    }
 
-      // Walk all <tr> in document order. Whenever we see a row containing
-      // td.OrderCodeCell we remember its <code> text as the "current"
-      // external order number; the following tr.OrderExtendPackagesRow
-      // row(s) carry the tracking link + carrier text for that order, inside
-      // the <td> that holds the a.PackageName link:
-      //   <td class="align-top" colspan="2">
-      //     <a class="PackageName">RN-...-F1 (1/1)</a>
-      //     <div class="">USPS</div>
-      //     <a target="_blank" href="...">TRACKINGNUMBER</a>
-      //   </td>
-      const map = {};
-      let currentExternal = null;
-      const table = getOrdersTable();
-      const rows = table ? table.querySelectorAll('tr') : document.querySelectorAll('tr');
+    async function readTrackingViaHover(row) {
+      const trackingCell = row.querySelector('td.TrackingColumn');
+      if (!trackingCell) return { found: false };
+      if (!trackingCell.querySelector('i.fa-check.text-success')) return { found: false };
 
-      rows.forEach((tr) => {
-        const codeEl = tr.querySelector('td.OrderCodeCell code');
-        if (codeEl) {
-          currentExternal = codeEl.textContent.trim();
-          return;
-        }
-        if (!tr.classList.contains('OrderExtendPackagesRow') || !currentExternal) return;
+      const trigger = trackingCell.querySelector('.TooltipHelp');
+      if (!trigger) return { found: false };
 
-        const packageLink = tr.querySelector('a.PackageName');
-        if (!packageLink) return;
-        const packageTd = packageLink.closest('td');
-        if (!packageTd) return;
+      trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
 
-        const trackingA = packageTd.querySelector('a[target="_blank"]');
-        if (!trackingA) return;
-        const tracking = trackingA.textContent.trim();
-
-        // carrier = whatever isn't one of the two <a> links in that cell
-        // (currently a bare <div>USPS</div> / <div>DHL eCommerce</div> etc.)
-        let carrier = '';
-        packageTd.childNodes.forEach((node) => {
-          if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'A') return;
-          carrier += node.textContent;
+      let result = { found: false };
+      try {
+        await waitFor(() => document.querySelector('a.TrackingFulfillmentTooltipLink'), {
+          timeout: 2000,
+          interval: 30,
+          desc: 'tracking tooltip',
         });
-        carrier = carrier.replace(/\s+/g, ' ').trim();
-
-        if (!map[currentExternal]) map[currentExternal] = [];
-        map[currentExternal].push({ tracking, carrier });
-      });
-
-      cachedMap = map;
-      cachedAt = now;
-      return map;
+        const link = document.querySelector('a.TrackingFulfillmentTooltipLink');
+        if (link) {
+          result = {
+            found: true,
+            tracking: link.textContent.trim(),
+            carrier: carrierFromTrackingUrl(link.href || ''),
+          };
+        }
+      } catch (e) {
+        // Tooltip never appeared -> treat as no tracking available.
+      } finally {
+        trigger.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        trigger.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+        await sleep(30);
+      }
+      return result;
     }
 
-    function handleRequest(orderId) {
+    async function handleRequest(orderId) {
       log('Lookup requested for order', orderId);
-      const map = scanMerchizeOrders();
-      const entries = map[orderId];
-      if (entries && entries.length) {
-        const { tracking, carrier } = entries[0];
-        log('  -> found', { tracking, carrier });
-        GM_setValue(RES_KEY, { orderId, found: true, tracking, carrier, ts: Date.now() });
-      } else {
+      const row = findMerchizeRow(orderId);
+      if (!row) {
         log('  -> not found on this page');
+        GM_setValue(RES_KEY, { orderId, found: false, ts: Date.now() });
+        return;
+      }
+      const result = await readTrackingViaHover(row);
+      if (result.found) {
+        log('  -> found', { tracking: result.tracking, carrier: result.carrier });
+        GM_setValue(RES_KEY, {
+          orderId,
+          found: true,
+          tracking: result.tracking,
+          carrier: result.carrier,
+          ts: Date.now(),
+        });
+      } else {
+        log('  -> no tracking yet');
         GM_setValue(RES_KEY, { orderId, found: false, ts: Date.now() });
       }
     }
 
     GM_addValueChangeListener(REQ_KEY, (name, oldVal, newVal) => {
       if (!newVal || !newVal.orderId) return;
-      handleRequest(newVal.orderId);
+      handleRequest(newVal.orderId); // async, fire-and-forget
     });
 
     // Small floating panel so you know the helper is alive on this tab, with
@@ -504,7 +516,7 @@
         { timeout: 15000, interval: 300, desc: 'Merchize response for ' + orderId }
       );
     } catch (e) {
-      log('  no response from Merchize tab (is it open on the Shipment Status list?)', e.message);
+      log('  no response from Merchize tab (is it open on the Orders list?)', e.message);
       return { orderId, found: false };
     }
   }
@@ -865,5 +877,5 @@
     if (logBox) logBox.innerHTML = '';
   });
 
-  log('Etsy helper loaded. Open the Merchize "Shipment Status" tab too, then click Start.');
+  log('Etsy helper loaded. Open the Merchize Orders list (seller.merchize.com/a/orders) too, then click Start.');
 })();
