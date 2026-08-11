@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.4
+// @version      2.5
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -163,6 +163,8 @@
     // CHUA CHAC CHAN: chua co vi du HTML co so dien thoai.
     // Tam thoi thu vai class pho bien, ban kiem tra lai giup minh.
     let phone = q('span.phone') || q('.phone-number') || q('[class*="phone"]');
+    // Xoa dau "+" (dau ma quoc gia) trong so dien thoai, vd "+1 234-567-8900" -> "1 234-567-8900"
+    phone = phone.replace(/\+/g, '');
 
     // Don o ngoai United States ma chua doc duoc so dien thoai that -> tu dien so ao,
     // vi mot so noi (vd dich vu in van don) yeu cau o phone khong duoc de trong.
