@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.6
+// @version      2.7
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -229,8 +229,16 @@
     // dang tin cay nhat de xac dinh day THAT SU la 1 san pham (khong phai chi can co anh +
     // 1 "strong" bat ky, vi cac khoi khac cung co the co "strong" ma khong phai san pham,
     // gay ra 1 dong "ma" thua o dau moi don voi title/color/size/quantity deu trong).
+    //
+    // QUAN TRONG: khoi ".flag" NGOAI CUNG cua ca dong don hang (bao quanh o checkbox chon
+    // don) cung co "flag-img" (chinh la o checkbox) VA cung "chua" it nhat 1 nhan Quantity o
+    // dau do rat sau ben trong no (vi no bao luon ca cac san pham that su) - neu khong loc
+    // tiep, khoi bao ngoai nay bi tinh nham la 1 "san pham" nua, lay du lieu cua SAN PHAM DAU
+    // TIEN tim thay ben trong -> lam sai lech: san pham dau tien cua moi don bi nhan doi.
+    // San pham THAT SU luon la khoi ".flag" o SAU NHAT (khong con chua ".flag" nao khac ben
+    // trong no), nen loai bo het cac khoi ".flag" nao co long 1 khoi ".flag" con khac.
     const flagEls = Array.from(container.querySelectorAll('.flag')).filter(
-      (el) => el.querySelector('.flag-img') && getLabelValues(el, 'Quantity').length > 0
+      (el) => el.querySelector('.flag-img') && getLabelValues(el, 'Quantity').length > 0 && !el.querySelector('.flag')
     );
 
     if (flagEls.length > 0) {
