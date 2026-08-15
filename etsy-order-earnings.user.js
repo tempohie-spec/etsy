@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.5
+// @version      2.6
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -134,18 +134,17 @@
 
   // Tim khung chua toan bo 1 don hang (bao gom ca link order + dia chi + san pham)
   function findOrderContainer(linkEl) {
-    let node = linkEl;
-    for (let i = 0; i < 20 && node; i++) {
-      if (
-        node.querySelector &&
-        node.querySelector('span.name') &&
-        node.querySelector('img[alt]')
-      ) {
-        return node;
-      }
-      node = node.parentElement;
-    }
-    return linkEl.closest('div') || document.body;
+    // Moi don hang tren trang duoc Etsy bao trong dung 1 khoi ".panel-body-row" rieng (xac
+    // nhan qua DOM thuc te cua trang /your/orders). Dung khoi nay lam container CHINH vi no
+    // luon khop dung 1 don, khong bao gio lan sang don khac.
+    //
+    // TRUOC DAY dung cach leo len toi 20 cap cha, tim khoi dau tien co ca "span.name" LAN
+    // "img[alt]" ben trong - cach nay co the vo tinh leo qua luon khoi bao ngoai chua NHIEU
+    // don cung luc (vi du gap 1 link ma don "mo coi" khong nam trong panel-body-row nao ca,
+    // con sot lai trong DOM), khien du lieu cua nhieu don khac nhau bi gop chung vao 1 dong
+    // va lap lai voi sai ma don. Neu khong tim thay ".panel-body-row" bao quanh link, BO QUA
+    // link do luon (tra ve null) thay vi doan mo ho, de tranh gop nham du lieu.
+    return linkEl.closest('.panel-body-row');
   }
 
   function extractAddress(container) {
