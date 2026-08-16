@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.7
+// @version      2.9
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -94,13 +94,31 @@
     });
   }
 
-  // Ngay hien tai luc chay script, dinh dang dd/mm/yyyy
+  // Lay thoi diem hien tai theo DUNG GIO VIET NAM (UTC+7, khong doi theo DST) BAT KE may
+  // dang chay script dat mui gio he thong la gi (vd nhieu nguoi dung VPS/RDP dat o My de
+  // chay Etsy, mui gio he thong khac hoan toan gio VN that). Date.now() la epoch UTC, khong
+  // phu thuoc mui gio may, nen cong them 7 tieng roi doc bang cac ham getUTC* la ra dung
+  // "gio tren dong ho" o Viet Nam, khong bi anh huong boi timezone cua may.
+  function getVietnamNow() {
+    return new Date(Date.now() + 7 * 60 * 60 * 1000);
+  }
+
+  // Ngay hien tai (theo gio Viet Nam co dinh), dinh dang dd/mm/yyyy
   function getTodayDateStr() {
-    const d = new Date();
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = d.getFullYear();
+    const d = getVietnamNow();
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
     return `${dd}/${mm}/${yyyy}`;
+  }
+
+  // Ngay hien tai dang yyyy-mm-dd (dung cho ten file), cung theo gio Viet Nam co dinh.
+  function getTodayFileDateStr() {
+    const d = getVietnamNow();
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   }
 
   // Etsy co 2 dang duong dan anh:
@@ -171,12 +189,17 @@
       phone = taoSoDienThoaiAo();
     }
 
+    const city = q('span.city');
+    // Neu khong co state (mot so nuoc ngoai United States khong co khai niem "state"),
+    // dien tam city vao cot state de o do khong bi bo trong.
+    const state = q('span.state') || city;
+
     return {
       name: q('span.name'),
       address1: q('span.first-line'),
       address2: q('span.second-line'),
-      city: q('span.city'),
-      state: q('span.state'),
+      city,
+      state,
       postalCode: q('span.zip'),
       country,
       phone,
@@ -402,7 +425,7 @@
     const ws = XLSX.utils.json_to_sheet(cleanData, { header: HEADERS, skipHeader: true });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Orders');
-    const filename = `etsy_orders_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const filename = `etsy_orders_${getTodayFileDateStr()}.xlsx`;
     XLSX.writeFile(wb, filename);
   }
 
