@@ -12,6 +12,7 @@ Userscript (Violentmonkey / Tampermonkey) cho trang Etsy.
 | `Alt + G` | Lấy tiêu đề + tag + ô cá nhân hoá vào Clipboard **và** tải toàn bộ ảnh full size của listing |
 | `Alt + C` | Chỉ lấy tiêu đề + tag + ô cá nhân hoá (không tải ảnh) |
 | `Alt + V` | Dán tiêu đề + tag, tạo ô cá nhân hoá, rồi tự bấm tab **Photo & Video** |
+| 📊 Xem dữ liệu API | In nguyên phản hồi API của listing ra Console (xem mục dưới) |
 
 Giao diện nổi có thể thu nhỏ thành biểu tượng tròn "Listing" và kéo thả tự do; vị trí được nhớ lại qua `localStorage`.
 
@@ -76,6 +77,37 @@ Keystring:Shared secret → Keystring → Shared secret → Shared secret:Keystr
 `etsy_api_uu_tien` để lần sau gọi thẳng — chỉ tốn đúng 1 request.
 
 Console cho biết đang dùng tổ hợp nào: `[Etsy Auto] API OK bằng Keystring:Shared secret`
+
+### Nút 📊 Xem dữ liệu API (v6.5)
+
+Gọi `getListing` cho listing đang mở rồi in **nguyên văn** phản hồi ra Console — để biết tận mắt
+app của bạn đọc được những trường nào, thay vì đoán theo tài liệu (Etsy khoá bớt một số trường
+tuỳ loại app).
+
+Console in ra 3 thứ:
+
+1. Nguyên đối tượng JSON, bấm mở ra xem từng trường.
+2. Bảng tóm tắt các chỉ số hay quan tâm — lượt thích, lượt xem, số lượng còn, số tag, trạng thái, giá.
+3. Danh sách **tất cả** tên trường API trả về, sắp xếp A→Z.
+
+Toast tóm tắt ngay trên màn hình: `✅ ❤️ Thích: 15 · 👁️ Xem: 342 — chi tiết xem Console (F12)`
+
+Bảng phân biệt rõ **`0`** với **`(API không trả về)`** — hai thứ này khác hẳn nhau khi cần biết
+Etsy có công bố chỉ số đó hay không.
+
+### Lấy được chỉ số gì?
+
+| Chỉ số | API v3 (listing shop khác) | Trên trang HTML |
+|---|---|---|
+| Lượt thích | ✅ `num_favorers`, số chính xác | ✅ link "15 favorites" |
+| Lượt xem | ⚠️ có trường `views` trong schema — dùng nút 📊 để kiểm chứng | ❌ Etsy không hiển thị |
+| Lượt bán | ❌ không có trên listing | ⚠️ badge "7+ Sold", đã làm tròn |
+
+Số "Views" mà HeyEtsy hiển thị là **do HeyEtsy tự theo dõi**, không phải số liệu Etsy công bố.
+
+Muốn số bán chính xác chỉ có `getShopReceipts` — cần **OAuth** và chỉ đọc được đơn của chính shop
+bạn. Ở cấp shop thì `getShop` (chỉ cần khoá, không cần OAuth) cho `transaction_sold_count`,
+`num_favorers`, `review_count`, `review_average`, `listing_active_count`.
 
 ### Nhập khoá
 

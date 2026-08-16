@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      6.4
+// @version      6.5
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '6.4';
+  const PHIEN_BAN = '6.5';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -960,6 +960,61 @@
     }
   }
 
+  // Goi API roi in NGUYEN VAN phan hoi ra Console. Muc dich: xem tan mat app cua minh doc duoc
+  // nhung truong nao (num_favorers, views, quantity...) thay vi doan mo theo tai lieu — Etsy khoa
+  // bot mot so truong tuy loai app, nen chi co cach thu that moi biet chac.
+  async function xemDuLieuApi() {
+    if (!coKhoaXacThuc()) {
+      hienThongBao('⚠️ Chưa có khoá API — bấm 🔑 để nhập trước', '#F59E0B');
+      return;
+    }
+
+    const listingId = layListingId();
+    if (!listingId) {
+      hienThongBao('⚠️ Trang này không phải trang listing nên không có gì để gọi', '#F59E0B');
+      return;
+    }
+
+    hienThongBao('⏳ Đang gọi API...', '#2563EB');
+    try {
+      const { duLieu, tenKhoa } = await goiApi(
+        `https://openapi.etsy.com/v3/application/listings/${listingId}`
+      );
+
+      console.log(
+        `%c[Etsy Auto] Dữ liệu API — listing ${listingId} (khoá dùng: ${tenKhoa})`,
+        'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;'
+      );
+
+      // In ca doi tuong de bam mo ra xem tung truong
+      console.log(duLieu);
+
+      // Bang tom tat cac chi so hay quan tam. Truong nao Etsy khong tra ve thi ghi ro,
+      // de phan biet "bang 0" voi "khong co du lieu".
+      const hienGiaTri = (v) => (v === undefined ? '(API không trả về)' : v === null ? '(null)' : v);
+      console.table({
+        'Lượt thích (num_favorers)': hienGiaTri(duLieu.num_favorers),
+        'Lượt xem (views)': hienGiaTri(duLieu.views),
+        'Số lượng còn (quantity)': hienGiaTri(duLieu.quantity),
+        'Số tag': Array.isArray(duLieu.tags) ? duLieu.tags.length : '(API không trả về)',
+        'Trạng thái (state)': hienGiaTri(duLieu.state),
+        'Giá': duLieu.price
+          ? `${(duLieu.price.amount / duLieu.price.divisor).toFixed(2)} ${duLieu.price.currency_code}`
+          : '(API không trả về)',
+      });
+
+      console.log('[Etsy Auto] Tất cả trường API trả về:', Object.keys(duLieu).sort().join(', '));
+
+      // Tom tat ngan ngay tren toast de khong phai mo Console cho cau hoi don gian
+      const thich = duLieu.num_favorers === undefined ? '—' : duLieu.num_favorers;
+      const xem = duLieu.views === undefined ? 'API không trả về' : duLieu.views;
+      hienThongBao(`✅ ❤️ Thích: ${thich} · 👁️ Xem: ${xem} — chi tiết xem Console (F12)`, '#16A34A');
+    } catch (loi) {
+      console.error('[Etsy Auto] Gọi API thất bại:', loi);
+      hienThongBao('❌ Gọi API thất bại — ' + loi.message, '#DC2626');
+    }
+  }
+
   function timNutCopyTag() {
     const nhan = timTheoChuHienThi('dt, span, div, h2, h3, label', 'tags');
     if (!nhan) return null;
@@ -1574,6 +1629,7 @@
       <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh (Alt+G)</button>
       <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy dữ liệu (Alt+C)</button>
       <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu (Alt+V)</button>
+      <button id="ea-btn-apidata" style="padding:8px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📊 Xem dữ liệu API</button>
       <button id="ea-btn-apikey" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔑 <span id="ea-apikey-label"></span></button>
     `;
     khungMoRong.appendChild(vungNut);
@@ -1620,6 +1676,7 @@
     document.getElementById('ea-btn-get').onclick = layVaTaiAnh;
     document.getElementById('ea-btn-get-notag').onclick = chiLayTieuDeVaTag;
     document.getElementById('ea-btn-paste').onclick = danTieuDeVaTag;
+    document.getElementById('ea-btn-apidata').onclick = xemDuLieuApi;
 
     // Nut nhap / doi API key, kem nhan cho biet da co key hay chua
     const nhanApiKey = document.getElementById('ea-apikey-label');
