@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.1
+// @version      2.9
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -32,6 +32,9 @@
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
   const PANEL_STATE_KEY = 'etsy_scraper_panel_state_v1';
+  // Ghi chu rieng cua nguoi dung (vd: acc nao can lay Earnings, acc nao bo qua) - chi de
+  // hien thi/luu lai trong panel, khong anh huong logic quet/lay Earnings.
+  const NOTE_KEY = 'etsy_scraper_note_v1';
 
   // Sinh 1 so dien thoai ao ngau nhien (10 chu so), dung de dien vao cot "phone" cho cac
   // don o ngoai United States khi khong doc duoc so that tren trang - tranh o phone bi
@@ -51,8 +54,6 @@
     searchInput: 'input[aria-label="Search your orders"]',
     // nut submit trong form tim kiem
     searchSubmitBtn: 'button[type="submit"]',
-    // tab "Earnings" trong bang order details - tim theo text vi class hay doi
-    earningsTabText: 'Earnings',
     // dong chu "You earned $xx.xx on this order" -> lay so trong <span>
     earningsAmountSelector: 'span.wt-text-title-large',
   };
@@ -77,7 +78,7 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  function waitFor(checkFn, timeout = WAIT_TIMEOUT) {
+  function waitFor(checkFn, timeout = WAIT_TIMEOUT, label = '') {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       const interval = setInterval(() => {
@@ -87,19 +88,37 @@
           resolve(result);
         } else if (Date.now() - start > timeout) {
           clearInterval(interval);
-          reject(new Error('Timeout cho phan tu'));
+          reject(new Error(label ? `Timeout cho phan tu: ${label}` : 'Timeout cho phan tu'));
         }
       }, 200);
     });
   }
 
-  // Ngay hien tai luc chay script, dinh dang dd/mm/yyyy
+  // Lay thoi diem hien tai theo DUNG GIO VIET NAM (UTC+7, khong doi theo DST) BAT KE may
+  // dang chay script dat mui gio he thong la gi (vd nhieu nguoi dung VPS/RDP dat o My de
+  // chay Etsy, mui gio he thong khac hoan toan gio VN that). Date.now() la epoch UTC, khong
+  // phu thuoc mui gio may, nen cong them 7 tieng roi doc bang cac ham getUTC* la ra dung
+  // "gio tren dong ho" o Viet Nam, khong bi anh huong boi timezone cua may.
+  function getVietnamNow() {
+    return new Date(Date.now() + 7 * 60 * 60 * 1000);
+  }
+
+  // Ngay hien tai (theo gio Viet Nam co dinh), dinh dang dd/mm/yyyy
   function getTodayDateStr() {
-    const d = new Date();
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = d.getFullYear();
+    const d = getVietnamNow();
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
     return `${dd}/${mm}/${yyyy}`;
+  }
+
+  // Ngay hien tai dang yyyy-mm-dd (dung cho ten file), cung theo gio Viet Nam co dinh.
+  function getTodayFileDateStr() {
+    const d = getVietnamNow();
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   }
 
   // Etsy co 2 dang duong dan anh:
@@ -133,18 +152,17 @@
 
   // Tim khung chua toan bo 1 don hang (bao gom ca link order + dia chi + san pham)
   function findOrderContainer(linkEl) {
-    let node = linkEl;
-    for (let i = 0; i < 20 && node; i++) {
-      if (
-        node.querySelector &&
-        node.querySelector('span.name') &&
-        node.querySelector('img[alt]')
-      ) {
-        return node;
-      }
-      node = node.parentElement;
-    }
-    return linkEl.closest('div') || document.body;
+    // Moi don hang tren trang duoc Etsy bao trong dung 1 khoi ".panel-body-row" rieng (xac
+    // nhan qua DOM thuc te cua trang /your/orders). Dung khoi nay lam container CHINH vi no
+    // luon khop dung 1 don, khong bao gio lan sang don khac.
+    //
+    // TRUOC DAY dung cach leo len toi 20 cap cha, tim khoi dau tien co ca "span.name" LAN
+    // "img[alt]" ben trong - cach nay co the vo tinh leo qua luon khoi bao ngoai chua NHIEU
+    // don cung luc (vi du gap 1 link ma don "mo coi" khong nam trong panel-body-row nao ca,
+    // con sot lai trong DOM), khien du lieu cua nhieu don khac nhau bi gop chung vao 1 dong
+    // va lap lai voi sai ma don. Neu khong tim thay ".panel-body-row" bao quanh link, BO QUA
+    // link do luon (tra ve null) thay vi doan mo ho, de tranh gop nham du lieu.
+    return linkEl.closest('.panel-body-row');
   }
 
   function extractAddress(container) {
@@ -162,6 +180,8 @@
     // CHUA CHAC CHAN: chua co vi du HTML co so dien thoai.
     // Tam thoi thu vai class pho bien, ban kiem tra lai giup minh.
     let phone = q('span.phone') || q('.phone-number') || q('[class*="phone"]');
+    // Xoa dau "+" (dau ma quoc gia) trong so dien thoai, vd "+1 234-567-8900" -> "1 234-567-8900"
+    phone = phone.replace(/\+/g, '');
 
     // Don o ngoai United States ma chua doc duoc so dien thoai that -> tu dien so ao,
     // vi mot so noi (vd dich vu in van don) yeu cau o phone khong duoc de trong.
@@ -169,12 +189,17 @@
       phone = taoSoDienThoaiAo();
     }
 
+    const city = q('span.city');
+    // Neu khong co state (mot so nuoc ngoai United States khong co khai niem "state"),
+    // dien tam city vao cot state de o do khong bi bo trong.
+    const state = q('span.state') || city;
+
     return {
       name: q('span.name'),
       address1: q('span.first-line'),
       address2: q('span.second-line'),
-      city: q('span.city'),
-      state: q('span.state'),
+      city,
+      state,
       postalCode: q('span.zip'),
       country,
       phone,
@@ -227,8 +252,16 @@
     // dang tin cay nhat de xac dinh day THAT SU la 1 san pham (khong phai chi can co anh +
     // 1 "strong" bat ky, vi cac khoi khac cung co the co "strong" ma khong phai san pham,
     // gay ra 1 dong "ma" thua o dau moi don voi title/color/size/quantity deu trong).
+    //
+    // QUAN TRONG: khoi ".flag" NGOAI CUNG cua ca dong don hang (bao quanh o checkbox chon
+    // don) cung co "flag-img" (chinh la o checkbox) VA cung "chua" it nhat 1 nhan Quantity o
+    // dau do rat sau ben trong no (vi no bao luon ca cac san pham that su) - neu khong loc
+    // tiep, khoi bao ngoai nay bi tinh nham la 1 "san pham" nua, lay du lieu cua SAN PHAM DAU
+    // TIEN tim thay ben trong -> lam sai lech: san pham dau tien cua moi don bi nhan doi.
+    // San pham THAT SU luon la khoi ".flag" o SAU NHAT (khong con chua ".flag" nao khac ben
+    // trong no), nen loai bo het cac khoi ".flag" nao co long 1 khoi ".flag" con khac.
     const flagEls = Array.from(container.querySelectorAll('.flag')).filter(
-      (el) => el.querySelector('.flag-img') && getLabelValues(el, 'Quantity').length > 0
+      (el) => el.querySelector('.flag-img') && getLabelValues(el, 'Quantity').length > 0 && !el.querySelector('.flag')
     );
 
     if (flagEls.length > 0) {
@@ -392,7 +425,7 @@
     const ws = XLSX.utils.json_to_sheet(cleanData, { header: HEADERS, skipHeader: true });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Orders');
-    const filename = `etsy_orders_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const filename = `etsy_orders_${getTodayFileDateStr()}.xlsx`;
     XLSX.writeFile(wb, filename);
   }
 
@@ -402,27 +435,6 @@
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
     setter.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
-  // tim phan tu clickable (a, button, div...) chua doan text cho truoc
-  function findClickableByText(text, root = document) {
-    const candidates = root.querySelectorAll('a, button, div, span, li');
-    for (const el of candidates) {
-      if (
-        el.children.length === 0 &&
-        el.textContent &&
-        el.textContent.trim() === text
-      ) {
-        return el;
-      }
-    }
-    // fallback: chua text (khong can khop tuyet doi)
-    for (const el of candidates) {
-      if (el.textContent && el.textContent.includes(text)) {
-        return el;
-      }
-    }
-    return null;
   }
 
   // Lay chuoi so tien "$xx.xx" va tra ve chi phan so (khong don vi tien te)
@@ -438,7 +450,7 @@
         if (/^\$[\d,.]+$/.test(s.textContent.trim())) return s;
       }
       return null;
-    });
+    }, WAIT_TIMEOUT, 'so tien Earnings');
     return parseAmountToNumberString(amountEl.textContent.trim());
   }
 
@@ -488,19 +500,17 @@
 
   async function getEarningsByClickingOrder(orderId) {
     // 1. Bam truc tiep vao ma don (link) de mo bang order details, khong dung o tim kiem
-    const link = await waitFor(() => findOrderLinkByOrderId(orderId));
+    const link = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId}`);
     link.click();
     await sleep(STEP_DELAY);
 
-    // 2. Bam tab "Earnings" trong bang order details
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText));
-    earningsTab.click();
-    await sleep(STEP_DELAY);
-
-    // 3. Lay so tien
+    // 2. KHONG CAN bam sang tab "Earnings" - Etsy render san noi dung ca 2 tab (Order details
+    // VA Earnings) ngay trong DOM tu luc mo bang order details, chi an/hien bang CSS. Vi vay
+    // chi can mo bang order details roi doc thang so tien "You earned $x.xx" la du, khong can
+    // click chuyen tab (nhanh hon, bot 1 buoc co the loi neu doi giao dien).
     const amount = await waitForEarningsAmount();
 
-    // 4. BAT BUOC dong overlay lai (bam X hoac nhan ESC) truoc khi sang don tiep theo
+    // 3. BAT BUOC dong overlay lai (bam X hoac nhan ESC) truoc khi sang don tiep theo
     await closeOrderDetailPanel();
 
     return amount;
@@ -564,7 +574,7 @@
 
   async function getEarningsForOrderBySearch(orderId) {
     // 1. Tim o search, nhap ma don
-    const input = await waitFor(() => document.querySelector(SEL.searchInput));
+    const input = await waitFor(() => document.querySelector(SEL.searchInput), WAIT_TIMEOUT, 'o tim kiem don hang');
     input.focus();
     setNativeValue(input, orderId);
     await sleep(300);
@@ -578,20 +588,20 @@
     }
     await sleep(STEP_DELAY);
 
-    // 3. Doi ket qua xuat hien, tim dong chua "#<ma don>" va click vao
-    const orderRow = await waitFor(() => findClickableByText('#' + orderId));
-    orderRow.click();
+    // 3. Doi ket qua xuat hien, bam vao ma don de mo bang order details.
+    // Dung findOrderLinkByOrderId (khop theo href chua order_id, giong CACH 1) thay vi tim
+    // theo NOI DUNG CHU "#<ma don>": tim theo chu de bam nham vao 1 the <div>/<span> BAO NGOAI
+    // ca khoi ket qua tim kiem (vi no cung "chua" doan chu do), khong phai chinh the <a> co
+    // the bam duoc - bam vao do khong co tac dung gi, lam buoc sau (doc Earnings) bi timeout.
+    const orderLink = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId} trong ket qua tim kiem`);
+    orderLink.click();
     await sleep(STEP_DELAY);
 
-    // 4. Click tab "Earnings"
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText));
-    earningsTab.click();
-    await sleep(STEP_DELAY);
-
-    // 5. Lay so tien
+    // 4. KHONG CAN bam tab "Earnings" - so tien "You earned $x.xx" da co san trong DOM
+    // ngay khi bang order details mo ra (Etsy render san ca 2 tab, chi an/hien bang CSS).
     const amount = await waitForEarningsAmount();
 
-    // 6. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
+    // 5. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
     await closeOrderDetailPanel();
 
     return amount;
@@ -679,6 +689,10 @@
     btnEarningsOnly.textContent = '⏳ Đang xử lý...';
 
     const results = [];
+    // Neu danh sach nhap tay co ma don TRUNG NHAU, chi lay Earnings cho LAN XUAT HIEN DAU
+    // TIEN cua ma don do; cac dong sau cung ma don de trong Earnings (khong tim kiem lai,
+    // do ket qua se giong het lan dau).
+    const daXuLyMaDon = new Set();
     let stopped = false;
     try {
       for (let i = 0; i < ids.length; i++) {
@@ -687,6 +701,13 @@
           break;
         }
         const id = ids[i];
+
+        if (daXuLyMaDon.has(id)) {
+          results.push({ 'Mã đơn': id, Earnings: '' });
+          continue;
+        }
+        daXuLyMaDon.add(id);
+
         hienThongBao(`⏳ (${i + 1}/${ids.length}) Đang lấy Earnings đơn #${id}...`, '#2563EB');
         try {
           const earnings = await getEarningsForOrderBySearch(id);
@@ -893,6 +914,15 @@
     countLabel = document.createElement('div');
     countLabel.style.cssText = 'color:#555; font-size:12px;';
     vungNoiDung.appendChild(countLabel);
+
+    const noteTextarea = document.createElement('textarea');
+    noteTextarea.placeholder = 'Ghi chú (vd: acc nào lấy Earnings, acc nào bỏ qua)...';
+    noteTextarea.value = GM_getValue(NOTE_KEY, '');
+    noteTextarea.style.cssText = 'width:100%; height:44px; box-sizing:border-box; font-size:12px; resize:vertical;';
+    noteTextarea.addEventListener('input', () => {
+      GM_setValue(NOTE_KEY, noteTextarea.value);
+    });
+    vungNoiDung.appendChild(noteTextarea);
 
     btnScanEarnings = document.createElement('button');
     btnScanEarnings.textContent = '🔍 Quét đơn + Earnings & tải Excel';
