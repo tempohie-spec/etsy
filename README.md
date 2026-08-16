@@ -49,14 +49,32 @@ Script lấy tag theo thứ tự ưu tiên:
 
 Toast báo rõ nguồn đã dùng, ví dụ `✅ Đã lấy tiêu đề + tag [API Etsy] + cá nhân hoá!`
 
-### Nhập API key
+### Keystring hay Shared secret? (v6.3)
 
-Bấm nút **🔑** ở cuối panel. Nhãn trên nút cho biết đang có key hay chưa. Để trống rồi bấm OK
-để xoá key (quay về dùng nút Copy).
+App Etsy cho 2 giá trị: **Keystring** và **Shared secret**. Tài liệu bảo dùng Keystring, nhưng
+thực tế có app trả về lỗi:
 
-> ⚠️ **Không bao giờ ghi API key vào file script.** Repo này là repo public — key ghi trong code
-> là ai cũng đọc được và dùng hết quota của bạn. Key được lưu bằng `GM_setValue`, tức nằm trong
-> Violentmonkey trên máy bạn, không đi kèm file khi chia sẻ.
+```
+403 — Shared secret is required in x-api-key header
+```
+
+nghĩa là app đó đòi **Shared secret**, không phải Keystring. Không đoán trước được app nào cần
+giá trị nào, nên script **lưu cả hai và tự thử lần lượt**: giá trị nào chạy được thì ghi nhớ
+(`etsy_api_uu_tien`) để lần sau gọi thẳng, khỏi tốn thêm request.
+
+Console cho biết đang dùng giá trị nào: `[Etsy Auto] API OK bằng Shared secret`
+
+### Nhập khoá
+
+Bấm nút **🔑** ở cuối panel → nhập Keystring (bước 1) → nhập Shared secret (bước 2). Có thể để
+trống một trong hai. Nhập xong script gọi ngay endpoint `openapi-ping` để kiểm tra và báo kết quả
+luôn, không phải đợi tới lúc lấy tag mới biết khoá hỏng.
+
+Nhãn trên nút cho biết đang có khoá hay chưa. Xoá cả hai giá trị là quay về dùng nút Copy.
+
+> ⚠️ **Không bao giờ ghi khoá vào file script.** Repo này public — khoá ghi trong code là ai cũng
+> đọc được và dùng hết quota của bạn. Shared secret còn nhạy cảm hơn Keystring. Cả hai được lưu
+> bằng `GM_setValue`, tức nằm trong Violentmonkey trên máy bạn, không đi kèm file khi chia sẻ.
 
 ## Logic tải ảnh (v5.0)
 

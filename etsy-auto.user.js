@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      6.2
+// @version      6.3
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '6.2';
+  const PHIEN_BAN = '6.3';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -740,96 +740,53 @@
   // Trang listing cua Etsy KHONG he chua tag trong HTML (Etsy da bo hien thi tag cong khai
   // tu lau). Cach chinh thong duy nhat de lay tag cua bat ky listing nao la goi Etsy Open API v3:
   //   GET https://openapi.etsy.com/v3/application/listings/{listing_id}   (header: x-api-key)
-  // Day la endpoint cap ung dung: chi can API key, KHONG can OAuth, khong can dang nhap.
+  // Day la endpoint cap ung dung: chi can khoa xac thuc, KHONG can OAuth, khong can dang nhap.
+  //
+  // LUU Y QUAN TRONG ve gia tri dat vao header x-api-key:
+  // App cua Etsy cho 2 gia tri — "Keystring" va "Shared secret". Tai lieu bao dung Keystring,
+  // NHUNG tren thuc te co app Etsy tra ve loi 403 kem dong chu:
+  //     "Shared secret is required in x-api-key header"
+  // tuc la no doi Shared secret chu khong phai Keystring. Vi khong doan truoc duoc app nao can
+  // gia tri nao, script luu CA HAI va tu thu lan luot; gia tri nao chay duoc thi nho lai de lan
+  // sau goi thang, khoi ton them 1 request.
+  const KHOA_LUU_KEYSTRING = 'etsy_api_key'; // giu nguyen ten cu de key da luu truoc do khong mat
+  const KHOA_LUU_SHARED_SECRET = 'etsy_shared_secret';
+  const KHOA_LUU_UU_TIEN = 'etsy_api_uu_tien'; // ten loai khoa da tung goi thanh cong
 
-  // API key duoc luu bang GM_setValue (nam trong Violentmonkey tren may nguoi dung),
-  // TUYET DOI khong ghi thang vao file nay — repo nay la repo public, ai cung doc duoc.
-  const KHOA_LUU_API_KEY = 'etsy_api_key';
-
-  function docApiKey() {
+  function docGiaTriLuu(ten) {
     try {
-      return (typeof GM_getValue === 'function' ? GM_getValue(KHOA_LUU_API_KEY, '') : '') || '';
+      return (typeof GM_getValue === 'function' ? GM_getValue(ten, '') : '') || '';
     } catch (e) {
-      console.warn('[Etsy Auto] Không đọc được API key đã lưu:', e);
+      console.warn('[Etsy Auto] Không đọc được giá trị đã lưu:', ten, e);
       return '';
     }
   }
 
-  function luuApiKey(khoa) {
+  function luuGiaTri(ten, giaTri) {
     try {
-      if (typeof GM_setValue === 'function') GM_setValue(KHOA_LUU_API_KEY, khoa);
+      if (typeof GM_setValue === 'function') GM_setValue(ten, giaTri);
       return true;
     } catch (e) {
-      console.warn('[Etsy Auto] Không lưu được API key:', e);
+      console.warn('[Etsy Auto] Không lưu được:', ten, e);
       return false;
     }
   }
 
-  // Goi endpoint ping cua Etsy — chi can API key, dung de kiem tra key ngay luc nhap
-  // thay vi doi toi luc lay tag moi biet key hong.
-  function kiemTraApiKey(apiKey) {
-    return new Promise((resolve) => {
-      if (typeof GM_xmlhttpRequest !== 'function') {
-        resolve({ ok: false, ly_do: 'Thiếu quyền GM_xmlhttpRequest' });
-        return;
-      }
-      GM_xmlhttpRequest({
-        method: 'GET',
-        url: 'https://openapi.etsy.com/v3/application/openapi-ping',
-        headers: { 'x-api-key': apiKey },
-        timeout: 15000,
-        onload: (res) => {
-          console.log('[Etsy Auto] Kiểm tra API key — mã:', res.status, '| nội dung:', res.responseText);
-          if (res.status === 200) resolve({ ok: true });
-          else resolve({ ok: false, ly_do: moTaLoiApi(res) });
-        },
-        onerror: () => resolve({ ok: false, ly_do: 'Không gọi được API (kiểm tra @connect / mạng)' }),
-        ontimeout: () => resolve({ ok: false, ly_do: 'API không phản hồi' }),
-      });
-    });
+  function coKhoaXacThuc() {
+    return !!(docGiaTriLuu(KHOA_LUU_KEYSTRING) || docGiaTriLuu(KHOA_LUU_SHARED_SECRET));
   }
 
-  // Mo hop thoai cho nguoi dung nhap / doi API key, roi kiem tra key luon
-  async function hoiApiKey() {
-    if (typeof GM_setValue !== 'function' || typeof GM_getValue !== 'function') {
-      hienThongBao(
-        '❌ Thiếu quyền GM_setValue/GM_getValue — mở script trong Violentmonkey và bấm Save lại',
-        '#DC2626'
-      );
-      console.error('[Etsy Auto] Thiếu @grant GM_setValue / GM_getValue — không lưu được API key');
-      return '';
-    }
+  // Danh sach cac khoa se thu, dat khoa tung chay duoc len dau
+  function layDanhSachKhoaThu() {
+    const danhSach = [];
+    const keystring = docGiaTriLuu(KHOA_LUU_KEYSTRING);
+    const secret = docGiaTriLuu(KHOA_LUU_SHARED_SECRET);
+    if (keystring) danhSach.push({ ten: 'Keystring', giaTri: keystring });
+    if (secret) danhSach.push({ ten: 'Shared secret', giaTri: secret });
 
-    const hienTai = docApiKey();
-    const nhap = prompt(
-      'Nhập Etsy API key (keystring) để lấy tag qua API chính thức.\n' +
-        'Lấy tại: https://www.etsy.com/developers/register\n\n' +
-        'Để trống rồi bấm OK để xoá key đã lưu.',
-      hienTai
-    );
-    if (nhap === null) return hienTai; // bam Cancel -> giu nguyen
-
-    const khoa = nhap.trim();
-    luuApiKey(khoa);
-
-    if (!khoa) {
-      hienThongBao('🗑️ Đã xoá API key (quay lại lấy tag bằng nút Copy)', '#F59E0B');
-      return '';
-    }
-
-    // Xac nhan key that su da luu duoc (phong truong hop GM_setValue im lang khong ghi)
-    if (docApiKey() !== khoa) {
-      hienThongBao('❌ Lưu API key thất bại — Violentmonkey không ghi được GM_setValue', '#DC2626');
-      return '';
-    }
-
-    hienThongBao('⏳ Đang kiểm tra API key...', '#2563EB');
-    const ketQua = await kiemTraApiKey(khoa);
-    hienThongBao(
-      ketQua.ok ? '✅ API key hợp lệ, đã lưu' : '❌ API key không dùng được: ' + ketQua.ly_do,
-      ketQua.ok ? '#16A34A' : '#DC2626'
-    );
-    return khoa;
+    const uuTien = docGiaTriLuu(KHOA_LUU_UU_TIEN);
+    if (uuTien && danhSach.length > 1 && danhSach[0].ten !== uuTien) danhSach.reverse();
+    return danhSach;
   }
 
   // Dich ma loi HTTP cua Etsy thanh cau tieng Viet de hieu, kem nguyen van thong bao tu API
@@ -843,20 +800,14 @@
     }
     const them = chiTiet ? ` — ${chiTiet}` : '';
 
-    if (res.status === 401) return `key sai hoặc chưa kích hoạt (401)${them}`;
-    if (res.status === 403) return `app chưa được Etsy duyệt (403)${them}`;
+    if (res.status === 401) return `khoá sai hoặc chưa kích hoạt (401)${them}`;
+    if (res.status === 403) return `bị từ chối (403)${them}`;
     if (res.status === 404) return `không tìm thấy (404)${them}`;
     if (res.status === 429) return `hết quota, thử lại sau (429)${them}`;
     return `API trả về mã ${res.status}${them}`;
   }
 
-  // Lay listing id tu duong dan: https://www.etsy.com/listing/4550390920/...
-  function layListingId() {
-    const khop = location.pathname.match(/\/listing\/(\d+)/);
-    return khop ? khop[1] : null;
-  }
-
-  function goiApiLayListing(listingId, apiKey) {
+  function goiApiMotLan(url, khoaXacThuc) {
     return new Promise((resolve, reject) => {
       if (typeof GM_xmlhttpRequest !== 'function') {
         reject(new Error('Thiếu quyền GM_xmlhttpRequest'));
@@ -864,26 +815,99 @@
       }
       GM_xmlhttpRequest({
         method: 'GET',
-        url: `https://openapi.etsy.com/v3/application/listings/${listingId}`,
-        headers: { 'x-api-key': apiKey },
+        url,
+        headers: { 'x-api-key': khoaXacThuc },
         timeout: 15000,
         onload: (res) => {
-          console.log('[Etsy Auto] API getListing — mã:', res.status);
           if (res.status === 200) {
             try {
-              resolve(JSON.parse(res.responseText));
+              resolve(res.responseText ? JSON.parse(res.responseText) : {});
             } catch (e) {
               reject(new Error('API trả về dữ liệu không đọc được: ' + e.message));
             }
             return;
           }
-          console.warn('[Etsy Auto] API getListing trả về lỗi, nội dung:', res.responseText);
           reject(new Error(moTaLoiApi(res)));
         },
-        onerror: () => reject(new Error('Không gọi được API Etsy')),
-        ontimeout: () => reject(new Error('API Etsy không phản hồi')),
+        onerror: () => reject(new Error('Không gọi được API (kiểm tra @connect / mạng)')),
+        ontimeout: () => reject(new Error('API không phản hồi')),
       });
     });
+  }
+
+  // Goi API, tu thu lan luot cac khoa da luu. Tra ve { duLieu, tenKhoa } neu thanh cong.
+  async function goiApi(url) {
+    const cacKhoa = layDanhSachKhoaThu();
+    if (cacKhoa.length === 0) throw new Error('chưa nhập Keystring / Shared secret');
+
+    let loiCuoi = '';
+    for (const khoa of cacKhoa) {
+      try {
+        const duLieu = await voiThoiHan(
+          goiApiMotLan(url, khoa.giaTri),
+          THOI_HAN_MOI_CACH_TAI,
+          `API Etsy không phản hồi sau ${THOI_HAN_MOI_CACH_TAI / 1000}s`
+        );
+        console.log(`[Etsy Auto] API OK bằng ${khoa.ten}`);
+        luuGiaTri(KHOA_LUU_UU_TIEN, khoa.ten);
+        return { duLieu, tenKhoa: khoa.ten };
+      } catch (loi) {
+        console.warn(`[Etsy Auto] API thất bại với ${khoa.ten}:`, loi.message);
+        loiCuoi = `${khoa.ten}: ${loi.message}`;
+      }
+    }
+    throw new Error(loiCuoi);
+  }
+
+  // Mo hop thoai nhap / doi khoa, roi kiem tra ngay bang endpoint ping
+  async function hoiApiKey() {
+    if (typeof GM_setValue !== 'function' || typeof GM_getValue !== 'function') {
+      hienThongBao(
+        '❌ Thiếu quyền GM_setValue/GM_getValue — mở script trong Violentmonkey và bấm Save lại',
+        '#DC2626'
+      );
+      console.error('[Etsy Auto] Thiếu @grant GM_setValue / GM_getValue');
+      return;
+    }
+
+    const keystring = prompt(
+      'Bước 1/2 — KEYSTRING của app Etsy\n' +
+        'Lấy tại: https://www.etsy.com/developers/your-apps\n\n' +
+        'Để trống rồi OK nếu muốn bỏ qua / xoá giá trị này.',
+      docGiaTriLuu(KHOA_LUU_KEYSTRING)
+    );
+    if (keystring === null) return; // Cancel -> khong doi gi
+    luuGiaTri(KHOA_LUU_KEYSTRING, keystring.trim());
+
+    const secret = prompt(
+      'Bước 2/2 — SHARED SECRET của app Etsy\n\n' +
+        'Nhiều app Etsy báo lỗi 403 "Shared secret is required in x-api-key header",\n' +
+        'nghĩa là phải dùng Shared secret thay cho Keystring. Nhập cả hai để script tự thử.\n\n' +
+        '⚠️ Shared secret là thông tin nhạy cảm, chỉ lưu trên máy bạn, đừng chia sẻ.',
+      docGiaTriLuu(KHOA_LUU_SHARED_SECRET)
+    );
+    if (secret !== null) luuGiaTri(KHOA_LUU_SHARED_SECRET, secret.trim());
+
+    luuGiaTri(KHOA_LUU_UU_TIEN, ''); // nhap lai thi bo ghi nho cu, thu lai tu dau
+
+    if (!coKhoaXacThuc()) {
+      hienThongBao('🗑️ Đã xoá khoá API (quay lại lấy tag bằng nút Copy)', '#F59E0B');
+      return;
+    }
+
+    hienThongBao('⏳ Đang kiểm tra khoá...', '#2563EB');
+    try {
+      const { tenKhoa } = await goiApi('https://openapi.etsy.com/v3/application/openapi-ping');
+      hienThongBao(`✅ Khoá hợp lệ (dùng ${tenKhoa}), đã lưu`, '#16A34A');
+    } catch (loi) {
+      hienThongBao('❌ Khoá không dùng được — ' + loi.message, '#DC2626');
+    }
+  }
+
+  // Lay listing id tu duong dan: https://www.etsy.com/listing/4550390920/...
+  function layListingId() {
+    const khop = location.pathname.match(/\/listing\/(\d+)/);
+    return khop ? khop[1] : null;
   }
 
   // Tra ve { tagText, loi }:
@@ -895,13 +919,10 @@
     if (typeof GM_getValue !== 'function') {
       return { tagText: '', loi: 'thiếu quyền GM_getValue — mở script trong Violentmonkey rồi bấm Save lại' };
     }
-
-    const apiKey = docApiKey();
-    if (!apiKey) {
-      console.log('[Etsy Auto] Chưa lưu API key nên bỏ qua API, dùng nút Copy');
-      return { tagText: '', loi: 'chưa nhập API key' };
+    if (!coKhoaXacThuc()) {
+      console.log('[Etsy Auto] Chưa lưu khoá API nên bỏ qua API, dùng nút Copy');
+      return { tagText: '', loi: 'chưa nhập khoá API' };
     }
-    console.log(`[Etsy Auto] Đang gọi API với key đã lưu (độ dài ${apiKey.length} ký tự)`);
 
     const listingId = layListingId();
     if (!listingId) {
@@ -909,18 +930,13 @@
     }
 
     try {
-      const duLieu = await voiThoiHan(
-        goiApiLayListing(listingId, apiKey),
-        THOI_HAN_MOI_CACH_TAI,
-        'API Etsy không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's'
-      );
+      const { duLieu } = await goiApi(`https://openapi.etsy.com/v3/application/listings/${listingId}`);
       const danhSachTag = Array.isArray(duLieu.tags) ? duLieu.tags : [];
       if (danhSachTag.length === 0) {
         return { tagText: '', loi: 'API chạy được nhưng listing này không có tag nào' };
       }
       return { tagText: danhSachTag.join(', '), loi: '' };
     } catch (loi) {
-      console.warn('[Etsy Auto] Lấy tag qua API thất bại, quay lại dùng nút Copy:', loi.message);
       return { tagText: '', loi: loi.message };
     }
   }
@@ -1589,7 +1605,7 @@
     // Nut nhap / doi API key, kem nhan cho biet da co key hay chua
     const nhanApiKey = document.getElementById('ea-apikey-label');
     const capNhatNhanApiKey = () => {
-      nhanApiKey.textContent = docApiKey() ? 'Đã có API key' : 'Chưa có API key';
+      nhanApiKey.textContent = coKhoaXacThuc() ? 'Đã có khoá API' : 'Chưa có khoá API';
     };
     capNhatNhanApiKey();
     document.getElementById('ea-btn-apikey').onclick = async () => {
