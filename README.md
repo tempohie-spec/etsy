@@ -95,19 +95,27 @@ Toast tóm tắt ngay trên màn hình: `✅ ❤️ Thích: 15 · 👁️ Xem: 3
 Bảng phân biệt rõ **`0`** với **`(API không trả về)`** — hai thứ này khác hẳn nhau khi cần biết
 Etsy có công bố chỉ số đó hay không.
 
-### Lấy được chỉ số gì?
+### Lấy được chỉ số gì? (đã kiểm chứng thực tế)
 
-| Chỉ số | API v3 (listing shop khác) | Trên trang HTML |
+| Chỉ số | Nguồn | Kết quả |
 |---|---|---|
-| Lượt thích | ✅ `num_favorers`, số chính xác | ✅ link "15 favorites" |
-| Lượt xem | ⚠️ có trường `views` trong schema — dùng nút 📊 để kiểm chứng | ❌ Etsy không hiển thị |
-| Lượt bán | ❌ không có trên listing | ⚠️ badge "7+ Sold", đã làm tròn |
+| 👁️ **Lượt xem listing** | API — `views` | ✅ **Có**, số thật |
+| ❤️ **Lượt thích listing** | API — `num_favorers` | ✅ **Có**, số chính xác |
+| 🛒 **Lượt bán listing** | — | ❌ **Không có ở bất kỳ đâu** |
+| 🏪 Tổng đơn của shop | API — `shop.transaction_sold_count` | ✅ Có |
+| 🏪 Người theo dõi shop | API — `shop.num_favorers` | ✅ Có |
+| 🏪 Đánh giá shop | API — `shop.review_average` / `review_count` | ✅ Có |
+| 🏪 Số listing đang bán | API — `shop.listing_active_count` | ✅ Có |
 
-Số "Views" mà HeyEtsy hiển thị là **do HeyEtsy tự theo dõi**, không phải số liệu Etsy công bố.
+Phản hồi `getListing` kèm sẵn object `shop`, nên các chỉ số cấp shop lấy được **trong cùng một
+request**, không cần gọi `getShop` riêng.
 
-Muốn số bán chính xác chỉ có `getShopReceipts` — cần **OAuth** và chỉ đọc được đơn của chính shop
-bạn. Ở cấp shop thì `getShop` (chỉ cần khoá, không cần OAuth) cho `transaction_sold_count`,
-`num_favorers`, `review_count`, `review_average`, `listing_active_count`.
+**Về lượt bán của từng listing:** Etsy không có trường này — không trong API, không trong HTML
+trang. Đường duy nhất là `getShopReceipts` rồi tự đếm, mà nó cần **OAuth** và chỉ đọc được đơn của
+**chính shop bạn**, không dùng được với shop khác.
+
+Badge "7+ Sold" và số "Views" mà HeyEtsy hiển thị là **do HeyEtsy tự ước lượng / tự theo dõi**,
+không phải số liệu Etsy công bố.
 
 ### Nhập khoá
 
