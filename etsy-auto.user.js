@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      6.7
+// @version      6.8
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '6.7';
+  const PHIEN_BAN = '6.8';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -1554,7 +1554,9 @@
   // Cho phep keo panel bang cach giu chuot vao "tayCam". Neu ha-tha chuot ma KHONG
   // di chuyen (hoac di chuyen rat it), coi la 1 cai click va goi onClick (dung de
   // bam mo/dong panel ma khong bi coi nham la keo).
-  function ganKeoTha(tayCam, panelEl, onClick) {
+  // "luuViTri" (tuy chon) cho phep moi khung tu chon noi luu toa do cua rieng no;
+  // khong truyen thi mac dinh luu vao trang thai cua panel chinh.
+  function ganKeoTha(tayCam, panelEl, onClick, luuViTri) {
     let dangKeo = false;
     let daDiChuyen = false;
     let downX = 0;
@@ -1597,9 +1599,196 @@
     document.addEventListener('mouseup', () => {
       if (!dangKeo) return;
       dangKeo = false;
-      luuTrangThaiPanel({ left: panelEl.style.left, top: panelEl.style.top });
+      const viTri = { left: panelEl.style.left, top: panelEl.style.top };
+      if (typeof luuViTri === 'function') luuViTri(viTri);
+      else luuTrangThaiPanel(viTri);
       if (!daDiChuyen && typeof onClick === 'function') onClick();
     });
+  }
+
+  // ================== THE THONG KE LISTING (tu hien khi mo listing) ==================
+
+  const KHOA_TU_HIEN_THONG_KE = 'etsy_tu_hien_thong_ke';
+  const KHOA_VI_TRI_THONG_KE = 'etsy_vi_tri_the_thong_ke';
+
+  // Etsy KHONG cong bo luot ban cua tung listing. Chi so cung duy nhat lien quan la SO REVIEW:
+  // moi review ung voi mot don hang that, nen no la CAN DUOI cua luot ban.
+  // Thuc te chi khoang 10-30% nguoi mua de lai danh gia, nen suy nguoc ra duoc mot KHOANG:
+  //     luot ban ~ soReview / 0.30  ...  soReview / 0.10
+  // Luon hien duoi dang khoang, khong bao gio quy ve 1 con so co dinh — vi day la uoc luong,
+  // dua ra so don le se tao cam giac chinh xac gia tao.
+  const TY_LE_REVIEW_CAO = 0.3; // nhieu nguoi chiu review -> luot ban thuc thap
+  const TY_LE_REVIEW_THAP = 0.1; // it nguoi chiu review -> luot ban thuc cao
+
+  function dinhDangNgay(giay) {
+    if (!giay) return '—';
+    const d = new Date(giay * 1000);
+    const hai = (n) => String(n).padStart(2, '0');
+    return `${hai(d.getDate())}/${hai(d.getMonth() + 1)}/${d.getFullYear()}`;
+  }
+
+  function moTaKhoangCach(giay) {
+    if (!giay) return '';
+    const soNgay = Math.max(0, Math.floor((Date.now() / 1000 - giay) / 86400));
+    if (soNgay === 0) return 'hôm nay';
+    if (soNgay < 30) return `${soNgay} ngày trước`;
+    if (soNgay < 365) return `${Math.floor(soNgay / 30)} tháng trước`;
+    return `${Math.floor(soNgay / 365)} năm trước`;
+  }
+
+  function soNgayTuKhi(giay) {
+    if (!giay) return 0;
+    return Math.max(1, (Date.now() / 1000 - giay) / 86400);
+  }
+
+  function dinhDangSo(n) {
+    return typeof n === 'number' ? n.toLocaleString('vi-VN') : '—';
+  }
+
+  // Tinh cac chi so suy ra tu du lieu API
+  function tinhThongKe(duLieu, soReview) {
+    const taoLuc = duLieu.original_creation_timestamp || duLieu.creation_timestamp || duLieu.created_timestamp;
+    const suaLuc = duLieu.last_modified_timestamp || duLieu.updated_timestamp;
+    const tuoiNgay = soNgayTuKhi(taoLuc);
+
+    const xem = typeof duLieu.views === 'number' ? duLieu.views : null;
+    const thich = typeof duLieu.num_favorers === 'number' ? duLieu.num_favorers : null;
+
+    const donGia = duLieu.price ? duLieu.price.amount / duLieu.price.divisor : null;
+    const tienTe = duLieu.price ? duLieu.price.currency_code : '';
+
+    let banToiThieu = null;
+    let banToiDa = null;
+    if (typeof soReview === 'number' && soReview > 0) {
+      banToiThieu = Math.ceil(soReview / TY_LE_REVIEW_CAO);
+      banToiDa = Math.ceil(soReview / TY_LE_REVIEW_THAP);
+    }
+
+    return {
+      xem,
+      thich,
+      soReview,
+      taoLuc,
+      suaLuc,
+      tuoiNgay,
+      donGia,
+      tienTe,
+      conLai: typeof duLieu.quantity === 'number' ? duLieu.quantity : null,
+      xemMoiNgay: xem === null ? null : xem / tuoiNgay,
+      tyLeThich: xem && thich !== null ? (thich / xem) * 100 : null,
+      banToiThieu,
+      banToiDa,
+      doanhThuToiThieu: banToiThieu !== null && donGia !== null ? banToiThieu * donGia : null,
+      doanhThuToiDa: banToiDa !== null && donGia !== null ? banToiDa * donGia : null,
+    };
+  }
+
+  function xoaTheThongKe() {
+    const cu = document.getElementById('etsy-auto-stats');
+    if (cu) cu.remove();
+  }
+
+  function veTheThongKe(tk) {
+    xoaTheThongKe();
+
+    const khung = document.createElement('div');
+    khung.id = 'etsy-auto-stats';
+    khung.style.cssText = `
+      position:fixed; z-index:999998; top:120px; left:16px; width:260px;
+      background:#fff; border-radius:10px; overflow:hidden; font-family:sans-serif;
+      box-shadow:0 6px 20px rgba(0,0,0,.25); user-select:none;
+    `;
+
+    const viTri = docTrangThaiPanel()[KHOA_VI_TRI_THONG_KE];
+    if (viTri && viTri.left && viTri.top) {
+      khung.style.left = viTri.left;
+      khung.style.top = viTri.top;
+    }
+
+    // Mot dong so lieu: nhan ben trai, gia tri chinh ben phai, gia tri phu mo hon o duoi
+    const dong = (bieuTuong, nhan, giaTri, phu) => `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 10px;border-bottom:1px solid #F3F4F6;">
+        <span style="font-size:12px;color:#6B7280;">${bieuTuong} ${nhan}</span>
+        <span style="text-align:right;">
+          <span style="font-size:13px;font-weight:bold;color:#111827;">${giaTri}</span>
+          ${phu ? `<span style="display:block;font-size:11px;color:#9CA3AF;">${phu}</span>` : ''}
+        </span>
+      </div>`;
+
+    const uocTinhBan =
+      tk.banToiThieu !== null
+        ? `${dinhDangSo(tk.banToiThieu)} – ${dinhDangSo(tk.banToiDa)}`
+        : 'chưa đủ dữ liệu';
+    const uocTinhDoanhThu =
+      tk.doanhThuToiThieu !== null
+        ? `${dinhDangSo(Math.round(tk.doanhThuToiThieu))} – ${dinhDangSo(Math.round(tk.doanhThuToiDa))} ${tk.tienTe}`
+        : '';
+
+    khung.innerHTML = `
+      <div id="ea-stats-header" style="display:flex;align-items:center;justify-content:space-between;
+        background:linear-gradient(135deg,#7C3AED,#A78BFA);color:#fff;padding:8px 10px;
+        cursor:grab;font-weight:bold;font-size:13px;">
+        <span>📊 Thống kê listing</span>
+        <button id="ea-stats-close" title="Đóng" style="background:rgba(255,255,255,.25);border:none;
+          color:#fff;width:22px;height:22px;border-radius:6px;cursor:pointer;font-weight:bold;
+          line-height:1;font-size:14px;">×</button>
+      </div>
+      ${dong('👁️', 'Lượt xem', dinhDangSo(tk.xem), tk.xemMoiNgay === null ? '' : `${tk.xemMoiNgay.toFixed(1)}/ngày`)}
+      ${dong('❤️', 'Yêu thích', dinhDangSo(tk.thich), tk.tyLeThich === null ? '' : `${tk.tyLeThich.toFixed(1)}% lượt xem`)}
+      ${dong('📝', 'Review', dinhDangSo(tk.soReview), 'đơn hàng có thật')}
+      ${dong('🛒', 'Ước tính bán', uocTinhBan, uocTinhDoanhThu)}
+      ${dong('📅', 'Tạo lúc', dinhDangNgay(tk.taoLuc), moTaKhoangCach(tk.taoLuc))}
+      ${dong('🔄', 'Sửa lúc', dinhDangNgay(tk.suaLuc), moTaKhoangCach(tk.suaLuc))}
+      ${dong('📦', 'Còn lại', dinhDangSo(tk.conLai), tk.donGia === null ? '' : `${tk.donGia.toFixed(2)} ${tk.tienTe}`)}
+      <div style="padding:8px 10px;font-size:10px;color:#9CA3AF;line-height:1.4;">
+        Ước tính bán suy từ số review (thường chỉ 10–30% người mua đánh giá) nên là một khoảng,
+        không phải số chính xác. Etsy không công bố lượt bán của từng listing.
+      </div>
+    `;
+
+    document.body.appendChild(khung);
+
+    document.getElementById('ea-stats-close').onclick = xoaTheThongKe;
+    ganKeoTha(document.getElementById('ea-stats-header'), khung, null, (vt) =>
+      luuTrangThaiPanel({ [KHOA_VI_TRI_THONG_KE]: vt })
+    );
+  }
+
+  function dangBatTuHien() {
+    return docTrangThaiPanel()[KHOA_TU_HIEN_THONG_KE] !== false; // mac dinh: bat
+  }
+
+  // Goi API roi ve the. Dung chung cho ca luc tu chay va luc bam nut.
+  async function hienThongKeListing({ imLangKhiLoi = false } = {}) {
+    const listingId = layListingId();
+    if (!listingId) {
+      if (!imLangKhiLoi) hienThongBao('⚠️ Trang này không phải trang listing', '#F59E0B');
+      return;
+    }
+    if (!coKhoaXacThuc()) {
+      if (!imLangKhiLoi) hienThongBao('⚠️ Chưa có khoá API — bấm 🔑 để nhập trước', '#F59E0B');
+      return;
+    }
+
+    try {
+      const { duLieu } = await goiApi(`https://openapi.etsy.com/v3/application/listings/${listingId}`);
+
+      // So review goi rieng; hong thi van ve the, chi thieu phan uoc tinh ban
+      let soReview = null;
+      try {
+        const kq = await goiApi(
+          `https://openapi.etsy.com/v3/application/listings/${listingId}/reviews?limit=1`
+        );
+        if (kq.duLieu && typeof kq.duLieu.count === 'number') soReview = kq.duLieu.count;
+      } catch (loi) {
+        console.warn('[Etsy Auto] Không lấy được số review:', loi.message);
+      }
+
+      veTheThongKe(tinhThongKe(duLieu, soReview));
+    } catch (loi) {
+      console.warn('[Etsy Auto] Không hiện được thống kê:', loi.message);
+      if (!imLangKhiLoi) hienThongBao('❌ Không lấy được thống kê — ' + loi.message, '#DC2626');
+    }
   }
 
   function taoGiaoDien() {
@@ -1668,7 +1857,9 @@
       <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh (Alt+G)</button>
       <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy dữ liệu (Alt+C)</button>
       <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu (Alt+V)</button>
-      <button id="ea-btn-apidata" style="padding:8px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📊 Xem dữ liệu API</button>
+      <button id="ea-btn-stats" style="padding:8px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📊 Thống kê listing</button>
+      <button id="ea-btn-autostats" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;"></button>
+      <button id="ea-btn-apidata" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔍 Đổ dữ liệu API ra Console</button>
       <button id="ea-btn-apikey" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔑 <span id="ea-apikey-label"></span></button>
     `;
     khungMoRong.appendChild(vungNut);
@@ -1716,6 +1907,21 @@
     document.getElementById('ea-btn-get-notag').onclick = chiLayTieuDeVaTag;
     document.getElementById('ea-btn-paste').onclick = danTieuDeVaTag;
     document.getElementById('ea-btn-apidata').onclick = xemDuLieuApi;
+    document.getElementById('ea-btn-stats').onclick = () => hienThongKeListing();
+
+    // Cong tac bat/tat viec tu hien the thong ke moi khi mo mot listing
+    const nutTuHien = document.getElementById('ea-btn-autostats');
+    const capNhatNhanTuHien = () => {
+      nutTuHien.textContent = dangBatTuHien() ? '📊 Tự hiện: BẬT' : '📊 Tự hiện: TẮT';
+    };
+    capNhatNhanTuHien();
+    nutTuHien.onclick = () => {
+      const batMoi = !dangBatTuHien();
+      luuTrangThaiPanel({ [KHOA_TU_HIEN_THONG_KE]: batMoi });
+      capNhatNhanTuHien();
+      if (batMoi) hienThongKeListing();
+      else xoaTheThongKe();
+    };
 
     // Nut nhap / doi API key, kem nhan cho biet da co key hay chua
     const nhanApiKey = document.getElementById('ea-apikey-label');
@@ -1736,6 +1942,13 @@
     'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;',
     `| Nguồn hẹn giờ: ${HEN_GIO.nguon}`
   );
+
+  // Tu hien the thong ke khi dang o trang listing (co the tat bang nut trong panel).
+  // "imLangKhiLoi" de lan chay tu dong khong bung toast do khi chua nhap khoa hay API tam loi —
+  // nguoi dung dau co chu dong yeu cau gi.
+  if (layListingId() && dangBatTuHien()) {
+    hienThongKeListing({ imLangKhiLoi: true });
+  }
 
   document.addEventListener('keydown', (e) => {
     if (!e.altKey) return;

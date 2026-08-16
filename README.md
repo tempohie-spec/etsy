@@ -132,6 +132,46 @@ Họ có server quét hàng loạt listing liên tục và tích luỹ nhiều t
 Điểm yếu của cách này: nếu người bán nạp thêm hàng (`quantity` tăng trở lại) thì phép trừ sai, nên
 con số chỉ là ước lượng.
 
+### Card thống kê tự hiện (v6.8)
+
+Mở bất kỳ trang listing nào, một card tím tự hiện ở góc trái — kéo thả được, vị trí được nhớ:
+
+```
+┌──────────────────────────────┐
+│ 📊 Thống kê listing        × │
+├──────────────────────────────┤
+│ 👁️ Lượt xem     397  14.2/ngày│
+│ ❤️ Yêu thích     27  6.8% xem │
+│ 📝 Review         7  đơn thật │
+│ 🛒 Ước tính bán  24 – 70      │
+│                720–2.099 USD  │
+│ 📅 Tạo lúc  17/07/2026 28 ngày│
+│ 🔄 Sửa lúc  11/08/2026  6 ngày│
+│ 📦 Còn lại      999  29.99 USD│
+└──────────────────────────────┘
+```
+
+Các chỉ số suy ra:
+
+| Chỉ số | Công thức |
+|---|---|
+| Lượt xem/ngày | `views ÷ số ngày kể từ khi tạo` |
+| % yêu thích | `num_favorers ÷ views × 100` |
+| Ước tính bán | `review ÷ 0.30` đến `review ÷ 0.10` |
+| Ước tính doanh thu | khoảng lượt bán × giá |
+
+**Vì sao là một khoảng chứ không phải một số?** Thực tế chỉ 10–30% người mua để lại đánh giá, và
+tỷ lệ đó thay đổi theo ngành hàng, theo shop. Quy về một số duy nhất sẽ tạo cảm giác chính xác giả
+tạo. 7 review nghĩa là "gần như chắc chắn đã bán trong khoảng 24–70 cái", không phải "đã bán 35".
+
+Listing chưa có review nào thì ghi `chưa đủ dữ liệu` thay vì đoán bừa.
+
+Nút **📊 Tự hiện: BẬT/TẮT** trong panel để tắt hẳn nếu không muốn tốn quota (mỗi lần mở listing
+tốn 2 request: 1 cho listing, 1 cho review). Nút **📊 Thống kê listing** để gọi lại thủ công.
+
+Lần tự chạy không bung toast đỏ khi chưa nhập khoá hoặc API tạm lỗi — vì bạn đâu có chủ động yêu
+cầu gì; lỗi chỉ ghi vào Console.
+
 ### Số review — cận dưới chắc chắn của lượt bán
 
 Mỗi review ứng với một đơn hàng thật, nên số review là **cận dưới** đáng tin của lượt bán (thực tế
