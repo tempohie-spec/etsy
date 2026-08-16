@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      6.3
+// @version      6.4
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '6.3';
+  const PHIEN_BAN = '6.4';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -743,12 +743,16 @@
   // Day la endpoint cap ung dung: chi can khoa xac thuc, KHONG can OAuth, khong can dang nhap.
   //
   // LUU Y QUAN TRONG ve gia tri dat vao header x-api-key:
-  // App cua Etsy cho 2 gia tri — "Keystring" va "Shared secret". Tai lieu bao dung Keystring,
-  // NHUNG tren thuc te co app Etsy tra ve loi 403 kem dong chu:
-  //     "Shared secret is required in x-api-key header"
-  // tuc la no doi Shared secret chu khong phai Keystring. Vi khong doan truoc duoc app nao can
-  // gia tri nao, script luu CA HAI va tu thu lan luot; gia tri nao chay duoc thi nho lai de lan
-  // sau goi thang, khoi ton them 1 request.
+  // App cua Etsy cho 2 gia tri — "Keystring" va "Shared secret". Tai lieu bao chi can Keystring,
+  // nhung mot so app doi CA HAI trong CUNG 1 header, noi bang dau hai cham:
+  //     x-api-key: <keystring>:<shared secret>
+  // Bang chung tu 2 thong bao loi cua chinh Etsy khi thu tung gia tri rieng le:
+  //   - Gui rieng Keystring     -> 403 "Shared secret is required in x-api-key header"
+  //     (tuc la header con thieu nua sau)
+  //   - Gui rieng Shared secret -> 403 "API key not found or not active, or incorrect shared
+  //     secret for API key" (Etsy doc no nhu mot API key nen khong tim thay)
+  // Vi khong doan truoc duoc app nao can dang nao, script luu ca 2 gia tri roi thu lan luot cac
+  // to hop; to hop nao chay duoc thi nho lai de lan sau goi thang, khoi ton them request.
   const KHOA_LUU_KEYSTRING = 'etsy_api_key'; // giu nguyen ten cu de key da luu truoc do khong mat
   const KHOA_LUU_SHARED_SECRET = 'etsy_shared_secret';
   const KHOA_LUU_UU_TIEN = 'etsy_api_uu_tien'; // ten loai khoa da tung goi thanh cong
@@ -776,16 +780,28 @@
     return !!(docGiaTriLuu(KHOA_LUU_KEYSTRING) || docGiaTriLuu(KHOA_LUU_SHARED_SECRET));
   }
 
-  // Danh sach cac khoa se thu, dat khoa tung chay duoc len dau
+  // Danh sach cac to hop se thu, dat to hop tung chay duoc len dau tien
   function layDanhSachKhoaThu() {
-    const danhSach = [];
     const keystring = docGiaTriLuu(KHOA_LUU_KEYSTRING);
     const secret = docGiaTriLuu(KHOA_LUU_SHARED_SECRET);
+    const danhSach = [];
+
+    // Dang ghep dat truoc vi thong bao loi cua Etsy chi thang vao no
+    if (keystring && secret) {
+      danhSach.push({ ten: 'Keystring:Shared secret', giaTri: `${keystring}:${secret}` });
+    }
     if (keystring) danhSach.push({ ten: 'Keystring', giaTri: keystring });
     if (secret) danhSach.push({ ten: 'Shared secret', giaTri: secret });
+    // Phong truong hop nguoi dung dan nham thu tu 2 o
+    if (keystring && secret) {
+      danhSach.push({ ten: 'Shared secret:Keystring', giaTri: `${secret}:${keystring}` });
+    }
 
+    // Neu da tung goi thanh cong bang to hop nao thi dua no len dau, khoi thu lai tu dau
     const uuTien = docGiaTriLuu(KHOA_LUU_UU_TIEN);
-    if (uuTien && danhSach.length > 1 && danhSach[0].ten !== uuTien) danhSach.reverse();
+    const viTri = danhSach.findIndex((k) => k.ten === uuTien);
+    if (viTri > 0) danhSach.unshift(danhSach.splice(viTri, 1)[0]);
+
     return danhSach;
   }
 
@@ -840,7 +856,7 @@
     const cacKhoa = layDanhSachKhoaThu();
     if (cacKhoa.length === 0) throw new Error('chưa nhập Keystring / Shared secret');
 
-    let loiCuoi = '';
+    const cacLoi = [];
     for (const khoa of cacKhoa) {
       try {
         const duLieu = await voiThoiHan(
@@ -853,10 +869,13 @@
         return { duLieu, tenKhoa: khoa.ten };
       } catch (loi) {
         console.warn(`[Etsy Auto] API thất bại với ${khoa.ten}:`, loi.message);
-        loiCuoi = `${khoa.ten}: ${loi.message}`;
+        // Gom loi theo noi dung: nhieu to hop thuong cung mot thong bao, gop lai cho gon
+        const daCo = cacLoi.find((x) => x.thongDiep === loi.message);
+        if (daCo) daCo.cacTen.push(khoa.ten);
+        else cacLoi.push({ thongDiep: loi.message, cacTen: [khoa.ten] });
       }
     }
-    throw new Error(loiCuoi);
+    throw new Error(cacLoi.map((x) => `${x.cacTen.join(' / ')}: ${x.thongDiep}`).join(' | '));
   }
 
   // Mo hop thoai nhap / doi khoa, roi kiem tra ngay bang endpoint ping
@@ -881,8 +900,8 @@
 
     const secret = prompt(
       'Bước 2/2 — SHARED SECRET của app Etsy\n\n' +
-        'Nhiều app Etsy báo lỗi 403 "Shared secret is required in x-api-key header",\n' +
-        'nghĩa là phải dùng Shared secret thay cho Keystring. Nhập cả hai để script tự thử.\n\n' +
+        'Nhiều app Etsy đòi cả 2 giá trị trong cùng header, dạng "keystring:shared secret".\n' +
+        'Nhập đủ cả hai để script tự thử các tổ hợp và nhớ lại cái nào chạy được.\n\n' +
         '⚠️ Shared secret là thông tin nhạy cảm, chỉ lưu trên máy bạn, đừng chia sẻ.',
       docGiaTriLuu(KHOA_LUU_SHARED_SECRET)
     );

@@ -49,20 +49,33 @@ Script lấy tag theo thứ tự ưu tiên:
 
 Toast báo rõ nguồn đã dùng, ví dụ `✅ Đã lấy tiêu đề + tag [API Etsy] + cá nhân hoá!`
 
-### Keystring hay Shared secret? (v6.3)
+### Keystring, Shared secret, hay cả hai? (v6.4)
 
-App Etsy cho 2 giá trị: **Keystring** và **Shared secret**. Tài liệu bảo dùng Keystring, nhưng
-thực tế có app trả về lỗi:
+App Etsy cho 2 giá trị: **Keystring** và **Shared secret**. Tài liệu bảo chỉ cần Keystring, nhưng
+một số app đòi **cả hai trong cùng một header**, nối bằng dấu hai chấm:
 
 ```
-403 — Shared secret is required in x-api-key header
+x-api-key: <keystring>:<shared secret>
 ```
 
-nghĩa là app đó đòi **Shared secret**, không phải Keystring. Không đoán trước được app nào cần
-giá trị nào, nên script **lưu cả hai và tự thử lần lượt**: giá trị nào chạy được thì ghi nhớ
-(`etsy_api_uu_tien`) để lần sau gọi thẳng, khỏi tốn thêm request.
+Bằng chứng nằm ở chính 2 thông báo lỗi của Etsy khi thử từng giá trị riêng lẻ:
 
-Console cho biết đang dùng giá trị nào: `[Etsy Auto] API OK bằng Shared secret`
+| Gửi | Etsy trả lời | Nghĩa là |
+|---|---|---|
+| Chỉ Keystring | `Shared secret is required in x-api-key header` | header còn thiếu nửa sau |
+| Chỉ Shared secret | `API key not found or not active, or incorrect shared secret for API key` | Etsy đọc nó như một API key nên không tìm thấy |
+
+Không đoán trước được app nào cần dạng nào, nên script lưu cả 2 giá trị rồi **thử lần lượt 4 tổ hợp**
+theo thứ tự:
+
+```
+Keystring:Shared secret → Keystring → Shared secret → Shared secret:Keystring
+```
+
+(tổ hợp cuối phòng khi dán nhầm thứ tự 2 ô). Tổ hợp nào chạy được thì ghi nhớ vào
+`etsy_api_uu_tien` để lần sau gọi thẳng — chỉ tốn đúng 1 request.
+
+Console cho biết đang dùng tổ hợp nào: `[Etsy Auto] API OK bằng Keystring:Shared secret`
 
 ### Nhập khoá
 
