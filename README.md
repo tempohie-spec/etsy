@@ -301,9 +301,10 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
 - File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
 - Nếu đơn không có `state` (một số nước ngoài United States không có khái niệm "state"),
   cột `state` sẽ tự điền tạm giá trị `city` thay vì để trống.
-- Tên file (`etsy_orders_yyyy-mm-dd.xlsx`) và cột `Date Fulfil` đều tính theo **giờ địa
-  phương của máy** (không dùng giờ UTC), để tránh trường hợp chạy script vào sáng sớm ở múi
-  giờ Việt Nam (trước ~7h) làm ngày trong tên file bị lùi mất 1 ngày so với ngày thực tế.
+- Tên file (`etsy_orders_yyyy-mm-dd.xlsx`) và cột `Date Fulfil` đều tính theo **giờ Việt Nam
+  cố định (UTC+7)**, không phụ thuộc múi giờ hệ thống của máy đang chạy script. Nhiều người
+  dùng VPS/RDP đặt ở Mỹ để chạy Etsy — nếu tính theo giờ hệ thống của máy đó, ngày xuất ra có
+  thể lệch cả nửa ngày so với ngày thực tế ở Việt Nam.
 
 ## Không cần bấm sang tab Earnings
 

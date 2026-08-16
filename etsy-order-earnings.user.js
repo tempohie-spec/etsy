@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.8
+// @version      2.9
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -94,25 +94,30 @@
     });
   }
 
-  // Ngay hien tai luc chay script, dinh dang dd/mm/yyyy (theo GIO DIA PHUONG cua may, KHONG
-  // phai gio UTC).
+  // Lay thoi diem hien tai theo DUNG GIO VIET NAM (UTC+7, khong doi theo DST) BAT KE may
+  // dang chay script dat mui gio he thong la gi (vd nhieu nguoi dung VPS/RDP dat o My de
+  // chay Etsy, mui gio he thong khac hoan toan gio VN that). Date.now() la epoch UTC, khong
+  // phu thuoc mui gio may, nen cong them 7 tieng roi doc bang cac ham getUTC* la ra dung
+  // "gio tren dong ho" o Viet Nam, khong bi anh huong boi timezone cua may.
+  function getVietnamNow() {
+    return new Date(Date.now() + 7 * 60 * 60 * 1000);
+  }
+
+  // Ngay hien tai (theo gio Viet Nam co dinh), dinh dang dd/mm/yyyy
   function getTodayDateStr() {
-    const d = new Date();
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = d.getFullYear();
+    const d = getVietnamNow();
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
     return `${dd}/${mm}/${yyyy}`;
   }
 
-  // Ngay hien tai dang yyyy-mm-dd (dung cho ten file), cung tinh theo GIO DIA PHUONG.
-  // KHONG dung new Date().toISOString() o day: ham do luon quy doi sang GIO UTC, nen vao
-  // buoi sang som (o mui gio +7 nhu Viet Nam, truoc ~7h sang) ngay UTC van con la HOM QUA,
-  // lam ten file bi lui mat 1 ngay so voi ngay thuc te tren may.
+  // Ngay hien tai dang yyyy-mm-dd (dung cho ten file), cung theo gio Viet Nam co dinh.
   function getTodayFileDateStr() {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
+    const d = getVietnamNow();
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
   }
 
