@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.0
+// @version      7.1
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.0';
+  const PHIEN_BAN = '7.1';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2171,7 +2171,7 @@
       <button id="ea-btn-autostats" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;"></button>
       <button id="ea-btn-apidata" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔍 Đổ dữ liệu API ra Console</button>
       <button id="ea-btn-apikey" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔑 <span id="ea-apikey-label"></span></button>
-      <div id="ea-quota" style="font-size:10px;color:#6B7280;text-align:center;padding-top:2px;"></div>
+      <div id="ea-quota" style="margin-top:2px;padding:6px 8px;border-radius:6px;background:#F3F4F6;border:1px solid #D1D5DB;font-size:11px;font-weight:bold;text-align:center;color:#374151;">⚡ …</div>
     `;
     khungMoRong.appendChild(vungNut);
     khung.appendChild(khungMoRong);
@@ -2224,10 +2224,12 @@
     // doi mau khi sap het de con biet ma han che
     const oQuota = document.getElementById('ea-quota');
     const capNhatQuota = () => {
+      if (!oQuota) return;
       const { so } = docDemNgay();
       const conLai = Math.max(0, GIOI_HAN_QPD - so);
-      oQuota.textContent = `API hôm nay: ${so.toLocaleString('vi-VN')}/${GIOI_HAN_QPD.toLocaleString('vi-VN')} · còn ${conLai.toLocaleString('vi-VN')}`;
-      oQuota.style.color = conLai === 0 ? '#DC2626' : conLai < 500 ? '#D97706' : '#6B7280';
+      oQuota.textContent = `⚡ API hôm nay: ${so.toLocaleString('vi-VN')}/${GIOI_HAN_QPD.toLocaleString('vi-VN')}`;
+      oQuota.style.color = conLai === 0 ? '#DC2626' : conLai < 500 ? '#D97706' : '#374151';
+      oQuota.title = `Còn ${conLai.toLocaleString('vi-VN')} request cho hôm nay (giới hạn Etsy: ${GIOI_HAN_QPD.toLocaleString('vi-VN')}/ngày, 5 QPS)`;
     };
     capNhatQuota();
     HEN_GIO.setInterval(capNhatQuota, 5000);
@@ -2268,7 +2270,7 @@
   console.log(
     `%c[Etsy Auto] Đã nạp script phiên bản ${PHIEN_BAN}`,
     'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;',
-    `| Nguồn hẹn giờ: ${HEN_GIO.nguon}`
+    `| Nguồn hẹn giờ: ${HEN_GIO.nguon} | API hôm nay: ${docDemNgay().so}/${GIOI_HAN_QPD}`
   );
 
   // Tu hien the thong ke khi dang o trang listing (co the tat bang nut trong panel).
