@@ -38,7 +38,7 @@ Header: x-api-key: <keystring>
 ```
 
 Đây là endpoint **cấp ứng dụng**: chỉ cần API key, không cần OAuth, không cần đăng nhập, đọc được
-listing của bất kỳ shop nào. Giới hạn 10.000 request/ngày. Lấy key tại
+listing của bất kỳ shop nào. Giới hạn thực tế: **5 QPS** và **5.000 request/ngày**. Lấy key tại
 https://www.etsy.com/developers/register
 
 Script lấy tag theo thứ tự ưu tiên:
@@ -198,7 +198,7 @@ Rê chuột giữ **0,4 giây** vào thẻ thì dòng cuối mới gọi API và
 | Mở lại đúng trang đó | **0** (cache 24h) |
 | Trang sau, trùng 24 sản phẩm | **1** (chỉ gọi 24 id mới) |
 | Trang 250 sản phẩm | **3** (chia lô 100) |
-| Lướt 50 trang tìm kiếm | ~50 = **0,5%** quota ngày |
+| Lướt 50 trang tìm kiếm | ~50 = **1%** quota ngày |
 
 Ba cơ chế giữ chi phí thấp:
 
@@ -215,6 +215,40 @@ tiếp — gom thay đổi lại rồi quét một lần sau 600ms, không gọi
 Nếu một lô thất bại thì dừng luôn các lô sau, tránh nướng quota vào lỗi lặp lại.
 
 Nút **📊 Tự hiện: BẬT/TẮT** điều khiển cả card lớn lẫn thẻ mini.
+
+## Tự giới hạn theo hạn mức Etsy — 5 QPS / 5.000 ngày (v7.0)
+
+Hạn mức thật của Etsy là **5 request/giây** và **5.000 request/ngày**.
+
+**Vì sao phải tự giới hạn thay vì cứ gọi rồi để Etsy chặn:** vượt 5 QPS thì Etsy trả `429`,
+request đó **mất không** — vẫn tính vào hạn mức ngày mà không lấy được dữ liệu gì. Càng gọi dồn
+càng lãng phí.
+
+**Rủi ro lớn nhất là nhiều tab.** Mở 5 tab Etsy cùng lúc thì mỗi tab tự bắn request của nó, cộng
+lại vượt 5 QPS ngay. Nên mốc thời gian gọi cuối và bộ đếm ngày đều lưu bằng `GM_setValue` — đây là
+kho dùng chung giữa mọi tab của cùng một script, nên các tab **tự điều phối lẫn nhau**.
+
+Cách làm:
+
+| Cơ chế | Chi tiết |
+|---|---|
+| Hàng đợi | Mọi request xếp hàng chạy lần lượt, cách nhau ≥ 250ms (4 QPS, chừa biên an toàn) |
+| Bộ đếm ngày | Đủ 5.000 thì chặn tại chỗ, không gửi đi nữa |
+| Gặp 429 | Chờ 3 giây rồi thử lại đúng 1 lần |
+| Lỗi | Không làm đứt hàng đợi — request sau vẫn chạy |
+
+Đã kiểm chứng bằng mô phỏng 20 request bắn đồng thời:
+
+```
+20 request đồng thời → xong trong 4.8s
+Nhiều nhất trong 1 giây bất kỳ: 4 request (giới hạn Etsy: 5) → ✅ KHÔNG vi phạm
+```
+
+Panel có đồng hồ hạn mức, đổi màu khi sắp hết:
+
+```
+API hôm nay: 127/5.000 · còn 4.873
+```
 
 ### Số review — cận dưới chắc chắn của lượt bán
 

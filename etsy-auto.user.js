@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      6.9
+// @version      7.0
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '6.9';
+  const PHIEN_BAN = '7.0';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -823,7 +823,81 @@
     return `API trả về mã ${res.status}${them}`;
   }
 
-  function goiApiMotLan(url, khoaXacThuc) {
+  // ---- Tu gioi han tan suat theo han muc that cua Etsy: 5 QPS va 5.000 request/ngay ----
+  //
+  // Vi sao phai tu gioi han thay vi cu goi roi de Etsy tu chan:
+  //   - Vuot 5 QPS thi Etsy tra 429, request do MAT KHONG — van tinh vao han muc ngay ma khong
+  //     lay duoc du lieu gi. Cang goi don cang lang phi.
+  //   - Nguoi dung mo NHIEU TAB Etsy cung luc thi moi tab tu ban request cua no; cong lai rat de
+  //     vuot 5 QPS. Nen moc thoi gian goi cuoi va bo dem ngay deu luu bang GM_setValue —
+  //     day la kho dung chung giua moi tab cua cung mot script, nen cac tab tu dieu phoi lan nhau.
+  const GIOI_HAN_QPS = 4; // de bien an toan duoi 5
+  const GIOI_HAN_QPD = 5000;
+  const KHOA_MOC_GOI_CUOI = 'etsy_api_moc_goi_cuoi';
+  const KHOA_DEM_NGAY = 'etsy_api_dem_ngay';
+
+  function ngayHomNay() {
+    const d = new Date();
+    const hai = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${hai(d.getMonth() + 1)}-${hai(d.getDate())}`;
+  }
+
+  function docDemNgay() {
+    try {
+      const j = JSON.parse(docGiaTriLuu(KHOA_DEM_NGAY) || '{}');
+      if (j.ngay !== ngayHomNay()) return { ngay: ngayHomNay(), so: 0 };
+      return { ngay: j.ngay, so: j.so || 0 };
+    } catch (e) {
+      return { ngay: ngayHomNay(), so: 0 };
+    }
+  }
+
+  function tangDemNgay() {
+    const d = docDemNgay();
+    d.so += 1;
+    luuGiaTri(KHOA_DEM_NGAY, JSON.stringify(d));
+    return d.so;
+  }
+
+  let hangDoiApi = Promise.resolve();
+
+  // Xep moi request vao mot hang doi: chay lan luot, cach nhau du de khong vuot QPS,
+  // va dung han khi da het han muc ngay.
+  function xepHangGoiApi(thucHien) {
+    const ketQua = hangDoiApi.then(async () => {
+      const dem = docDemNgay();
+      if (dem.so >= GIOI_HAN_QPD) {
+        throw new Error(`đã dùng hết ${GIOI_HAN_QPD} request của hôm nay — chờ sang ngày mới`);
+      }
+
+      const cachToiThieu = Math.ceil(1000 / GIOI_HAN_QPS);
+      const moc = Number(docGiaTriLuu(KHOA_MOC_GOI_CUOI)) || 0;
+      const phaiCho = moc + cachToiThieu - Date.now();
+      if (phaiCho > 0) await cho(phaiCho);
+
+      luuGiaTri(KHOA_MOC_GOI_CUOI, String(Date.now()));
+      tangDemNgay();
+      return thucHien();
+    });
+
+    // Mot request hong khong duoc lam dut ca hang doi cho nhung request sau
+    hangDoiApi = ketQua.catch(() => {});
+    return ketQua;
+  }
+
+  // Boc them 1 lop: bi 429 thi cho roi thu lai dung 1 lan, thay vi bao hong ngay
+  async function goiApiMotLan(url, khoaXacThuc) {
+    try {
+      return await xepHangGoiApi(() => thucHienGoiApi(url, khoaXacThuc));
+    } catch (loi) {
+      if (!/\(429\)/.test(loi.message)) throw loi;
+      console.warn('[Etsy Auto] Bị giới hạn tần suất (429), chờ 3 giây rồi thử lại 1 lần');
+      await cho(3000);
+      return xepHangGoiApi(() => thucHienGoiApi(url, khoaXacThuc));
+    }
+  }
+
+  function thucHienGoiApi(url, khoaXacThuc) {
     return new Promise((resolve, reject) => {
       if (typeof GM_xmlhttpRequest !== 'function') {
         reject(new Error('Thiếu quyền GM_xmlhttpRequest'));
@@ -2097,6 +2171,7 @@
       <button id="ea-btn-autostats" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;"></button>
       <button id="ea-btn-apidata" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔍 Đổ dữ liệu API ra Console</button>
       <button id="ea-btn-apikey" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔑 <span id="ea-apikey-label"></span></button>
+      <div id="ea-quota" style="font-size:10px;color:#6B7280;text-align:center;padding-top:2px;"></div>
     `;
     khungMoRong.appendChild(vungNut);
     khung.appendChild(khungMoRong);
@@ -2144,6 +2219,18 @@
     document.getElementById('ea-btn-paste').onclick = danTieuDeVaTag;
     document.getElementById('ea-btn-apidata').onclick = xemDuLieuApi;
     document.getElementById('ea-btn-stats').onclick = () => hienThongKeListing();
+
+    // Dong ho han muc: cho biet hom nay da dung bao nhieu trong 5.000 request,
+    // doi mau khi sap het de con biet ma han che
+    const oQuota = document.getElementById('ea-quota');
+    const capNhatQuota = () => {
+      const { so } = docDemNgay();
+      const conLai = Math.max(0, GIOI_HAN_QPD - so);
+      oQuota.textContent = `API hôm nay: ${so.toLocaleString('vi-VN')}/${GIOI_HAN_QPD.toLocaleString('vi-VN')} · còn ${conLai.toLocaleString('vi-VN')}`;
+      oQuota.style.color = conLai === 0 ? '#DC2626' : conLai < 500 ? '#D97706' : '#6B7280';
+    };
+    capNhatQuota();
+    HEN_GIO.setInterval(capNhatQuota, 5000);
 
     // Cong tac bat/tat viec tu hien the thong ke moi khi mo mot listing
     const nutTuHien = document.getElementById('ea-btn-autostats');
