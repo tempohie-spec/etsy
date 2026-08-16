@@ -299,6 +299,11 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
   chạy) vào cột `phone` — tránh để trống khi in vận đơn.
 - Cột `Date Fulfil` được **tự động điền ngày chạy script** theo định dạng `dd/mm/yyyy`.
 - File Excel xuất ra (2 chức năng đầu) **không có dòng header**.
+- Nếu đơn không có `state` (một số nước ngoài United States không có khái niệm "state"),
+  cột `state` sẽ tự điền tạm giá trị `city` thay vì để trống.
+- Tên file (`etsy_orders_yyyy-mm-dd.xlsx`) và cột `Date Fulfil` đều tính theo **giờ địa
+  phương của máy** (không dùng giờ UTC), để tránh trường hợp chạy script vào sáng sớm ở múi
+  giờ Việt Nam (trước ~7h) làm ngày trong tên file bị lùi mất 1 ngày so với ngày thực tế.
 
 ## Không cần bấm sang tab Earnings
 
