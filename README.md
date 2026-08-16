@@ -111,11 +111,38 @@ Phản hồi `getListing` kèm sẵn object `shop`, nên các chỉ số cấp s
 request**, không cần gọi `getShop` riêng.
 
 **Về lượt bán của từng listing:** Etsy không có trường này — không trong API, không trong HTML
-trang. Đường duy nhất là `getShopReceipts` rồi tự đếm, mà nó cần **OAuth** và chỉ đọc được đơn của
-**chính shop bạn**, không dùng được với shop khác.
+trang, và **không có trường ẩn nào**. Đường duy nhất cho số chính xác là `getShopReceipts` rồi tự
+đếm, mà nó cần **OAuth** và chỉ đọc được đơn của **chính shop bạn**.
 
-Badge "7+ Sold" và số "Views" mà HeyEtsy hiển thị là **do HeyEtsy tự ước lượng / tự theo dõi**,
-không phải số liệu Etsy công bố.
+### HeyEtsy ước lượng lượt bán bằng cách nào?
+
+Không phải bằng trường ẩn — họ **không đọc được gì hơn**. Cách làm là chụp dữ liệu theo thời gian
+rồi lấy hiệu số:
+
+| Trường | Theo dõi qua thời gian cho ra |
+|---|---|
+| `quantity` | Giảm bao nhiêu = bán bấy nhiêu (999 → 996 tức bán 3 cái) |
+| `views` | Chênh lệch = lượt xem/ngày → chính là "Views 7 (Avg)" của HeyEtsy |
+| `shop.transaction_sold_count` | Chênh lệch = số đơn cả shop trong kỳ |
+| `num_favorers` | Tốc độ tăng lượt thích |
+
+Họ có server quét hàng loạt listing liên tục và tích luỹ nhiều tháng. Badge "7+ Sold" là suy ra từ
+đó, không phải số Etsy công bố.
+
+Điểm yếu của cách này: nếu người bán nạp thêm hàng (`quantity` tăng trở lại) thì phép trừ sai, nên
+con số chỉ là ước lượng.
+
+### Số review — cận dưới chắc chắn của lượt bán
+
+Mỗi review ứng với một đơn hàng thật, nên số review là **cận dưới** đáng tin của lượt bán (thực tế
+chỉ khoảng 10–30% người mua để lại đánh giá). Nút 📊 gọi thêm:
+
+```
+GET /v3/application/listings/{listing_id}/reviews?limit=1   →   { count: N, results: [...] }
+```
+
+`limit=1` để payload nhỏ, chỉ cần lấy `count`. Endpoint này thất bại thì bỏ qua, không làm hỏng
+phần còn lại của nút.
 
 ### Nhập khoá
 

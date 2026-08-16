@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      6.6
+// @version      6.7
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '6.6';
+  const PHIEN_BAN = '6.7';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -999,13 +999,13 @@
         '👁️ Lượt xem listing (views)': hienGiaTri(duLieu.views),
         '❤️ Lượt thích listing (num_favorers)': hienGiaTri(duLieu.num_favorers),
         '🛒 Lượt bán listing': '(Etsy KHÔNG công bố — xem ghi chú bên dưới)',
+        '📦 Số lượng còn — chụp lại để tính bán': hienGiaTri(duLieu.quantity),
         '🏪 Tổng đơn của shop (transaction_sold_count)': hienGiaTri(shop.transaction_sold_count),
         '🏪 Người theo dõi shop': hienGiaTri(shop.num_favorers),
         '🏪 Đánh giá shop': shop.review_count === undefined
           ? '(API không trả về)'
           : `${shop.review_average ?? '?'} ⭐ / ${shop.review_count} lượt`,
         '🏪 Listing đang bán': hienGiaTri(shop.listing_active_count),
-        'Số lượng còn (quantity)': hienGiaTri(duLieu.quantity),
         'Số tag': Array.isArray(duLieu.tags) ? duLieu.tags.length : '(API không trả về)',
         'Trạng thái (state)': hienGiaTri(duLieu.state),
         'Giá': duLieu.price
@@ -1013,12 +1013,30 @@
           : '(API không trả về)',
       });
 
+      // So review cua listing: moi review ung voi mot don hang that, nen day la CAN DUOI chac chan
+      // cua luot ban — chi so "cung" gan nhat voi luot ban ma API cong khai cho doc.
+      // Goi rieng vi no la endpoint khac; that bai thi bo qua, khong lam hong ca nut.
+      let soReview = '(không gọi được)';
+      try {
+        const kq = await goiApi(
+          `https://openapi.etsy.com/v3/application/listings/${listingId}/reviews?limit=1`
+        );
+        soReview = kq.duLieu && kq.duLieu.count !== undefined ? kq.duLieu.count : '(API không trả về count)';
+        console.log('[Etsy Auto] Phản hồi endpoint reviews:', kq.duLieu);
+      } catch (loi) {
+        soReview = `(lỗi: ${loi.message})`;
+        console.warn('[Etsy Auto] Không lấy được số review của listing:', loi.message);
+      }
+      console.log('[Etsy Auto] 📝 Số review của listing (cận dưới của lượt bán):', soReview);
+
       console.info(
         '[Etsy Auto] Ghi chú về LƯỢT BÁN: Etsy không có trường số bán cho từng listing — không ' +
-          'trong API, không trong HTML trang. Con số duy nhất chính xác là tổng đơn của cả shop ' +
-          '(transaction_sold_count). Muốn số bán của riêng listing thì chỉ có getShopReceipts, ' +
-          'mà nó cần OAuth và chỉ đọc được đơn của chính shop bạn. Badge "7+ Sold" và số Views ' +
-          'mà HeyEtsy hiển thị là do HeyEtsy tự ước lượng/theo dõi, không phải số liệu Etsy công bố.'
+          'trong API, không trong HTML trang, và cũng không có trường ẩn nào. ' +
+          'Các công cụ như HeyEtsy KHÔNG đọc được gì hơn: họ ƯỚC LƯỢNG bằng cách chụp dữ liệu ' +
+          'theo thời gian rồi lấy hiệu số — quantity giảm bao nhiêu là bán bấy nhiêu, views tăng ' +
+          'bao nhiêu là lượt xem/ngày, shop.transaction_sold_count tăng bao nhiêu là số đơn cả ' +
+          'shop trong kỳ. Muốn số bán CHÍNH XÁC của riêng listing thì chỉ có getShopReceipts, mà ' +
+          'nó cần OAuth và chỉ đọc được đơn của chính shop bạn.'
       );
 
       console.log('[Etsy Auto] Tất cả trường API trả về:', Object.keys(duLieu).sort().join(', '));
