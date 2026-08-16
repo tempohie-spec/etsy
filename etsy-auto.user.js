@@ -1,13 +1,16 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      6.0
+// @version      6.1
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
 // @grant        GM_download
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      i.etsystatic.com
+// @connect      openapi.etsy.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -15,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '6.0';
+  const PHIEN_BAN = '6.1';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -732,6 +735,128 @@
     return { nhan, huongDan };
   }
 
+  // ================== LAY TAG QUA ETSY OPEN API v3 ==================
+
+  // Trang listing cua Etsy KHONG he chua tag trong HTML (Etsy da bo hien thi tag cong khai
+  // tu lau). Cach chinh thong duy nhat de lay tag cua bat ky listing nao la goi Etsy Open API v3:
+  //   GET https://openapi.etsy.com/v3/application/listings/{listing_id}   (header: x-api-key)
+  // Day la endpoint cap ung dung: chi can API key, KHONG can OAuth, khong can dang nhap.
+
+  // API key duoc luu bang GM_setValue (nam trong Violentmonkey tren may nguoi dung),
+  // TUYET DOI khong ghi thang vao file nay — repo nay la repo public, ai cung doc duoc.
+  const KHOA_LUU_API_KEY = 'etsy_api_key';
+
+  function docApiKey() {
+    try {
+      return (typeof GM_getValue === 'function' ? GM_getValue(KHOA_LUU_API_KEY, '') : '') || '';
+    } catch (e) {
+      console.warn('[Etsy Auto] Không đọc được API key đã lưu:', e);
+      return '';
+    }
+  }
+
+  function luuApiKey(khoa) {
+    try {
+      if (typeof GM_setValue === 'function') GM_setValue(KHOA_LUU_API_KEY, khoa);
+      return true;
+    } catch (e) {
+      console.warn('[Etsy Auto] Không lưu được API key:', e);
+      return false;
+    }
+  }
+
+  // Mo hop thoai cho nguoi dung nhap / doi API key
+  function hoiApiKey() {
+    const hienTai = docApiKey();
+    const nhap = prompt(
+      'Nhập Etsy API key (keystring) để lấy tag qua API chính thức.\n' +
+        'Lấy tại: https://www.etsy.com/developers/register\n\n' +
+        'Để trống rồi bấm OK để xoá key đã lưu.',
+      hienTai
+    );
+    if (nhap === null) return hienTai; // bam Cancel -> giu nguyen
+
+    const khoa = nhap.trim();
+    luuApiKey(khoa);
+    hienThongBao(
+      khoa ? '✅ Đã lưu API key' : '🗑️ Đã xoá API key (quay lại lấy tag bằng nút Copy)',
+      khoa ? '#16A34A' : '#F59E0B'
+    );
+    return khoa;
+  }
+
+  // Lay listing id tu duong dan: https://www.etsy.com/listing/4550390920/...
+  function layListingId() {
+    const khop = location.pathname.match(/\/listing\/(\d+)/);
+    return khop ? khop[1] : null;
+  }
+
+  function goiApiLayListing(listingId, apiKey) {
+    return new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== 'function') {
+        reject(new Error('Thiếu quyền GM_xmlhttpRequest'));
+        return;
+      }
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: `https://openapi.etsy.com/v3/application/listings/${listingId}`,
+        headers: { 'x-api-key': apiKey },
+        timeout: 15000,
+        onload: (res) => {
+          if (res.status === 200) {
+            try {
+              resolve(JSON.parse(res.responseText));
+            } catch (e) {
+              reject(new Error('API trả về dữ liệu không đọc được: ' + e.message));
+            }
+            return;
+          }
+          if (res.status === 401 || res.status === 403) {
+            reject(new Error(`API key bị từ chối (mã ${res.status}) — kiểm tra lại key`));
+          } else if (res.status === 404) {
+            reject(new Error('API không tìm thấy listing này (404)'));
+          } else if (res.status === 429) {
+            reject(new Error('Vượt giới hạn API (429) — chờ một lát rồi thử lại'));
+          } else {
+            reject(new Error(`API trả về mã ${res.status}`));
+          }
+        },
+        onerror: () => reject(new Error('Không gọi được API Etsy')),
+        ontimeout: () => reject(new Error('API Etsy không phản hồi')),
+      });
+    });
+  }
+
+  // Tra ve chuoi tag dang "tag1, tag2, ..." neu lay duoc, nguoc lai tra ve ''
+  async function layTagQuaApi() {
+    const apiKey = docApiKey();
+    if (!apiKey) return '';
+
+    const listingId = layListingId();
+    if (!listingId) {
+      console.warn('[Etsy Auto] Không lấy được listing id từ URL nên bỏ qua API');
+      return '';
+    }
+
+    try {
+      const duLieu = await voiThoiHan(
+        goiApiLayListing(listingId, apiKey),
+        THOI_HAN_MOI_CACH_TAI,
+        'API Etsy không phản hồi sau ' + THOI_HAN_MOI_CACH_TAI / 1000 + 's'
+      );
+      const danhSachTag = Array.isArray(duLieu.tags) ? duLieu.tags : [];
+      if (danhSachTag.length === 0) {
+        console.warn('[Etsy Auto] API trả về thành công nhưng listing này không có tag nào');
+        return '';
+      }
+      return danhSachTag.join(', ');
+    } catch (loi) {
+      console.warn('[Etsy Auto] Lấy tag qua API thất bại, quay lại dùng nút Copy:', loi.message);
+      hienThongBao('⚠️ API lỗi: ' + loi.message, '#F59E0B');
+      return '';
+    }
+  }
+
   function timNutCopyTag() {
     const nhan = timTheoChuHienThi('dt, span, div, h2, h3, label', 'tags');
     if (!nhan) return null;
@@ -745,6 +870,35 @@
       khuVuc = khuVuc.parentElement;
     }
     return null;
+  }
+
+  // Lay tag bang nut "Copy" cua tien ich HeyEtsy (phuong an du phong).
+  // Nut nay ghi tag vao clipboard, phai doi no chay xong roi moi doc lai duoc.
+  async function layTagQuaNutCopy() {
+    const nutCopy = timNutCopyTag();
+    if (!nutCopy) return '';
+
+    nutCopy.click();
+    await cho(400);
+    try {
+      return (await navigator.clipboard.readText()) || '';
+    } catch (e) {
+      console.warn('[Etsy Auto] Không đọc được clipboard sau khi bấm Copy:', e);
+      return '';
+    }
+  }
+
+  // Lay tag theo thu tu uu tien:
+  //   1) Etsy Open API v3 — chinh thong, chinh xac, khong phu thuoc tien ich nao
+  //   2) Nut "Copy" cua HeyEtsy — du phong khi chua nhap API key hoac API loi
+  async function layTag() {
+    const tagApi = await layTagQuaApi();
+    if (tagApi) return { tagText: tagApi, nguon: 'API Etsy' };
+
+    const tagCopy = await layTagQuaNutCopy();
+    if (tagCopy) return { tagText: tagCopy, nguon: 'nút Copy' };
+
+    return { tagText: '', nguon: '' };
   }
 
   // Ham dung chung: lay tieu de + tag, va CHI tai anh full size (tung file rieng) neu coTaiAnh = true
@@ -770,40 +924,30 @@
       });
     }
 
-    const nutCopy = timNutCopyTag();
-    if (nutCopy) {
-      // Nut Copy co san se ghi de tag vao clipboard, nen phai doi no chay xong roi moi doc lai va ghi de ca goi (title+tag)
-      nutCopy.click();
-      HEN_GIO.setTimeout(async () => {
-        let tagText = '';
-        try {
-          tagText = await navigator.clipboard.readText();
-          console.log('[Etsy Auto] Tag lấy được:', tagText);
-        } catch (e) {
-          hienThongBao('⚠️ Không đọc được clipboard cho tag. Hãy cho phép quyền clipboard cho trang này.', '#DC2626');
-          return;
-        }
+    const { tagText, nguon: nguonTag } = await layTag();
+    if (tagText) {
+      console.log(`[Etsy Auto] Tag lấy được (${nguonTag}):`, tagText);
+    }
 
-        const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, tagText, perso));
+    const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, tagText, perso));
+    if (!ok) {
+      hienThongBao('❌ Không ghi được vào Clipboard', '#DC2626');
+      return;
+    }
 
-        const ghiChuAnh = coTaiAnh ? ', đang tải ảnh full size' : '';
-        if (ok && daLuuTieuDe) {
-          hienThongBao(`✅ Đã lấy tiêu đề + tag${ghiChuPerso}${ghiChuAnh}!`, '#16A34A');
-        } else if (ok) {
-          hienThongBao(`⚠️ Đã lấy tag${ghiChuPerso}${ghiChuAnh}, nhưng KHÔNG tìm thấy tiêu đề trên trang này!`, '#DC2626');
-        } else {
-          hienThongBao('❌ Không ghi được vào Clipboard', '#DC2626');
-        }
-      }, 400);
+    const ghiChuAnh = coTaiAnh ? ', đang tải ảnh full size' : '';
+    const ghiChuNguon = tagText ? ` [${nguonTag}]` : '';
+
+    if (daLuuTieuDe && tagText) {
+      hienThongBao(`✅ Đã lấy tiêu đề + tag${ghiChuNguon}${ghiChuPerso}${ghiChuAnh}!`, '#16A34A');
     } else if (daLuuTieuDe) {
-      const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, '', perso));
-      const ghiChuAnh = coTaiAnh ? ', đang tải ảnh full size' : '';
       hienThongBao(
-        ok
-          ? `✅ Đã lấy tiêu đề${ghiChuPerso}${ghiChuAnh} (không thấy nút Copy tag trên trang này)`
-          : '❌ Không ghi được vào Clipboard',
-        ok ? '#16A34A' : '#DC2626'
+        `⚠️ Đã lấy tiêu đề${ghiChuPerso}${ghiChuAnh} nhưng KHÔNG lấy được tag ` +
+          '(chưa có API key? bấm 🔑 trong panel để nhập)',
+        '#F59E0B'
       );
+    } else if (tagText) {
+      hienThongBao(`⚠️ Đã lấy tag${ghiChuNguon}${ghiChuPerso}${ghiChuAnh}, nhưng KHÔNG tìm thấy tiêu đề!`, '#DC2626');
     } else {
       hienThongBao('❌ Không tìm thấy tiêu đề/tag trên trang này', '#DC2626');
     }
@@ -1327,6 +1471,7 @@
       <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh (Alt+G)</button>
       <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy dữ liệu (Alt+C)</button>
       <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu (Alt+V)</button>
+      <button id="ea-btn-apikey" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔑 <span id="ea-apikey-label"></span></button>
     `;
     khungMoRong.appendChild(vungNut);
     khung.appendChild(khungMoRong);
@@ -1372,6 +1517,17 @@
     document.getElementById('ea-btn-get').onclick = layVaTaiAnh;
     document.getElementById('ea-btn-get-notag').onclick = chiLayTieuDeVaTag;
     document.getElementById('ea-btn-paste').onclick = danTieuDeVaTag;
+
+    // Nut nhap / doi API key, kem nhan cho biet da co key hay chua
+    const nhanApiKey = document.getElementById('ea-apikey-label');
+    const capNhatNhanApiKey = () => {
+      nhanApiKey.textContent = docApiKey() ? 'Đã có API key' : 'Chưa có API key';
+    };
+    capNhatNhanApiKey();
+    document.getElementById('ea-btn-apikey').onclick = () => {
+      hoiApiKey();
+      capNhatNhanApiKey();
+    };
   }
 
   taoGiaoDien();

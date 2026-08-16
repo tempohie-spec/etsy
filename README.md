@@ -15,6 +15,49 @@ Userscript (Violentmonkey / Tampermonkey) cho trang Etsy.
 
 Giao diện nổi có thể thu nhỏ thành biểu tượng tròn "Listing" và kéo thả tự do; vị trí được nhớ lại qua `localStorage`.
 
+## Lấy tag qua Etsy Open API (v6.1)
+
+Trang listing của Etsy **không chứa tag trong HTML** — Etsy đã bỏ hiển thị tag công khai từ lâu.
+Kiểm chứng: không một tag nào của listing xuất hiện trong `outerHTML` của trang. Ba thứ dễ bị
+nhầm là tag nhưng không phải:
+
+- `click_queries` trong `Listzilla_ApiSpecs_Tags_Landing` — là **truy vấn tìm kiếm** dẫn tới click,
+  không phải tag người bán đặt.
+- Khối đó khi tải xong hiển thị "related searches", vẫn không phải tag.
+- JSON-LD chỉ có `name`, `description`, `image`, `category`, `brand`, `offers`, `material`.
+
+Tag hiển thị trên màn hình là do tiện ích **HeyEtsy** chèn, nằm trong iframe `heyetsy.com` khác
+domain nên userscript không đọc được — đó là lý do bản cũ phải bấm nút Copy rồi đọc clipboard.
+
+Cách chính thống duy nhất là **Etsy Open API v3**:
+
+```
+GET https://openapi.etsy.com/v3/application/listings/{listing_id}
+Header: x-api-key: <keystring>
+```
+
+Đây là endpoint **cấp ứng dụng**: chỉ cần API key, không cần OAuth, không cần đăng nhập, đọc được
+listing của bất kỳ shop nào. Giới hạn 10.000 request/ngày. Lấy key tại
+https://www.etsy.com/developers/register
+
+Script lấy tag theo thứ tự ưu tiên:
+
+| Ưu tiên | Nguồn | Điều kiện |
+|---|---|---|
+| 1 | Etsy Open API v3 | Đã nhập API key |
+| 2 | Nút "Copy" của HeyEtsy | Chưa có key, hoặc API lỗi/hết quota |
+
+Toast báo rõ nguồn đã dùng, ví dụ `✅ Đã lấy tiêu đề + tag [API Etsy] + cá nhân hoá!`
+
+### Nhập API key
+
+Bấm nút **🔑** ở cuối panel. Nhãn trên nút cho biết đang có key hay chưa. Để trống rồi bấm OK
+để xoá key (quay về dùng nút Copy).
+
+> ⚠️ **Không bao giờ ghi API key vào file script.** Repo này là repo public — key ghi trong code
+> là ai cũng đọc được và dùng hết quota của bạn. Key được lưu bằng `GM_setValue`, tức nằm trong
+> Violentmonkey trên máy bạn, không đi kèm file khi chia sẻ.
+
 ## Logic tải ảnh (v5.0)
 
 Trước đây script quét regex trên **toàn bộ HTML của trang**, nên hay dính ảnh không thuộc listing (ảnh gợi ý, ảnh shop khác) và phải "bỏ bớt ảnh cuối" cho hên xui.
