@@ -172,6 +172,50 @@ tốn 2 request: 1 cho listing, 1 cho review). Nút **📊 Thống kê listing**
 Lần tự chạy không bung toast đỏ khi chưa nhập khoá hoặc API tạm lỗi — vì bạn đâu có chủ động yêu
 cầu gì; lỗi chỉ ghi vào Console.
 
+### Thẻ mini trên lưới sản phẩm (v6.9)
+
+Mọi trang có lưới listing — tìm kiếm, shop, danh mục, gợi ý cuối trang listing — đều được gắn thẻ
+tím nhỏ vào **từng sản phẩm**:
+
+```
+👁️ 397        14.2/ngày
+❤️ 27              6.8%
+📅 28 ngày   🔄 6 ngày
+🛒 rê chuột để ước tính bán
+```
+
+Rê chuột giữ **0,4 giây** vào thẻ thì dòng cuối mới gọi API và đổi thành:
+
+```
+🛒 24 – 70 (7 review) · 720–2.099 USD
+```
+
+**Chi phí request** — đã đo bằng mô phỏng:
+
+| Tình huống | Request |
+|---|---|
+| Trang tìm kiếm 48 sản phẩm | **1** |
+| Mở lại đúng trang đó | **0** (cache 24h) |
+| Trang sau, trùng 24 sản phẩm | **1** (chỉ gọi 24 id mới) |
+| Trang 250 sản phẩm | **3** (chia lô 100) |
+| Lướt 50 trang tìm kiếm | ~50 = **0,5%** quota ngày |
+
+Ba cơ chế giữ chi phí thấp:
+
+1. **Endpoint gộp** `listings/batch?listing_ids=...` nhận tối đa 100 id trong 1 request — 48 sản
+   phẩm tốn đúng 1 request thay vì 48.
+2. **Bộ nhớ đệm 24 giờ** theo `listing_id`, lưu bằng `GM_setValue`. Cuộn qua cuộn lại, quay về
+   trang trước, mở lại listing đã xem đều không gọi lại API. Mục quá hạn tự bị dọn.
+3. **Ước tính bán chỉ gọi khi rê chuột.** Endpoint review không gộp được (mỗi listing 1 request),
+   nên chỉ trả tiền cho sản phẩm bạn thực sự quan tâm. Kết quả cũng được cache.
+
+Etsy nạp thêm thẻ khi cuộn hoặc chuyển trang bằng AJAX, nên script dùng `MutationObserver` để gắn
+tiếp — gom thay đổi lại rồi quét một lần sau 600ms, không gọi API liên tục.
+
+Nếu một lô thất bại thì dừng luôn các lô sau, tránh nướng quota vào lỗi lặp lại.
+
+Nút **📊 Tự hiện: BẬT/TẮT** điều khiển cả card lớn lẫn thẻ mini.
+
 ### Số review — cận dưới chắc chắn của lượt bán
 
 Mỗi review ứng với một đơn hàng thật, nên số review là **cận dưới** đáng tin của lượt bán (thực tế

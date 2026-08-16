@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      6.8
+// @version      6.9
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '6.8';
+  const PHIEN_BAN = '6.9';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -1791,6 +1791,242 @@
     }
   }
 
+  // ================== THE THONG KE MINI TREN LUOI SAN PHAM ==================
+
+  // Gan the thong ke nho vao TUNG the san pham tren moi trang co luoi listing
+  // (tim kiem, shop, danh muc, goi y cuoi trang listing...).
+  //
+  // Chi phi request duoc giu rat thap nho 3 co che:
+  //   1. Endpoint GOP: /listings/batch?listing_ids=... nhan toi da 100 id trong 1 request,
+  //      nen ca trang tim kiem 48 san pham chi ton DUNG 1 request thay vi 48.
+  //   2. Bo nho dem 24 gio theo listing_id: cuon di cuon lai, quay ve trang truoc, mo lai
+  //      listing da xem — deu khong goi lai API.
+  //   3. Uoc tinh ban (can goi endpoint review, KHONG gop duoc, moi listing 1 request)
+  //      chi chay khi nguoi dung RE CHUOT vao dung the do. Thuong chi quan tam vai san pham
+  //      trong 48 cai, nen tra dung phan minh xem.
+  const KHOA_CACHE_LISTING = 'etsy_cache_listing';
+  const HAN_CACHE_MS = 24 * 60 * 60 * 1000;
+  const SO_ID_MOI_LO = 100; // gioi han cua endpoint batch
+  const CHO_TRUOC_KHI_UOC_TINH = 400; // ms giu chuot, tranh goi API khi luot chuot ngang qua
+
+  let boNhoDem = null;
+
+  function napCache() {
+    if (boNhoDem) return boNhoDem;
+    try {
+      boNhoDem = JSON.parse(docGiaTriLuu(KHOA_CACHE_LISTING) || '{}');
+    } catch (e) {
+      boNhoDem = {};
+    }
+    const nay = Date.now();
+    for (const id of Object.keys(boNhoDem)) {
+      if (!boNhoDem[id] || nay - boNhoDem[id].t > HAN_CACHE_MS) delete boNhoDem[id];
+    }
+    return boNhoDem;
+  }
+
+  function ghiCache() {
+    luuGiaTri(KHOA_CACHE_LISTING, JSON.stringify(boNhoDem || {}));
+  }
+
+  // Tim cac the san pham tren trang. Moi listing_id chi lay phan tu NGOAI CUNG
+  // (duyet theo thu tu tai lieu nen cha luon den truoc con).
+  function timCacTheListing() {
+    const theo = new Map();
+    for (const el of document.querySelectorAll('[data-listing-id]')) {
+      const id = el.getAttribute('data-listing-id');
+      if (!id || !/^\d+$/.test(id) || theo.has(id)) continue;
+
+      // Loai cac phan tu khong phai the san pham (nut yeu thich, form them vao gio...)
+      if (['BUTTON', 'INPUT', 'FORM', 'IMG', 'SELECT'].includes(el.tagName)) continue;
+      const laThe =
+        el.tagName === 'LI' ||
+        /listing-card/.test(String(el.className || '')) ||
+        el.querySelector('a[href*="/listing/"]');
+      if (!laThe) continue;
+
+      theo.set(id, el);
+    }
+    return theo;
+  }
+
+  // Rut gon du lieu API xuong dung nhung truong can luu, cho cache nho gon
+  function rutGonChoCache(duLieu) {
+    return {
+      v: duLieu.views,
+      f: duLieu.num_favorers,
+      c: duLieu.original_creation_timestamp || duLieu.creation_timestamp || duLieu.created_timestamp,
+      u: duLieu.last_modified_timestamp || duLieu.updated_timestamp,
+      q: duLieu.quantity,
+      p: duLieu.price ? duLieu.price.amount / duLieu.price.divisor : null,
+      m: duLieu.price ? duLieu.price.currency_code : '',
+    };
+  }
+
+  function veTheMini(elThe, id, muc) {
+    if (elThe.querySelector(':scope > .ea-mini-stats')) return;
+
+    const tuoiNgay = soNgayTuKhi(muc.c);
+    const xemMoiNgay = typeof muc.v === 'number' ? (muc.v / tuoiNgay).toFixed(1) : '—';
+    const tyLeThich =
+      typeof muc.v === 'number' && muc.v > 0 && typeof muc.f === 'number'
+        ? ((muc.f / muc.v) * 100).toFixed(1) + '%'
+        : '—';
+
+    const mini = document.createElement('div');
+    mini.className = 'ea-mini-stats';
+    mini.dataset.listingId = id;
+    mini.style.cssText = `
+      margin-top:6px; padding:6px 8px; border-radius:8px; background:#F5F3FF;
+      border:1px solid #DDD6FE; font-family:sans-serif; font-size:11px; color:#4C1D95;
+      line-height:1.5; cursor:default;
+    `;
+    mini.innerHTML = `
+      <div style="display:flex;justify-content:space-between;">
+        <span>👁️ <b>${dinhDangSo(muc.v)}</b></span><span style="color:#7C3AED;">${xemMoiNgay}/ngày</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span>❤️ <b>${dinhDangSo(muc.f)}</b></span><span style="color:#7C3AED;">${tyLeThich}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;color:#6D28D9;">
+        <span>📅 ${moTaKhoangCach(muc.c)}</span><span>🔄 ${moTaKhoangCach(muc.u)}</span>
+      </div>
+      <div class="ea-uoc-tinh" style="margin-top:3px;padding-top:3px;border-top:1px dashed #C4B5FD;color:#7C3AED;">
+        🛒 rê chuột để ước tính bán
+      </div>
+    `;
+    elThe.appendChild(mini);
+
+    // Chi goi API review khi giu chuot du lau — luot ngang qua thi khong ton request
+    let hen = null;
+    mini.addEventListener('mouseenter', () => {
+      hen = HEN_GIO.setTimeout(() => hienUocTinhBan(mini, id, muc), CHO_TRUOC_KHI_UOC_TINH);
+    });
+    mini.addEventListener('mouseleave', () => {
+      if (hen !== null) HEN_GIO.clearTimeout(hen);
+    });
+  }
+
+  async function hienUocTinhBan(mini, id, muc) {
+    const o = mini.querySelector('.ea-uoc-tinh');
+    if (!o || o.dataset.xong === '1' || o.dataset.dangChay === '1') return;
+
+    const veKetQua = (soReview) => {
+      o.dataset.xong = '1';
+      if (typeof soReview !== 'number') {
+        o.textContent = '🛒 không lấy được số review';
+        return;
+      }
+      if (soReview === 0) {
+        o.textContent = '🛒 chưa có review — chưa ước tính được';
+        return;
+      }
+      const min = Math.ceil(soReview / TY_LE_REVIEW_CAO);
+      const max = Math.ceil(soReview / TY_LE_REVIEW_THAP);
+      const doanhThu =
+        muc.p != null ? ` · ${dinhDangSo(Math.round(min * muc.p))}–${dinhDangSo(Math.round(max * muc.p))} ${muc.m}` : '';
+      o.innerHTML = `🛒 <b>${dinhDangSo(min)} – ${dinhDangSo(max)}</b> (${soReview} review)${doanhThu}`;
+    };
+
+    // Da hoi roi thi dung lai cache, khong goi lai
+    const dem = napCache();
+    if (dem[id] && typeof dem[id].r === 'number') {
+      veKetQua(dem[id].r);
+      return;
+    }
+
+    o.dataset.dangChay = '1';
+    o.textContent = '🛒 đang tính...';
+    try {
+      const kq = await goiApi(`https://openapi.etsy.com/v3/application/listings/${id}/reviews?limit=1`);
+      const soReview = kq.duLieu && typeof kq.duLieu.count === 'number' ? kq.duLieu.count : null;
+      if (typeof soReview === 'number') {
+        dem[id] = { ...(dem[id] || { t: Date.now() }), r: soReview };
+        ghiCache();
+      }
+      veKetQua(soReview);
+    } catch (loi) {
+      console.warn('[Etsy Auto] Không lấy được review cho listing', id, ':', loi.message);
+      o.textContent = '🛒 lỗi khi lấy review';
+    } finally {
+      o.dataset.dangChay = '0';
+    }
+  }
+
+  let dangQuetLuoi = false;
+
+  async function ganThongKeVaoLuoi() {
+    if (dangQuetLuoi || !coKhoaXacThuc() || !dangBatTuHien()) return;
+
+    const cacThe = timCacTheListing();
+    if (cacThe.size === 0) return;
+
+    const dem = napCache();
+
+    // Ve ngay nhung the da co trong cache, phan con lai moi goi API
+    const canGoi = [];
+    for (const [id, el] of cacThe) {
+      if (el.querySelector(':scope > .ea-mini-stats')) continue;
+      if (dem[id]) veTheMini(el, id, dem[id]);
+      else canGoi.push(id);
+    }
+    if (canGoi.length === 0) return;
+
+    dangQuetLuoi = true;
+    try {
+      for (let i = 0; i < canGoi.length; i += SO_ID_MOI_LO) {
+        const lo = canGoi.slice(i, i + SO_ID_MOI_LO);
+        try {
+          const kq = await goiApi(
+            `https://openapi.etsy.com/v3/application/listings/batch?listing_ids=${lo.join(',')}`
+          );
+          const ketQua = kq.duLieu && Array.isArray(kq.duLieu.results) ? kq.duLieu.results : [];
+          console.log(`[Etsy Auto] Lấy thống kê ${ketQua.length}/${lo.length} listing trong 1 request`);
+
+          for (const duLieu of ketQua) {
+            const id = String(duLieu.listing_id);
+            dem[id] = { t: Date.now(), ...rutGonChoCache(duLieu), ...(dem[id] || {}) };
+            dem[id].t = Date.now();
+            const el = cacThe.get(id);
+            if (el) veTheMini(el, id, dem[id]);
+          }
+          ghiCache();
+        } catch (loi) {
+          console.warn('[Etsy Auto] Gọi lô thống kê thất bại:', loi.message);
+          break; // hong lo dau thi cac lo sau cung hong, dung lai cho do ton quota
+        }
+      }
+    } finally {
+      dangQuetLuoi = false;
+    }
+  }
+
+  // Trang Etsy nap them the khi cuon / doi trang bang AJAX, nen phai theo doi DOM.
+  // Gom cac thay doi lai roi quet 1 lan de khong goi API lien tuc.
+  function theoDoiLuoiSanPham() {
+    let hen = null;
+    const quetLai = () => {
+      if (hen !== null) HEN_GIO.clearTimeout(hen);
+      hen = HEN_GIO.setTimeout(() => ganThongKeVaoLuoi(), 600);
+    };
+
+    new MutationObserver((cacThayDoi) => {
+      for (const td of cacThayDoi) {
+        for (const nut of td.addedNodes) {
+          if (nut.nodeType !== 1) continue;
+          if (nut.hasAttribute('data-listing-id') || nut.querySelector('[data-listing-id]')) {
+            quetLai();
+            return;
+          }
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+
+  function xoaTatCaTheMini() {
+    document.querySelectorAll('.ea-mini-stats').forEach((el) => el.remove());
+  }
+
   function taoGiaoDien() {
     const trangThai = docTrangThaiPanel();
 
@@ -1919,8 +2155,13 @@
       const batMoi = !dangBatTuHien();
       luuTrangThaiPanel({ [KHOA_TU_HIEN_THONG_KE]: batMoi });
       capNhatNhanTuHien();
-      if (batMoi) hienThongKeListing();
-      else xoaTheThongKe();
+      if (batMoi) {
+        hienThongKeListing();
+        ganThongKeVaoLuoi();
+      } else {
+        xoaTheThongKe();
+        xoaTatCaTheMini();
+      }
     };
 
     // Nut nhap / doi API key, kem nhan cho biet da co key hay chua
@@ -1949,6 +2190,10 @@
   if (layListingId() && dangBatTuHien()) {
     hienThongKeListing({ imLangKhiLoi: true });
   }
+
+  // Gan the mini vao luoi san pham tren MOI trang, va theo doi de gan tiep khi trang nap them the
+  ganThongKeVaoLuoi();
+  theoDoiLuoiSanPham();
 
   document.addEventListener('keydown', (e) => {
     if (!e.altKey) return;
