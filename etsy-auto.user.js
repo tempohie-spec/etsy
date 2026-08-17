@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.9
-// @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Alt+U tren trang chinh sua: tu tai anh cua listing nguon roi nhoi thang vao o upload cua Etsy (bo tick san anh bang size), dua anh moi len dau luoi bang ban phim (dnd-kit), tuy chon bam ho Save as draft / Publish. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
+// @version      8.0
+// @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Alt+U tren trang chinh sua: tu tai anh cua listing nguon roi nhoi thang vao o upload cua Etsy (bo tick san anh bang size); dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.9';
+  const PHIEN_BAN = '8.0';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -88,9 +88,6 @@
 
   // Thoi han (ms) cho Etsy xu ly xong cac anh vua nhoi vao o upload
   const THOI_HAN_CHO_ETSY_XU_LY_ANH = 180000;
-
-  // Khoang nghi (ms) giua cac phim khi sap xep lai anh bang ban phim (dnd-kit)
-  const NHIP_PHIM_SAP_XEP = 170;
 
   // Key luu trang thai giao dien (vi tri + thu nho hay khong) vao localStorage cua trang Etsy,
   // de giu nguyen giua cac lan tai lai trang.
@@ -1993,10 +1990,19 @@
         </div>
         <div id="ea-up-luoi" style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;overflow:auto;"></div>
         <div style="padding:10px 16px;border-top:1px solid #E5E7EB;font-size:12px;color:#374151;">
-          <div style="margin-bottom:6px;font-weight:bold;">Sau khi upload &amp; đẩy ảnh lên đầu:</div>
-          <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked> Dừng lại, tôi tự bấm lưu (an toàn nhất)</label>
-          <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="nhap"> Bấm hộ <b>Save as draft</b></label>
-          <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="publish"> Bấm hộ <b>Publish</b> — đăng bán công khai ngay, khó lùi lại</label>
+          ${
+            soAnhDangCo > 0
+              ? `<div style="margin-bottom:6px;padding:8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;line-height:1.5;">
+                   ⚠️ Ảnh mới sẽ được thêm vào <b>cuối</b> lưới — trình duyệt không cho phép script tự
+                   sắp xếp lại vị trí ảnh (giới hạn bảo mật, không phải lỗi). Sau khi upload xong,
+                   bạn <b>tự kéo ảnh lên đầu</b> (thường vài giây) rồi mới lưu.
+                 </div>
+                 <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked disabled> Dừng lại sau khi upload, tôi tự kéo ảnh + tự lưu</label>`
+              : `<div style="margin-bottom:6px;font-weight:bold;">Sau khi upload xong:</div>
+                 <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked> Dừng lại, tôi tự bấm lưu (an toàn nhất)</label>
+                 <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="nhap"> Bấm hộ <b>Save as draft</b></label>
+                 <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="publish"> Bấm hộ <b>Publish</b> — đăng bán công khai ngay, khó lùi lại</label>`
+          }
         </div>
         <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;gap:10px;">
           <div id="ea-up-dem" style="font-size:12px;font-weight:bold;color:#374151;"></div>
@@ -2193,207 +2199,30 @@
     return false;
   }
 
-  // ---- Sap xep: dua cac anh vua upload len dau bang BAN PHIM ----
-
-  // Luoi anh cua Etsy dung thu vien dnd-kit. Chinh Etsy noi ro cach dieu khien bang ban phim
-  // trong phan huong dan tro nang cua luoi (id="DndDescribedBy-..."):
-  //   "To pick up a draggable item, press the space bar. While dragging, use the arrow keys to
-  //    move the item. Press space again to drop the item in its new position, or press escape
-  //    to cancel."
-  // Gia lap dung 3 phim do an toan hon nhieu so voi gia lap keo tha bang chuot (pointer events),
-  // vi day la duong dieu khien chinh thuc cua thu vien.
-  function guiPhimSapXep(el, key, code, maPhim) {
-    const tuyChon = {
-      key,
-      code,
-      keyCode: maPhim,
-      which: maPhim,
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    };
-    el.dispatchEvent(new KeyboardEvent('keydown', tuyChon));
-    el.dispatchEvent(new KeyboardEvent('keyup', tuyChon));
-  }
-
-  const PHIM_CACH = [' ', 'Space', 32];
-  const PHIM_TRAI = ['ArrowLeft', 'ArrowLeft', 37];
-  const PHIM_PHAI = ['ArrowRight', 'ArrowRight', 39];
-  const PHIM_LEN = ['ArrowUp', 'ArrowUp', 38];
-  const PHIM_XUONG = ['ArrowDown', 'ArrowDown', 40];
-
-  // Thu tu uu tien khi tim phim "tien gan hon ve dich": Trai truoc (di chuyen thong thuong trong
-  // hang), roi Len (nhay len hang truoc). Day chinh la ly do cach cu "luon dung N lan ArrowLeft"
-  // that bai tren thuc te: luoi anh cua Etsy la LUOI NHIEU COT (2 chieu), khong phai danh sach
-  // 1 chieu — dnd-kit tinh "trai" theo TOA DO THUC TE tren man hinh (collisionRect.left >
-  // rect.left), nen mot anh dang o DAU HANG khong con anh nao ben trai trong CUNG HANG de nhay
-  // sang, ArrowLeft khong tim duoc dich va khong lam gi ca (kiem chung qua vung thong bao dnd-kit:
-  // 5 lan ArrowLeft lien tiep deu bao "dropped/moved over droppable area" TRUNG Y HET 1 ID, tuc la
-  // khong he dich chuyen). Can ArrowUp de nhay len cuoi hang truoc thi ArrowLeft moi tiep tuc co tac
-  // dung — nhung khong biet truoc luoi co bao nhieu cot, nen thay vi tinh truoc so buoc, o MOI buoc
-  // thu lan luot tung huong va CHI CHAP NHAN huong nao THAT SU dua vi tri ve gan dich hon.
-  const CAC_PHIM_HUONG = [PHIM_TRAI, PHIM_LEN, PHIM_PHAI, PHIM_XUONG];
-
-  // Di chuyen 1 anh (da o trang thai "nhac len") toi dung viTriDich trong layCacTheAnh(), bang cach
-  // o moi buoc thu tung huong trong CAC_PHIM_HUONG cho toi khi tim duoc huong lam vi tri GIAM
-  // xuong (gan dich hon). Tra ve true neu toi dung dich, false neu bi ket (khong huong nao con
-  // tac dung) hoac mat dau vet the anh giua chung.
-  async function diChuyenVeViTri(the0, tayCam0, chuKy, viTriDich, vungThongBao) {
-    let the = the0;
-    let tayCam = tayCam0;
-    const GIOI_HAN_BUOC = 60;
-
-    let viTriHienTai = layCacTheAnh().findIndex((el) => chuKyThe(el) === chuKy);
-    if (viTriHienTai === -1) return false;
-
-    for (let buoc = 0; buoc < GIOI_HAN_BUOC && viTriHienTai > viTriDich; buoc++) {
-      if (!document.contains(tayCam)) {
-        const theMoi = layCacTheAnh().find((el) => chuKyThe(el) === chuKy);
-        if (!theMoi) return false;
-        the = theMoi;
-        tayCam = timTayCamKeo(the);
-      }
-
-      let tienDuocMotBuoc = false;
-      for (const phim of CAC_PHIM_HUONG) {
-        guiPhimSapXep(tayCam, ...phim);
-        await cho(NHIP_PHIM_SAP_XEP);
-        const viTriMoi = layCacTheAnh().findIndex((el) => chuKyThe(el) === chuKy);
-        if (viTriMoi === -1) return false;
-        if (viTriMoi < viTriHienTai) {
-          if (vungThongBao) {
-            console.log(`[Etsy Auto]   ${phim[0]} đưa vị trí ${viTriHienTai} -> ${viTriMoi}`);
-          }
-          viTriHienTai = viTriMoi;
-          tienDuocMotBuoc = true;
-          break;
-        }
-      }
-      if (!tienDuocMotBuoc) {
-        console.warn(
-          '[Etsy Auto] Không hướng phím nào giúp ảnh tiến gần vị trí đích hơn — đang ở vị trí',
-          viTriHienTai, 'cần tới', viTriDich
-        );
-        return false;
-      }
-    }
-    return viTriHienTai === viTriDich;
-  }
-
-  // dnd-kit tu render 1 vung "live region" AN (aria-live) de doc to cho trinh doc man hinh moi buoc
-  // keo: "Picked up sortable item...", "...was moved into position...". Day la BANG CHUNG dang tin
-  // cay NHAT rang phim gia lap co thuc su toi duoc noi dnd-kit dang lang nghe hay khong — dang tin
-  // hon nhieu so voi doi DOM roi doan, vi no la chinh dnd-kit tu bao cao trang thai noi bo cua no.
-  function timVungThongBaoDnd() {
-    return document.querySelector('[id^="DndLiveRegion-"]') || document.querySelector('[role="status"][aria-live]');
-  }
-
-  // dnd-kit thuong danh listener ban phim (Space de "nhac len") cho 1 TAY CAM rieng trong the anh
-  // (co the la ca the, co the la 1 phan tu con nho hon), khong nhat thiet la ca <li> mang
-  // aria-roledescription="sortable". Uu tien chinh the do neu no da co tabindex (dau hieu no la noi
-  // nhan focus + phim), khong thi tim phan tu con gan nhat co tabindex="0" hoac role="button".
-  function timTayCamKeo(the) {
-    if (the.getAttribute('tabindex') !== null) return the;
-    return the.querySelector('[tabindex="0"], [role="button"]') || the;
-  }
-
-  // Chuyen soAnhThem anh cuoi luoi len dau, giu nguyen thu tu giua chung.
+  // ---- Sap xep len dau: KHONG kha thi tu userscript, xem ghi chu duoi day ----
   //
-  // CACH LAM: LUON lay PHAN TU CUOI CUNG cua luoi hien tai va LUON dua no ve VI TRI 0 — khong
-  // con nham toi vi tri giua chung (k) nhu ban truoc. Ly do doi:
-  //   1) Etsy them anh moi upload vao CUOI mang, nen ngay tu dau anh moi cuoi cung dang la
-  //      phan tu cuoi cung cua luoi.
-  //   2) Sau khi dua NO ve vi tri 0 (xoa khoi cuoi, chen vao dau), MOI phan tu con lai deu dich
-  //      +1, nen ke tiep no anh moi TRUOC DO (a) van con o gan cuoi mang va (b) do vua bi day
-  //      xuong bang cach hoan doi, no VAN LA phan tu cuoi cung moi — cu the: xoa phan tu cuoi
-  //      cung khoi mang roi chen vao dau khong lam thay doi vi tri TUONG DOI cua cac phan tu con
-  //      lai o giua, nen ai dang o sat cuoi (truoc do bi che khuat boi phan tu vua xoa) gio tro
-  //      thanh phan tu cuoi moi. Da kiem chung bang mo phong: dung "luon lay phan tu cuoi, dua ve
-  //      vi tri 0" cho ket qua dung 100% (920/920 to hop N=5..20, so cot=2..6).
-  //   3) Dich LUON LA 0 con giai quyet triet de 1 loi khac: dua ve vi tri GIUA chung (vi du vi
-  //      tri 3) co the bi "vuot qua" dich (dnd-kit nhay thang toi o gan nhat theo huong, co the
-  //      nhay qua nhieu hon 1 o mot luc) — dich la 0 thi KHONG THE vuot qua duoc (khong co vi tri
-  //      am), nen luon hoi tu dung.
-  async function chuyenAnhLenDau(soAnhCu, soAnhThem) {
-    if (soAnhCu === 0) return { ok: true, soDaChuyen: soAnhThem };
-
-    const vungThongBao = timVungThongBaoDnd();
-    console.log(
-      vungThongBao
-        ? '[Etsy Auto] Tìm thấy vùng thông báo dnd-kit, sẽ dùng để xác minh từng bước:'
-        : '[Etsy Auto] KHÔNG tìm thấy vùng thông báo dnd-kit — vẫn thử sắp xếp nhưng không xác minh được qua kênh này.',
-      vungThongBao
-    );
-
-    let soDaChuyen = 0;
-    for (let k = 0; k < soAnhThem; k++) {
-      const cacThe = layCacTheAnh();
-      const the = cacThe[cacThe.length - 1];
-      if (!the) break;
-
-      const chuKy = chuKyThe(the);
-      // QUAN TRONG: tinh tayCam MOT LAN va DUNG LAI DUNG PHAN TU NAY cho toan bo chuoi phim cua
-      // anh nay (Space nhac len -> N x phim huong -> Space tha xuong). Ban truoc goi lai
-      // timTayCamKeo(the) o MOI phim — neu ham nay chon ra phan tu khac di du chi 1 chut sau khi
-      // dnd-kit da bat dau keo (vi du do thuoc tinh DOM doi khi dang keo), cac phim huong se
-      // gui NHAM sang mot phan tu khac voi phan tu dnd-kit dang thuc su lang nghe — dung dau la
-      // nguyen nhan lam Space "nhac len" chay dung (thong bao doi) nhung phim huong khong co tac
-      // dung gi (thong bao luc tha van la "dropped over droppable area" TRUNG ID voi luc nhac len,
-      // tuc la khong he dich chuyen) — da xay ra dung y het truong hop nay tren thuc te.
-      let tayCam = timTayCamKeo(the);
-      console.log(`[Etsy Auto] Sắp xếp ảnh ${k + 1}/${soAnhThem} (đang ở cuối lưới) — chữ ký mục tiêu:`, chuKy);
-
-      try {
-        tayCam.focus();
-      } catch (e) {
-        /* co the khong nhan focus — van thu gui phim */
-      }
-      await cho(150);
-
-      const truocKhiNhac = vungThongBao ? vungThongBao.textContent : '';
-      guiPhimSapXep(tayCam, ...PHIM_CACH); // nhac len
-      await cho(400);
-
-      if (vungThongBao) {
-        const sauKhiNhac = vungThongBao.textContent;
-        console.log('[Etsy Auto] Thông báo dnd-kit sau khi nhấc lên:', JSON.stringify(sauKhiNhac));
-        if (!sauKhiNhac || sauKhiNhac === truocKhiNhac) {
-          console.warn(
-            '[Etsy Auto] Phím Space giả lập KHÔNG kích hoạt được chế độ kéo của dnd-kit (vùng thông báo không đổi). ' +
-              'Dừng sắp xếp tự động ở ảnh thứ', k + 1
-          );
-          return { ok: false, soDaChuyen, lyDo: 'khong_nhac_len_duoc' };
-        }
-      }
-
-      // Di chuyen bang cach thu tung huong (Trai/Len/Phai/Xuong) — dich LUON LA vi tri 0 (xem
-      // giai thich o dinh nghia chuyenAnhLenDau ben tren).
-      const diChuyenOk = await diChuyenVeViTri(the, tayCam, chuKy, 0, vungThongBao);
-      if (!diChuyenOk) {
-        console.warn('[Etsy Auto] Không đưa được ảnh về đúng vị trí bằng phím mũi tên — vẫn thử thả xuống ở vị trí hiện tại.');
-      }
-
-      // Tim lai tayCam moi nhat theo chu ky truoc khi tha, phong khi DOM da ve lai giua chung
-      const theHienTai = layCacTheAnh().find((el) => chuKyThe(el) === chuKy) || the;
-      const tayCamTha = timTayCamKeo(theHienTai);
-      guiPhimSapXep(tayCamTha, ...PHIM_CACH); // tha xuong
-      await cho(500);
-      if (vungThongBao) {
-        console.log('[Etsy Auto] Thông báo dnd-kit sau khi thả:', JSON.stringify(vungThongBao.textContent));
-      }
-
-      // Kiem tra that su co nhay len dau khong — neu khong thi dung lai, bao nguoi dung tu keo
-      const chuKySau = chuKyThe(layCacTheAnh()[0]);
-      console.log('[Etsy Auto] Chữ ký ở vị trí 0 sau khi thả:', chuKySau, chuKySau === chuKy ? '(khớp)' : '(KHÔNG khớp)');
-      if (chuKySau === chuKy) {
-        soDaChuyen++;
-      } else {
-        console.warn('[Etsy Auto] Ảnh không nhảy lên vị trí mong muốn, dừng sắp xếp tự động ở ảnh thứ', k + 1);
-        return { ok: false, soDaChuyen, lyDo: 'khong_doi_vi_tri' };
-      }
-    }
-    return { ok: soDaChuyen === soAnhThem, soDaChuyen };
-  }
+  // Da thu giai lap ban phim (Space nhac len -> phim huong -> Space tha xuong) qua nhieu phien
+  // ban, dung ca vung thong bao dnd-kit ("DndLiveRegion") de xac minh tung buoc. Ket qua thuc te
+  // ON DINH qua nhieu lan thu: phim Space (nhac len) LUON kich hoat duoc dnd-kit (vung thong bao
+  // doi dung), nhung KHONG MOT PHIM HUONG NAO (Trai/Phai/Len/Xuong), du gui bao nhieu lan hay
+  // theo thu tu nao, tung lam anh dich chuyen — cho toi khi nguoi dung tu tay kiem chung TRUC TIEP
+  // tren trang (khong qua script): bam Tab chon 1 anh, bam Space that, bam phim mui ten that ->
+  // anh nhay vi tri BINH THUONG. Nghia la ban than tinh nang keo-tha-bang-ban-phim cua Etsy hoat
+  // dong tot — chi rieng phim GIA LAP TU JAVASCRIPT la khong co tac dung.
+  //
+  // NGUYEN NHAN: moi KeyboardEvent tao bang `new KeyboardEvent(...)` roi `dispatchEvent()` LUON
+  // co `isTrusted: false` — day la gioi han bao mat CUNG cua nen tang web, khong co API nao (kho
+  // ke ca GM_* cua Violentmonkey/Tampermonkey) cho phep script tao ra su kien "dang tin" nhu tu
+  // ban phim that. Nut Space (nhac len) di qua props onKeyDown cua React (React KHONG loc theo
+  // isTrusted nen van goi duoc), nhung buoc XU LY TIEP theo khi dang keo (phim huong) duoc dnd-kit
+  // gan bang addEventListener() TRUC TIEP vao document — loai listener nay rat co the (va ket qua
+  // kiem chung khop voi gia thuyet nay) CHU DONG BO QUA moi su kien co isTrusted=false de chan
+  // thao tung bang script. Vi day la gioi han cua CHINH TRINH DUYET, doi sang gia lap chuot
+  // (PointerEvent/MouseEvent) cung se dinh y het gioi han nay nen khong dang thu.
+  //
+  // KET LUAN: buoc "dua anh moi len dau" khong the tu dong hoa an toan tu userscript. Script chi
+  // con lam duoc phan UPLOAD (khong dinh gioi han nay vi gan File vao input khong phai su kien ban
+  // phim/chuot), con buoc sap xep de nguoi dung tu keo tay — thuong chi mat vai giay.
 
   // ---- Nut ket thuc (Save as draft / Publish) ----
 
@@ -2473,21 +2302,14 @@
       return;
     }
 
-    // Buoc 4: dua anh moi len dau luoi
-    let ghiChuSapXep = '';
-    if (soAnhCu > 0) {
-      hienThongBao('⏳ Đang đưa ảnh mới lên đầu...', '#2563EB');
-      const ketQua = await chuyenAnhLenDau(soAnhCu, cacFile.length);
-      const lyDoChu =
-        ketQua.lyDo === 'khong_nhac_len_duoc'
-          ? ' (bàn phím giả lập không kích hoạt được chế độ kéo)'
-          : ketQua.lyDo === 'khong_doi_vi_tri'
-            ? ' (ảnh không đổi vị trí sau khi thả)'
-            : '';
-      ghiChuSapXep = ketQua.ok
-        ? ' + đã đưa lên đầu'
-        : ` — ⚠️ chỉ đưa được ${ketQua.soDaChuyen}/${cacFile.length} ảnh lên đầu${lyDoChu}, phần còn lại bạn kéo tay giúp (xem Console F12 để biết chi tiết)`;
-    }
+    // Buoc 4: dua anh moi len dau luoi — KHONG lam duoc tu script (xem ghi chu tai
+    // "Sap xep len dau: KHONG kha thi tu userscript" o tren: gia lap phim/chuot deu bi dnd-kit
+    // bo qua vi khong phai su kien "dang tin" tu ban phim/chuot that — gioi han cua trinh duyet,
+    // khong phai loi script). Bao nguoi dung tu keo tay khi co anh cu lan lon vao.
+    const ghiChuSapXep =
+      soAnhCu > 0
+        ? ' — ảnh mới nằm ở CUỐI lưới, bạn tự kéo lên đầu (không tự động hoá được, xem README)'
+        : '';
 
     // Buoc 5: hanh dong ket thuc (chi khi nguoi dung da chon trong bang chon)
     let ghiChuKetThuc = '';
@@ -2507,7 +2329,7 @@
     hienThongBao(
       `✅ Đã upload ${cacFile.length}/${cacAnh.length} ảnh${thieu ? ` (lỗi ${thieu} ảnh)` : ''}` +
         `${ghiChuSapXep}${ghiChuKetThuc}`,
-      ghiChuSapXep.includes('⚠️') || ghiChuKetThuc.includes('⚠️') || thieu ? '#F59E0B' : '#16A34A'
+      soAnhCu > 0 || ghiChuKetThuc.includes('⚠️') || thieu ? '#F59E0B' : '#16A34A'
     );
   }
 

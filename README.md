@@ -313,9 +313,13 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 4. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
 5. Script tải bytes từng ảnh → tạo `File` → nhồi vào `<input type="file">` bằng `DataTransfer`
    rồi bắn `input` + `change`. Trình duyệt coi đây y hệt như vừa chọn file bằng tay.
-6. Chờ Etsy xử lý xong (tối đa 180s), rồi đưa ảnh mới lên đầu lưới.
-7. Tuỳ chọn cuối: **dừng lại** (mặc định), bấm hộ **Save as draft**, hoặc bấm hộ **Publish**.
-   Chọn *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing ra ngoài, khó lùi lại.
+6. Chờ Etsy xử lý xong (tối đa 180s). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên đầu
+   được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
+7. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu), có thêm
+   tuỳ chọn: **dừng lại** (mặc định), bấm hộ **Save as draft**, hoặc bấm hộ **Publish**. Chọn
+   *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing ra ngoài, khó lùi lại. Khi
+   listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động lưu/đăng lúc ảnh còn sai thứ tự
+   không có ý nghĩa gì.
 
 ### Ảnh đi đường Clipboard, không đi `GM_setValue` (v7.5)
 
@@ -364,108 +368,45 @@ sẽ sai âm thầm. `laySoAnhConLai()` đọc thẳng từ trang, theo thứ t�
 
 Nếu không còn chỗ nào, script báo luôn và không mở bảng chọn.
 
-### Sắp xếp im lặng thất bại — vá bằng vùng thông báo của chính dnd-kit (v7.6)
+### Đưa ảnh mới lên đầu — KHÔNG tự động hoá được từ userscript (v7.6 → v8.0)
 
-Có trường hợp thực tế: 7 ảnh upload thành công nhưng **không hề** nhảy lên đầu — nằm nguyên ở đúng vị
-trí Etsy vừa thêm vào. Nguyên nhân nhiều khả năng nhất: dnd-kit gắn listener bàn phím (Space để
-"nhấc lên") vào một **tay cầm kéo** cụ thể bên trong thẻ ảnh, không nhất thiết là cả `<li>` mang
-`aria-roledescription="sortable"` mà script nhắm tới — nên phím giả lập gửi sai chỗ, dnd-kit không
-hề vào chế độ kéo, và mọi phím `ArrowLeft` sau đó chỉ là no-op.
+Đã thử nhiều vòng giả lập bàn phím theo đúng đường điều khiển chính thức mà dnd-kit (thư viện kéo
+thả của lưới ảnh Etsy) tự công bố trong khối hướng dẫn trợ năng của nó:
 
-Vá bằng cách dùng chính bằng chứng nội bộ của dnd-kit: nó tự render 1 **vùng thông báo ẩn**
-(`[id^="DndLiveRegion-"]`, `aria-live="assertive"`) để đọc to cho trình đọc màn hình mỗi bước kéo
-— "Picked up sortable item...", "...was moved into position...". Đây là tín hiệu đáng tin hơn nhiều
-so với đợi rồi đoán qua DOM, vì nó là chính dnd-kit tự báo cáo trạng thái nội bộ của nó:
+> To pick up a draggable item, press the space bar. While dragging, use the arrow keys to move the
+> item. Press space again to drop the item in its new position, or press escape to cancel.
 
-1. `timTayCamKeo()` ưu tiên gửi phím vào chính thẻ nếu nó đã có `tabindex`, không thì tìm phần tử
-   con gần nhất có `tabindex="0"` hoặc `role="button"` — tăng khả năng chạm đúng tay cầm.
-2. Sau khi gửi `Space`, so `textContent` của vùng thông báo trước/sau. Không đổi → dừng lại **ngay
-   lập tức** với lý do `khong_nhac_len_duoc`, thay vì cắm đầu gửi hết `ArrowLeft` rồi mới phát hiện
-   thất bại ở bước xác minh cuối.
-3. Nếu ảnh bị Etsy vẽ lại DOM giữa chừng (tham chiếu `the` cũ bị gỡ khỏi cây), tìm lại đúng thẻ theo
-   "chữ ký" (`img src`) trước khi gửi tiếp phím.
-4. Toast báo lỗi giờ nói rõ lý do: *"không kích hoạt được chế độ kéo"* hay *"ảnh không đổi vị trí
-   sau khi thả"* — kèm gợi ý xem Console (F12), nơi mỗi bước đều được log (chữ ký mục tiêu, nội dung
-   vùng thông báo trước/sau khi nhấc, trước/sau khi thả).
+Script tự tạo `KeyboardEvent('keydown'/'keyup')` với `key`/`code`/`keyCode` đúng chuẩn rồi
+`dispatchEvent()` vào đúng thẻ ảnh. Qua nhiều bản vá (xác minh bằng chính vùng thông báo ẩn của
+dnd-kit — `[id^="DndLiveRegion-"]`, đọc to "Picked up...", "...was moved into position..." cho
+trình đọc màn hình — dùng cố định một tay cầm cho cả chuỗi phím, rồi viết lại thuật toán di chuyển
+để xử lý đúng lưới nhiều cột thay vì coi là danh sách 1 chiều), kết quả **luôn ổn định giống nhau**:
+phím `Space` (nhấc lên) *luôn* kích hoạt được dnd-kit, nhưng **không một phím mũi tên nào** — dù
+hướng nào, dù thử bao nhiêu lần — từng khiến ảnh dịch chuyển.
 
-Nếu vẫn thất bại sau bản vá này, log trong Console là thứ cần xem tiếp — nó cho biết chính xác
-dnd-kit có "nghe thấy" phím giả lập hay không, để chẩn đoán bước kế tiếp.
+Phép thử quyết định: nhờ người dùng tự tay (không qua script) bấm chọn 1 ảnh, bấm `Space`, bấm phím
+mũi tên **thật** trên bàn phím — ảnh nhảy vị trí bình thường. Vậy bản thân tính năng kéo-thả-bằng-
+bàn-phím của Etsy hoạt động tốt; chỉ riêng **phím giả lập từ JavaScript là không có tác dụng**.
 
-### `ArrowLeft` gửi nhầm phần tử — chỉ `Space` nhấc lên là chạy đúng (v7.8)
+**Nguyên nhân:** mọi `KeyboardEvent` tạo bằng `new KeyboardEvent(...)` rồi `dispatchEvent()` luôn có
+`isTrusted: false` — đây là giới hạn bảo mật **cứng của nền tảng web**, không một API nào (kể cả
+`GM_*` của Violentmonkey/Tampermonkey) cho phép script tạo ra sự kiện "đáng tin" như từ bàn phím
+thật. Phím `Space` (nhấc lên) đi qua `onKeyDown` của React — React không lọc theo `isTrusted` nên
+vẫn gọi được handler. Nhưng bước xử lý tiếp theo khi đang kéo (phím mũi tên) được dnd-kit gắn bằng
+`addEventListener()` **trực tiếp vào `document`** — loại listener này rất có thể chủ động bỏ qua mọi
+sự kiện `isTrusted: false` để chặn thao túng bằng script, khớp hoàn toàn với kết quả kiểm chứng ở
+trên. Vì đây là giới hạn của chính trình duyệt, đổi sang giả lập chuột (`PointerEvent`/`MouseEvent`)
+cũng sẽ dính đúng giới hạn này nên không đáng thử.
 
-Log thực tế từ v7.6/v7.7 cho thấy: `Space` (nhấc lên) **có** kích hoạt dnd-kit — vùng thông báo đổi
-đúng ("Draggable item X was moved over droppable area X" — bình thường lúc mới nhấc, chưa dịch
-chuyển thì "droppable area" trùng ID với chính nó). Nhưng lúc thả, thông báo vẫn là *"dropped over
-droppable area X"* — **trùng ID với lúc nhấc lên**, tức là dù đã gửi hàng loạt `ArrowLeft`, ảnh
-**không hề đổi vị trí**.
-
-Nguyên nhân: `timTayCamKeo()` được gọi lại ở **mỗi phím** thay vì tính một lần và dùng lại. `Space`
-nhấc lên gửi đúng tay cầm, nhưng mỗi `ArrowLeft` sau đó lại tự tính lại tay cầm từ đầu — nếu hàm này
-chọn ra một phần tử khác đi (dù chỉ khác 1 chút, ví dụ do dnd-kit đổi thuộc tính DOM khi đang giữa
-chừng kéo), phím sẽ gửi nhầm sang phần tử mà dnd-kit không còn lắng nghe nữa, nên `Space` báo thành
-công còn `ArrowLeft` thì im lặng không làm gì.
-
-Sửa: tính `tayCam` **đúng một lần** cho toàn bộ chuỗi phím của một ảnh (`Space` nhấc → N ×
-`ArrowLeft` → `Space` thả), chỉ tính lại khi phần tử gốc thực sự bị gỡ khỏi DOM (Etsy vẽ lại). Đồng
-thời log vùng thông báo sau **từng** `ArrowLeft` — nếu ID vẫn còn đứng yên qua các bước, Console sẽ
-chỉ ra ngay bước nào bắt đầu gãy.
-
-### `ArrowLeft` một mình không đủ — lưới ảnh là lưới NHIỀU CỘT, không phải danh sách 1 chiều (v7.9)
-
-Log thực tế sau bản vá trên vẫn cho thấy **cả 5 lần `ArrowLeft` liên tiếp giống hệt nhau từng ký
-tự** — dù đã dùng đúng một `tayCam` cố định. Nghĩa là bug không nằm ở việc gửi nhầm phần tử, mà ở
-chính **thuật toán**: code cũ giả định lưới ảnh là danh sách 1 chiều ("luôn cần đúng N lần sang
-trái"), nhưng lưới ảnh của Etsy hiển thị **nhiều cột trên một hàng**. Ảnh đang cần di chuyển hoàn
-toàn có thể đang đứng ở **đầu một hàng** — dnd-kit tính hướng "trái" theo toạ độ thật trên màn hình
-(`collisionRect.left > rect.left`), nên nếu không có ảnh nào bên trái trong **cùng hàng**,
-`ArrowLeft` không tìm được ô đích và không làm gì cả, bất kể gửi bao nhiêu lần. Cần `ArrowUp` để
-nhảy lên cuối hàng trước đó thì `ArrowLeft` mới tiếp tục có tác dụng.
-
-Hai thay đổi:
-
-1. **`diChuyenVeViTri()`** thay lối "tính trước N bước" bằng lối dò từng bước: mỗi bước thử lần
-   lượt 4 hướng (`Trái`, `Lên`, `Phải`, `Xuống` — thứ tự ưu tiên này), chỉ chấp nhận hướng nào
-   **thực sự đưa vị trí giảm xuống** (gần đích hơn), tối đa 60 bước. Không cần biết trước lưới có
-   bao nhiêu cột.
-2. **Đích luôn luôn là vị trí 0**, không còn nhắm tới vị trí giữa chừng `k` như trước. Mô phỏng
-   phát hiện: nhắm tới vị trí giữa chừng có thể bị "vượt quá" (dnd-kit nhảy thẳng tới ô gần nhất
-   theo hướng, có khi nhảy qua nhiều hơn 1 ô một lúc) — nhắm tới `0` thì không thể vượt quá được
-   (không có vị trí âm), nên luôn hội tụ đúng.
-
-   Cách lấy đúng ảnh cần xử lý mỗi vòng cũng đổi theo: **luôn lấy phần tử cuối cùng của lưới**
-   (`layCacTheAnh()[length-1]`) thay vì tính chỉ số `soAnhCu + k`. Vì Etsy luôn thêm ảnh mới vào
-   cuối mảng, và sau khi đưa 1 ảnh từ cuối lên đầu, ảnh mới tiếp theo cần xử lý **tình cờ luôn**
-   trở thành phần tử cuối mới (xoá 1 phần tử ở cuối rồi chèn vào đầu không làm đổi vị trí tương đối
-   của các phần tử còn lại ở giữa).
-
-Đã mô phỏng bằng thuật toán chọn "ứng viên gần nhất theo hướng" giống `sortableKeyboardCoordinates`
-mặc định của dnd-kit, quét toàn bộ **920 tổ hợp** (số ảnh 5–20, số cột 2–6, mọi vị trí bắt đầu) với
-đích luôn là 0 — **920/920 hội tụ đúng**, so với việc từng phát hiện hàng trăm trường hợp sai khi
-nhắm tới vị trí giữa chừng.
+**Kết luận:** bước "đưa ảnh mới lên đầu" không thể tự động hoá an toàn từ userscript. Từ v8.0, script
+chỉ còn tự động phần **upload** (gán `File` vào `<input>` không đi qua sự kiện bàn phím/chuột nên
+không dính giới hạn này) — bước sắp xếp để người dùng tự kéo tay, thường chỉ mất vài giây.
 
 ### Chọn đúng ô upload
 
 Trang chỉnh sửa có **2** ô `input[type="file"]` — một cho ảnh, một cho video. Script chấm điểm để
 chọn đúng ô ảnh: `accept` chứa `video` → −100, chứa `image`/`jpeg`/`png` → +50, có `multiple` → +20,
 vùng bao quanh có chữ "photo" → +10.
-
-### Sắp xếp bằng bàn phím, không giả lập kéo thả chuột
-
-Lưới ảnh của Etsy dùng thư viện **dnd-kit**. Mỗi ô ảnh có `aria-roledescription="sortable"` và trỏ
-tới một khối hướng dẫn trợ năng do chính Etsy render — nội dung nguyên văn:
-
-> To pick up a draggable item, press the space bar. While dragging, use the arrow keys to move the
-> item. Press space again to drop the item in its new position, or press escape to cancel.
-
-Nên script dùng đúng đường điều khiển chính thức đó (`Space` → `ArrowLeft` × N → `Space`), an toàn
-hơn nhiều so với giả lập `pointerdown`/`pointermove` bằng toạ độ.
-
-**Số bước sang trái luôn bằng số ảnh cũ.** Ảnh mới thứ `k` nằm ở vị trí `soAnhCu + k`, cần về vị trí
-`k`, tức `(soAnhCu + k) − k = soAnhCu` bước — không phụ thuộc `k`, vì khi ảnh trước đó nhảy lên đầu
-thì mọi phần tử từ `0` đến `soAnhCu−1` dịch phải một ô, các ảnh mới còn lại đứng yên.
-
-Sau mỗi lần thả, script so "chữ ký" ô ảnh (`img src`) để **kiểm tra thật sự đã nhảy lên đầu chưa**.
-Nếu không ăn, nó dừng sắp xếp và báo còn bao nhiêu ảnh cần kéo tay — chứ không im lặng coi như xong.
 
 ### Tìm ô ảnh trong lưới — đếm sai vì mỗi ảnh nằm trong `<li>` riêng (v7.7)
 
