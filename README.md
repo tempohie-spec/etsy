@@ -303,9 +303,8 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 
 ### Luồng chạy
 
-1. **Trang nguồn** — `Alt+G` *hoặc* `Alt+C` đều lưu danh sách ảnh vào `GM_setValue`
-   (khoá `etsy_auto_anh_nguon`), kèm chữ `alt` của từng ảnh. Vì dùng `GM_setValue` nên dữ liệu đọc
-   được sang tab khác, không cần lưu file xuống đĩa.
+1. **Trang nguồn** — `Alt+G` *hoặc* `Alt+C` đều đóng danh sách ảnh vào **gói Clipboard**, cùng chỗ với
+   tiêu đề và tag (xem mục dưới). Không cần lưu file xuống đĩa.
 2. **Trang chỉnh sửa** (tab *Photos & video*) — `Alt+U` mở bảng chọn ảnh có thumbnail
    (dùng `il_180x135` cho nhẹ, không tải ảnh gốc vài MB).
 3. Ảnh nghi là **bảng size** bị **bỏ tick sẵn** — nhận diện qua `alt`:
@@ -317,6 +316,39 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 6. Chờ Etsy xử lý xong (tối đa 180s), rồi đưa ảnh mới lên đầu lưới.
 7. Tuỳ chọn cuối: **dừng lại** (mặc định), bấm hộ **Save as draft**, hoặc bấm hộ **Publish**.
    Chọn *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing ra ngoài, khó lùi lại.
+
+### Ảnh đi đường Clipboard, không đi `GM_setValue` (v7.5)
+
+Bản 7.4 lưu danh sách ảnh vào `GM_setValue`. **Sai** khi trang nguồn và trang chỉnh sửa nằm ở
+**hai trình duyệt khác nhau** — đúng cách dùng thật: `GM_setValue` là kho riêng của từng trình duyệt,
+Chrome ghi thì Edge không bao giờ đọc được. Toast báo "chưa có ảnh nào được nhớ" dù cả hai bên đều
+đã cập nhật script.
+
+Clipboard hệ thống là đường duy nhất đi được giữa 2 trình duyệt — cũng chính là lý do cả script này
+dùng Clipboard ngay từ đầu. Nên từ 7.5, ảnh đi chung gói với tiêu đề và tag:
+
+```
+tiêu đề |||TAGS||| tag [|||PERSO_LABEL||| … ] [|||IMGS||| url|>|1 |;| url|>|0 |;| … ]
+```
+
+- Mục `|||IMGS|||` đặt **cuối gói** và được `tachDuLieu()` cắt ra **trước tiên**, để đoạn URL không bị
+  nuốt vào hướng dẫn cá nhân hoá hay danh sách lựa chọn.
+- Mỗi ảnh chỉ gửi `url` + **cờ 1/0** "nghi là bảng size", không gửi nguyên chữ `alt` — bên nhận chỉ
+  cần biết có bỏ tick sẵn hay không, mà `alt` của Etsy có thể dài cả đoạn.
+- Mọi mục không khớp `^https://i\.etsystatic\.com/` bị loại, để chuỗi lạ trong Clipboard không lọt
+  vào luồng upload.
+
+Đường đi của danh sách ảnh:
+
+1. `Alt+V` nhận gói → **cất ảnh vào kho của trình duyệt đích** *trước khi* Clipboard bị rút gọn lại
+   còn mỗi tiêu đề.
+2. `Alt+U` đọc kho trước; kho trống thì **đọc thẳng Clipboard** — nên vẫn chạy được kể cả khi bạn
+   chưa bấm `Alt+V` ở trình duyệt này.
+
+Gói của bản cũ (không có `|||IMGS|||`) vẫn đọc bình thường.
+
+> ⚠️ Ngược lại thì không: bản 7.4 nhận gói của 7.5 sẽ thấy dấu `|||IMGS|||` lạ và **từ chối dán**
+> (đúng theo cơ chế chống lệch phiên bản ở dưới). Phải cập nhật **cả hai** trình duyệt lên 7.5.
 
 ### Còn bao nhiêu chỗ cho ảnh? — đọc từ trang, không hard-code
 

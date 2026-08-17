@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.4
+// @version      7.5
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Alt+U tren trang chinh sua: tu tai anh cua listing nguon roi nhoi thang vao o upload cua Etsy (bo tick san anh bang size), dua anh moi len dau luoi bang ban phim (dnd-kit), tuy chon bam ho Save as draft / Publish. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.4';
+  const PHIEN_BAN = '7.5';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -38,6 +38,18 @@
   const NGAN_CACH_PERSO_LUA_CHON = '|||PERSO_OPTS|||';
   const NGAN_CACH_GIUA_LUA_CHON = '|;|'; // lua chon co the chua dau phay nen khong dung dau phay
   const GIOI_HAN_LUA_CHON = 30; // Etsy cho toi da 30 option moi field
+
+  // Danh sach anh cua listing nguon, di CHUNG DUONG CLIPBOARD voi tieu de/tag.
+  // LY DO: GM_setValue la kho rieng cua TUNG TRINH DUYET — mo trang nguon o Chrome roi mo trang
+  // chinh sua o Edge thi ben Edge doc mai cung khong thay gi. Clipboard he thong la duong duy nhat
+  // di duoc giua 2 trinh duyet, va do cung la ly do ca script nay dung Clipboard ngay tu dau.
+  // Dat O CUOI goi du lieu de khong lam roi phan tach cua tag va o ca nhan hoa.
+  const NGAN_CACH_ANH = '|||IMGS|||';
+  const NGAN_CACH_GIUA_ANH = '|;|';
+  const NGAN_CACH_TRONG_ANH = '|>|'; // url |>| 1 (nghi la bang size) hoac 0
+
+  // Chi nhan link anh that cua Etsy tu Clipboard, khong nhan chuoi la
+  const RE_LINK_ANH_ETSY = /^https:\/\/i\.etsystatic\.com\/\S+$/;
 
   // Gioi han ky tu cua o "Add text box" ben trang chinh sua Etsy
   const GIOI_HAN_NHAN_FIELD = 45;
@@ -294,8 +306,8 @@
     return [chuoi.slice(0, viTri), chuoi.slice(viTri + dauNganCach.length)];
   }
 
-  // Gop tieu de + tag + ca nhan hoa thanh 1 chuoi duy nhat de luu vao clipboard
-  function taoGoiDuLieu(tieuDe, tagText, perso) {
+  // Gop tieu de + tag + ca nhan hoa + danh sach anh thanh 1 chuoi duy nhat de luu vao clipboard
+  function taoGoiDuLieu(tieuDe, tagText, perso, danhSachAnh) {
     let goi = `${tieuDe || ''}${NGAN_CACH}${tagText || ''}`;
     if (perso && perso.nhan) {
       goi += `${NGAN_CACH_PERSO_NHAN}${perso.nhan}`;
@@ -305,12 +317,20 @@
         goi += `${NGAN_CACH_PERSO_HUONG_DAN}${perso.huongDan || ''}`;
       }
     }
+    if (danhSachAnh && danhSachAnh.length) {
+      // Chi gui URL + co "nghi la bang size" (1/0), KHONG gui nguyen chu alt:
+      // alt cua Etsy co the dai ca doan, ma ben nhan chi can biet co bo tick san hay khong.
+      const cum = danhSachAnh
+        .map((a) => `${a.url}${NGAN_CACH_TRONG_ANH}${laAnhBangSize(a.alt) ? '1' : '0'}`)
+        .join(NGAN_CACH_GIUA_ANH);
+      goi += `${NGAN_CACH_ANH}${cum}`;
+    }
     return goi;
   }
 
-  // Tach chuoi da luu trong clipboard thanh { tieuDe, tagText, persoNhan, persoHuongDan }
+  // Tach chuoi da luu trong clipboard thanh { tieuDe, tagText, persoNhan, persoHuongDan, danhSachAnh }
   function tachDuLieu(chuoi) {
-    const rong = { tieuDe: '', tagText: '', persoNhan: '', persoHuongDan: '' };
+    const rong = { tieuDe: '', tagText: '', persoNhan: '', persoHuongDan: '', danhSachAnh: [] };
     if (!chuoi || !chuoi.includes(NGAN_CACH)) return rong;
 
     const [tieuDe, phanSauTieuDe] = tachMotLan(chuoi, NGAN_CACH);
@@ -319,6 +339,22 @@
     let persoHuongDan = '';
 
     let persoLuaChon = [];
+
+    // Cat phan ANH ra TRUOC TIEN (no nam cuoi goi), de doan URL khong bi nuot vao
+    // huong dan ca nhan hoa hay danh sach lua chon.
+    let danhSachAnh = [];
+    const [truocAnh, phanAnh] = tachMotLan(tagText, NGAN_CACH_ANH);
+    if (phanAnh !== null) {
+      tagText = truocAnh;
+      danhSachAnh = phanAnh
+        .split(NGAN_CACH_GIUA_ANH)
+        .map((muc) => {
+          const [url, co] = muc.split(NGAN_CACH_TRONG_ANH);
+          return { url: (url || '').trim(), bang: co === '1' };
+        })
+        // Bo moi thu khong phai link anh Etsy — khong dua chuoi la vao luong upload
+        .filter((a) => RE_LINK_ANH_ETSY.test(a.url));
+    }
 
     const [tagThoi, phanPerso] = tachMotLan(tagText, NGAN_CACH_PERSO_NHAN);
     if (phanPerso !== null) {
@@ -346,6 +382,7 @@
       persoNhan: catBoDauLa(persoNhan, 'nhãn cá nhân hoá').trim(),
       persoHuongDan: catBoDauLa(persoHuongDan, 'hướng dẫn cá nhân hoá').trim(),
       persoLuaChon: persoLuaChon.map((x) => catBoDauLa(x, 'lựa chọn').trim()).filter(Boolean),
+      danhSachAnh,
       dauLa: false,
     };
     ketQua.dauLa = coDauLa;
@@ -1326,7 +1363,7 @@
       console.log(`[Etsy Auto] Tag lấy được (${nguonTag}):`, tagText);
     }
 
-    const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, tagText, perso));
+    const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, tagText, perso, ketQuaAnh.danhSach));
     if (!ok) {
       hienThongBao('❌ Không ghi được vào Clipboard', '#DC2626');
       return;
@@ -1739,7 +1776,7 @@
 
   // Ham gop: doc Clipboard 1 lan roi dan ca tieu de va tag, sau do tu dong bam tab Photo & Video
   async function danTieuDeVaTag() {
-    const { tieuDe, tagText, persoNhan, persoHuongDan, persoLuaChon, dauLa } = tachDuLieu(
+    const { tieuDe, tagText, persoNhan, persoHuongDan, persoLuaChon, danhSachAnh, dauLa } = tachDuLieu(
       await docClipboard()
     );
 
@@ -1759,6 +1796,14 @@
     }
 
     hienThongBao('⏳ Đang dán tiêu đề + tag...', '#2563EB');
+
+    // Chuyen danh sach anh tu Clipboard sang kho cua TRINH DUYET NAY, truoc khi Clipboard bi
+    // rut gon lai con moi tieu de o cuoi ham. Nho vay Alt+U sau do van co anh de upload
+    // du trang nguon mo o mot trinh duyet khac.
+    if (danhSachAnh && danhSachAnh.length) {
+      luuAnhNguon(tieuDe, danhSachAnh);
+      console.log(`[Etsy Auto] Đã nhận ${danhSachAnh.length} ảnh từ Clipboard, sẵn sàng cho Alt+U`);
+    }
 
     const ketQuaTieuDe = danTieuDeNoiBo(tieuDe);
     const ketQuaTag = await danTagNoiBo(tagText);
@@ -1808,12 +1853,13 @@
         ? ` + ô cá nhân hoá${ketQuaPerso.ghiChu || ''}`
         : ` — ${ketQuaPerso.ly_do}`;
     const ghiChuTab = daBamTab ? ' → đã mở Photo & Video' : '';
+    const ghiChuAnhNhan = danhSachAnh && danhSachAnh.length ? ` (có ${danhSachAnh.length} ảnh, bấm Alt+U để upload)` : '';
     const ghiChuClipboard = daGiuLaiTieuDe ? ' (Clipboard giữ lại tiêu đề)' : '';
     const persoOn = ketQuaPerso.boQua || ketQuaPerso.ok;
 
     if (ketQuaTieuDe.ok && ketQuaTag.ok) {
       hienThongBao(
-        `✅ Đã dán tiêu đề + ${ketQuaTag.soLuong} tag${ghiChuPerso}${ghiChuTab}${ghiChuClipboard}`,
+        `✅ Đã dán tiêu đề + ${ketQuaTag.soLuong} tag${ghiChuPerso}${ghiChuTab}${ghiChuClipboard}${ghiChuAnhNhan}`,
         persoOn ? '#16A34A' : '#F59E0B'
       );
     } else if (ketQuaTieuDe.ok) {
@@ -1833,6 +1879,10 @@
   // khong ton request API cua Etsy) va NHOI THANG vao <input type="file"> bang DataTransfer.
   // Trinh duyet coi day y het nhu nguoi dung vua chon file, nen Etsy upload binh thuong.
 
+  // Nhan danh sach anh tu 2 nguon co dinh dang khac nhau:
+  //   - trang nguon      -> { url, alt }        (co chu alt, tu suy ra co bang size)
+  //   - goi tu Clipboard -> { url, bang: bool } (chi con co, alt da bo di cho gon)
+  // nen chuan hoa ve mot dang duy nhat { url, alt, bang } truoc khi luu.
   function luuAnhNguon(tieuDe, danhSach) {
     if (!danhSach || !danhSach.length) return;
     try {
@@ -1842,12 +1892,32 @@
           tieuDe: tieuDe || '',
           listingId: layListingId() || '',
           thoiDiem: Date.now(),
-          anh: danhSach.map((a) => ({ url: a.url, alt: a.alt || '' })),
+          anh: danhSach.map((a) => ({
+            url: a.url,
+            alt: a.alt || '',
+            bang: typeof a.bang === 'boolean' ? a.bang : laAnhBangSize(a.alt),
+          })),
         })
       );
     } catch (e) {
       console.warn('[Etsy Auto] Không lưu được danh sách ảnh nguồn:', e);
     }
+  }
+
+  // Lay danh sach anh cho Alt+U: uu tien kho cua trinh duyet nay, khong co thi doc thang Clipboard.
+  // Duong Clipboard la cai cuu duoc truong hop trang nguon va trang chinh sua o HAI TRINH DUYET
+  // khac nhau va nguoi dung chua bam Alt+V o day.
+  async function layAnhNguonMoiNoi() {
+    const daCo = docAnhNguon();
+    if (daCo) return daCo;
+
+    const { tieuDe, danhSachAnh } = tachDuLieu(await docClipboard());
+    if (danhSachAnh && danhSachAnh.length) {
+      console.log(`[Etsy Auto] Kho ảnh trống, lấy ${danhSachAnh.length} ảnh thẳng từ Clipboard`);
+      luuAnhNguon(tieuDe, danhSachAnh);
+      return docAnhNguon();
+    }
+    return null;
   }
 
   function docAnhNguon() {
@@ -1950,7 +2020,7 @@
           display:block; border:2px solid #E5E7EB; border-radius:8px; overflow:hidden;
           cursor:pointer; position:relative; background:#F9FAFB;
         `;
-        const nghiBangSize = laAnhBangSize(anh.alt);
+        const nghiBangSize = typeof anh.bang === 'boolean' ? anh.bang : laAnhBangSize(anh.alt);
         the.innerHTML = `
           <img src="${linhThuNho(anh.url)}" style="width:100%;height:110px;object-fit:cover;display:block;" loading="lazy">
           <div style="padding:5px 6px;font-size:10px;color:#6B7280;line-height:1.3;height:30px;overflow:hidden;">
@@ -2166,11 +2236,11 @@
   // ---- Luong chinh ----
 
   async function tuUploadAnh() {
-    const goi = docAnhNguon();
+    const goi = await layAnhNguonMoiNoi();
     if (!goi) {
       hienThongBao(
-        `⚠️ Chưa có ảnh nào được nhớ. Việc nhớ ảnh chỉ có từ bản ${PHIEN_BAN} — nếu lần Alt+G gần nhất ` +
-          'chạy trên bản cũ thì kho ảnh vẫn trống. Hãy quay lại trang listing nguồn bấm Alt+G (hoặc Alt+C) một lần nữa.',
+        `⚠️ Chưa có ảnh nào. Hãy sang trang listing nguồn bấm Alt+G (hoặc Alt+C) bằng bản ${PHIEN_BAN}, ` +
+          'rồi quay lại đây — Clipboard sẽ mang theo danh sách ảnh.',
         '#DC2626'
       );
       return;
