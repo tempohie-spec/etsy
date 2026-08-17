@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Etsy Deposit Tracker
 // @namespace    etsy-deposit-tracker
-// @version      1.5
-// @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, tự tải thêm dữ liệu (nút Load more / phân trang số / cuộn từng đoạn nhỏ), chờ nội dung ổn định và quét bổ sung sau khi chuyển trang để tránh bỏ sót do loading, tự chuyển tháng, in kết quả (Date + Số tiền, không kèm đơn vị) ra Console.
+// @version      1.6
+// @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, hỗ trợ cả 2 định dạng ngày tuỳ locale tài khoản ("Aug 3, 2026" và "10 Aug, 2026"), tự tải thêm dữ liệu (nút Load more / phân trang số / cuộn từng đoạn nhỏ), chờ nội dung ổn định trước khi quét, tự chuyển tháng, in kết quả (Date + Số tiền, không kèm đơn vị) ra Console.
 // @match        https://www.etsy.com/your/account/payments/monthly-statement*
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -15,7 +15,7 @@
   'use strict';
 
   const STATE_KEY = 'etsyDepositTrackerState_v1';
-  const SCRIPT_VERSION = '1.5';
+  const SCRIPT_VERSION = '1.6';
 
   // ---------- Tiện ích chung ----------
   function sleep(ms) {
@@ -37,15 +37,33 @@
     Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
   };
 
-  // Chuyển "Aug 3, 2026" (định dạng thực tế của Etsy: Tháng Ngày, Năm) -> Date object
+  // Chuyển ngày sang Date object — hỗ trợ cả 2 định dạng vì khác tài khoản/
+  // locale hiển thị khác nhau: "Aug 3, 2026" (Tháng Ngày, Năm) HOẶC
+  // "10 Aug, 2026" (Ngày Tháng, Năm).
   function parseListDate(str) {
-    const m = str && str.match(/([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})/);
-    if (!m) return null;
-    const mon = MONTHS[m[1]];
-    const day = parseInt(m[2], 10);
-    const year = parseInt(m[3], 10);
-    if (mon === undefined) return null;
-    return new Date(year, mon, day);
+    if (!str) return null;
+
+    // Thử dạng "Tháng Ngày, Năm" trước (vd: "Aug 3, 2026")
+    let m = str.match(/^([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})$/);
+    if (m) {
+      const mon = MONTHS[m[1]];
+      const day = parseInt(m[2], 10);
+      const year = parseInt(m[3], 10);
+      if (mon === undefined) return null;
+      return new Date(year, mon, day);
+    }
+
+    // Thử dạng "Ngày Tháng, Năm" (vd: "10 Aug, 2026")
+    m = str.match(/^(\d{1,2})\s+([A-Za-z]{3}),\s*(\d{4})$/);
+    if (m) {
+      const day = parseInt(m[1], 10);
+      const mon = MONTHS[m[2]];
+      const year = parseInt(m[3], 10);
+      if (mon === undefined) return null;
+      return new Date(year, mon, day);
+    }
+
+    return null;
   }
 
   function buildStatementUrl(month, year) {
@@ -150,7 +168,7 @@
       if (!sentMatch) return;
 
       // Bước 4: DATE gần nhất đứng trước / trong dòng đó
-      const dateMatch = rowText.match(/([A-Za-z]{3}\s+\d{1,2},\s*\d{4})/);
+      const dateMatch = rowText.match(/((?:[A-Za-z]{3}\s+\d{1,2}|\d{1,2}\s+[A-Za-z]{3}),\s*\d{4})/);
       if (!dateMatch) return;
 
       const rowDate = parseListDate(dateMatch[1]);
@@ -541,7 +559,7 @@
       } else {
         const firstRow = getRows()[0];
         const txt = firstRow ? firstRow.innerText : '';
-        const dm = txt.match(/([A-Za-z]{3}\s+\d{1,2},\s*\d{4})/);
+        const dm = txt.match(/((?:[A-Za-z]{3}\s+\d{1,2}|\d{1,2}\s+[A-Za-z]{3}),\s*\d{4})/);
         const d = dm ? parseListDate(dm[1]) : new Date();
         state.currentMonth = d.getMonth() + 1;
         state.currentYear = d.getFullYear();
