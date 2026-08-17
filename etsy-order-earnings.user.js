@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.9
+// @version      2.10
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -443,15 +443,33 @@
     return amountText.replace(/[^0-9.\-]/g, '');
   }
 
-  async function waitForEarningsAmount() {
+  // Kiem tra span co dang HIEN THI tren man hinh khong (khong bi an boi CSS
+  // wt-display-none/display:none). Etsy dong overlay bang cach AN di (khong xoa khoi DOM),
+  // nen span "You earned $x.xx" cua don TRUOC van con trong DOM sau khi dong - neu khong loc
+  // theo tinh hien thi, querySelectorAll co the tra ve dung span CU nay truoc khi span MOI
+  // (cua don dang mo) kip render, khien Earnings bi dinh nham gia tri cua don truoc do.
+  function isVisible(el) {
+    return !!(el.offsetParent || el.getClientRects().length);
+  }
+
+  // previousAmountText: chuoi "$xx.xx" da doc duoc o lan truoc (neu co). Neu span dang thay
+  // van con giu nguyen gia tri cu nay trong ~2s dau, tiep tuc cho thay vi chap nhan ngay -
+  // tranh doc nham gia tri Earnings cua don TRUOC con sot lai trong DOM (xem isVisible o tren).
+  async function waitForEarningsAmount(previousAmountText) {
+    const start = Date.now();
     const amountEl = await waitFor(() => {
       const spans = document.querySelectorAll(SEL.earningsAmountSelector);
       for (const s of spans) {
-        if (/^\$[\d,.]+$/.test(s.textContent.trim())) return s;
+        const text = s.textContent.trim();
+        if (!/^\$[\d,.]+$/.test(text)) continue;
+        if (!isVisible(s)) continue;
+        if (previousAmountText && text === previousAmountText && Date.now() - start < 2000) continue;
+        return s;
       }
       return null;
     }, WAIT_TIMEOUT, 'so tien Earnings');
-    return parseAmountToNumberString(amountEl.textContent.trim());
+    const raw = amountEl.textContent.trim();
+    return { raw, value: parseAmountToNumberString(raw) };
   }
 
   // ====== CACH 1 (MOI): LAY EARNINGS BANG CACH BAM TRUC TIEP VAO MA DON ======
@@ -498,7 +516,7 @@
     await waitFor(() => !findCloseOrderDetailButton(), 6000).catch(() => {});
   }
 
-  async function getEarningsByClickingOrder(orderId) {
+  async function getEarningsByClickingOrder(orderId, previousAmountText) {
     // 1. Bam truc tiep vao ma don (link) de mo bang order details, khong dung o tim kiem
     const link = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId}`);
     link.click();
@@ -508,7 +526,7 @@
     // VA Earnings) ngay trong DOM tu luc mo bang order details, chi an/hien bang CSS. Vi vay
     // chi can mo bang order details roi doc thang so tien "You earned $x.xx" la du, khong can
     // click chuyen tab (nhanh hon, bot 1 buoc co the loi neu doi giao dien).
-    const amount = await waitForEarningsAmount();
+    const amount = await waitForEarningsAmount(previousAmountText);
 
     // 3. BAT BUOC dong overlay lai (bam X hoac nhan ESC) truoc khi sang don tiep theo
     await closeOrderDetailPanel();
@@ -531,6 +549,9 @@
     const uniqueOrderNumbers = [...new Set(rows.map((r) => chuanHoaMaDon(r.orderNumber)).filter(Boolean))];
     const earningsByOrder = new Map();
     let stopped = false;
+    // Gia tri "$xx.xx" tho da doc duoc o don TRUOC - truyen sang waitForEarningsAmount de
+    // tranh doc nham gia tri Earnings cua don truoc con sot lai trong DOM (xem isVisible).
+    let previousRaw = null;
 
     for (let i = 0; i < uniqueOrderNumbers.length; i++) {
       if (cancelRequested) {
@@ -542,7 +563,9 @@
         onProgress(`⏳ (${i + 1}/${uniqueOrderNumbers.length}) Đang lấy Earnings đơn #${orderId}...`);
       }
       try {
-        earningsByOrder.set(orderId, await getEarningsByClickingOrder(orderId));
+        const result = await getEarningsByClickingOrder(orderId, previousRaw);
+        earningsByOrder.set(orderId, result.value);
+        previousRaw = result.raw;
       } catch (err) {
         console.error('[Etsy Scraper] Lỗi lấy Earnings cho đơn ' + orderId + ':', err);
         earningsByOrder.set(orderId, '');
@@ -572,7 +595,7 @@
   // Dung rieng cho chuc nang "Lay Earnings theo danh sach ma don nhap tay", vi cac ma don
   // nay co the KHONG nam trong danh sach dang hien thi tren trang, nen phai tim kiem.
 
-  async function getEarningsForOrderBySearch(orderId) {
+  async function getEarningsForOrderBySearch(orderId, previousAmountText) {
     // 1. Tim o search, nhap ma don
     const input = await waitFor(() => document.querySelector(SEL.searchInput), WAIT_TIMEOUT, 'o tim kiem don hang');
     input.focus();
@@ -599,7 +622,7 @@
 
     // 4. KHONG CAN bam tab "Earnings" - so tien "You earned $x.xx" da co san trong DOM
     // ngay khi bang order details mo ra (Etsy render san ca 2 tab, chi an/hien bang CSS).
-    const amount = await waitForEarningsAmount();
+    const amount = await waitForEarningsAmount(previousAmountText);
 
     // 5. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
     await closeOrderDetailPanel();
@@ -694,6 +717,8 @@
     // do ket qua se giong het lan dau).
     const daXuLyMaDon = new Set();
     let stopped = false;
+    // Gia tri "$xx.xx" tho da doc duoc o don TRUOC - xem ghi chu o fillEarningsForRowsByClick.
+    let previousRaw = null;
     try {
       for (let i = 0; i < ids.length; i++) {
         if (cancelRequested) {
@@ -710,8 +735,9 @@
 
         hienThongBao(`⏳ (${i + 1}/${ids.length}) Đang lấy Earnings đơn #${id}...`, '#2563EB');
         try {
-          const earnings = await getEarningsForOrderBySearch(id);
-          results.push({ 'Mã đơn': id, Earnings: earnings });
+          const result = await getEarningsForOrderBySearch(id, previousRaw);
+          results.push({ 'Mã đơn': id, Earnings: result.value });
+          previousRaw = result.raw;
         } catch (err) {
           console.error('[Etsy Scraper] Lỗi lấy Earnings cho đơn ' + id + ':', err);
           results.push({ 'Mã đơn': id, Earnings: 'LỖI: ' + err.message });

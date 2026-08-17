@@ -656,6 +656,22 @@ Violentmonkey chưa tải được file đó — thường do mạng chặn CDN 
 Script đã có kiểm tra trước khi chạy: nếu XLSX chưa sẵn sàng sẽ báo lỗi ngay, không để bạn
 đợi hết cả quá trình quét/lấy Earnings rồi mới báo lỗi lúc xuất file.
 
+## Sửa lỗi Earnings bị dính nhầm giữa các đơn
+
+Trước đây, một số đơn xuất ra Earnings **giống hệt số tiền của đơn ngay trước đó** (đặc biệt
+dễ thấy khi 2 đơn liên tiếp có tổng tiền chênh lệch lớn nhưng Earnings lại bằng nhau). Nguyên
+nhân: khi đóng overlay "Order details", Etsy chỉ **ẩn đi bằng CSS** chứ không xoá khỏi DOM, nên
+dòng "You earned $x.xx" của đơn cũ vẫn còn nằm trong trang. Nếu script đọc Earnings ngay khi vừa
+mở đơn mới mà nội dung mới chưa kịp render, `querySelectorAll` có thể vô tình khớp trúng dòng
+tiền **ẩn** còn sót lại của đơn trước, dẫn tới Earnings bị "dính" sai đơn.
+
+Đã sửa bằng 2 lớp kiểm tra khi đọc Earnings:
+
+1. Chỉ chấp nhận span **đang thực sự hiển thị** trên màn hình (bỏ qua span bị ẩn bởi CSS).
+2. So sánh với số tiền đã đọc được ở đơn ngay trước đó — nếu trong ~2 giây đầu span vẫn đang
+   hiện đúng số tiền cũ, script sẽ đợi thêm cho tới khi nội dung thực sự cập nhật rồi mới đọc,
+   thay vì chấp nhận ngay giá trị có thể vẫn là của đơn trước.
+
 ## Nút Dừng
 
 Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),
