@@ -314,13 +314,46 @@ Listing không có cá nhân hoá thì 2 đoạn sau không xuất hiện, và c
 > (*Style and Size*, *Color*…) cũng dùng `data-label`, nên bắt theo thuộc tính này sẽ tưởng nhầm
 > tên biến thể là ô cá nhân hoá trên những listing hoàn toàn không có cá nhân hoá.
 
+### Hai kiểu ô cá nhân hoá (v7.2)
+
+Etsy có 2 kiểu, phải điền theo 2 cách khác hẳn nhau:
+
+| | `text_input` | `dropdown` |
+|---|---|---|
+| Người mua | Gõ chữ tự do | Chọn sẵn từ danh sách |
+| Dấu hiệu ở nguồn | có `[data-instructions]` | có `<select id="perso-dropdown-…">` |
+| Mục menu ở đích | **Text box** | **List of options** |
+| Ô phải điền | Field title + Instructions | Field title + từng Option (bấm *Add*) |
+
+Nhận diện ưu tiên theo `data-field-type` trên `<li id="perso-field-…">`; không có thuộc tính đó
+thì cứ thấy `<select>` là biết kiểu dropdown.
+
+Khi đọc danh sách lựa chọn, dòng `Select an option` bị loại — nó là placeholder
+(`value=""`, `disabled`), không phải lựa chọn thật.
+
+Chuỗi Clipboard phân biệt bằng dấu xuất hiện sau `|||PERSO_LABEL|||`:
+
+```
+… |||PERSO_LABEL||| Please write the character |||PERSO_INSTR||| Examples: Pikachu…
+… |||PERSO_LABEL||| Please choose the design   |||PERSO_OPTS|||  Chip|;|Dale
+```
+
+Lựa chọn ngăn nhau bằng `|;|` chứ không phải dấu phẩy, vì bản thân lựa chọn có thể chứa dấu phẩy.
+Chuỗi của bản 6.x cũ (chỉ có `PERSO_INSTR`) vẫn đọc được như trước.
+
 **Trang đích** (`Alt+V`): sau khi dán tiêu đề + tag, nếu Clipboard có phần cá nhân hoá thì script:
 
 1. Tìm nút **"+ Add field"** ở mục *Custom options* rồi bấm.
-2. Đợi menu xổ ra, chọn mục **"Text box"** trong phần *Create new*.
-3. Đợi hộp thoại **"Add text box"**, điền nhãn vào ô `#field-personalizationQuestions-questionText`
-   và hướng dẫn vào ô `#field-personalizationQuestions-instructions`.
+2. Đợi menu xổ ra, chọn **"Text box"** hoặc **"List of options"** tuỳ kiểu. Khớp **chính xác** chữ
+   hiển thị để không bắt nhầm các mục *reusable field* phía trên (chúng hay có tên gần giống).
+3. Đợi hộp thoại, điền nhãn vào `#field-personalizationQuestions-questionText`, rồi:
+   - **Text box** — điền hướng dẫn vào `#field-personalizationQuestions-instructions`
+   - **List of options** — gõ từng lựa chọn vào `#field-personalizationQuestions-options` rồi bấm
+     *Add*. Etsy tự xoá trắng ô nhập sau mỗi lần thêm thành công, script dùng đúng dấu hiệu đó để
+     xác nhận đã thêm được, thay vì chờ mò một khoảng thời gian cố định. Tối đa 30 lựa chọn.
 4. Bấm **Done**, rồi mới chuyển sang tab *Photo & Video* như cũ.
+
+Toast báo rõ số lựa chọn đã thêm: `✅ Đã dán tiêu đề + 13 tag + ô cá nhân hoá (2 lựa chọn)`
 
 Etsy giới hạn **45 ký tự** cho Field title và **120 ký tự** cho Instructions, nên script tự cắt bớt
 cho vừa và ghi cảnh báo ra Console nếu có cắt. Sửa bằng 2 hằng số `GIOI_HAN_NHAN_FIELD`
