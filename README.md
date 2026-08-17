@@ -391,6 +391,25 @@ so với đợi rồi đoán qua DOM, vì nó là chính dnd-kit tự báo cáo 
 Nếu vẫn thất bại sau bản vá này, log trong Console là thứ cần xem tiếp — nó cho biết chính xác
 dnd-kit có "nghe thấy" phím giả lập hay không, để chẩn đoán bước kế tiếp.
 
+### `ArrowLeft` gửi nhầm phần tử — chỉ `Space` nhấc lên là chạy đúng (v7.8)
+
+Log thực tế từ v7.6/v7.7 cho thấy: `Space` (nhấc lên) **có** kích hoạt dnd-kit — vùng thông báo đổi
+đúng ("Draggable item X was moved over droppable area X" — bình thường lúc mới nhấc, chưa dịch
+chuyển thì "droppable area" trùng ID với chính nó). Nhưng lúc thả, thông báo vẫn là *"dropped over
+droppable area X"* — **trùng ID với lúc nhấc lên**, tức là dù đã gửi hàng loạt `ArrowLeft`, ảnh
+**không hề đổi vị trí**.
+
+Nguyên nhân: `timTayCamKeo()` được gọi lại ở **mỗi phím** thay vì tính một lần và dùng lại. `Space`
+nhấc lên gửi đúng tay cầm, nhưng mỗi `ArrowLeft` sau đó lại tự tính lại tay cầm từ đầu — nếu hàm này
+chọn ra một phần tử khác đi (dù chỉ khác 1 chút, ví dụ do dnd-kit đổi thuộc tính DOM khi đang giữa
+chừng kéo), phím sẽ gửi nhầm sang phần tử mà dnd-kit không còn lắng nghe nữa, nên `Space` báo thành
+công còn `ArrowLeft` thì im lặng không làm gì.
+
+Sửa: tính `tayCam` **đúng một lần** cho toàn bộ chuỗi phím của một ảnh (`Space` nhấc → N ×
+`ArrowLeft` → `Space` thả), chỉ tính lại khi phần tử gốc thực sự bị gỡ khỏi DOM (Etsy vẽ lại). Đồng
+thời log vùng thông báo sau **từng** `ArrowLeft` — nếu ID vẫn còn đứng yên qua các bước, Console sẽ
+chỉ ra ngay bước nào bắt đầu gãy.
+
 ### Chọn đúng ô upload
 
 Trang chỉnh sửa có **2** ô `input[type="file"]` — một cho ảnh, một cho video. Script chấm điểm để

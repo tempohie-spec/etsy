@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.7
+// @version      7.8
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Alt+U tren trang chinh sua: tu tai anh cua listing nguon roi nhoi thang vao o upload cua Etsy (bo tick san anh bang size), dua anh moi len dau luoi bang ban phim (dnd-kit), tuy chon bam ho Save as draft / Publish. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.7';
+  const PHIEN_BAN = '7.8';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2129,6 +2129,8 @@
     return el.parentElement;
   }
 
+  let daCanhBaoGomNhom = false;
+
   // Moi anh trong luoi la mot phan tu co aria-roledescription="sortable".
   // Loc theo container danh sach dung nhat de khong dinh cac vung sortable khac cua trang.
   //
@@ -2156,10 +2158,14 @@
     }
 
     if (lonNhat.length < tatCa.length * 0.6) {
-      console.warn(
-        '[Etsy Auto] Gom nhóm thẻ ảnh theo cha không chắc chắn (nhóm lớn nhất chỉ có',
-        lonNhat.length, '/', tatCa.length, 'thẻ) — dùng toàn bộ để tránh đếm thiếu.'
-      );
+      if (!daCanhBaoGomNhom) {
+        daCanhBaoGomNhom = true;
+        console.warn(
+          '[Etsy Auto] Gom nhóm thẻ ảnh theo cha không chắc chắn (nhóm lớn nhất chỉ có',
+          lonNhat.length, '/', tatCa.length, 'thẻ) — dùng toàn bộ để tránh đếm thiếu. ' +
+            '(Cảnh báo này chỉ hiện 1 lần dù hàm được gọi nhiều lần.)'
+        );
+      }
       return tatCa;
     }
     return lonNhat;
@@ -2250,7 +2256,15 @@
       if (!the) break;
 
       const chuKy = chuKyThe(the);
-      const tayCam = timTayCamKeo(the);
+      // QUAN TRONG: tinh tayCam MOT LAN va DUNG LAI DUNG PHAN TU NAY cho toan bo chuoi phim cua
+      // anh nay (Space nhac len -> N x ArrowLeft -> Space tha xuong). Ban truoc goi lai
+      // timTayCamKeo(the) o MOI phim — neu ham nay chon ra phan tu khac di du chi 1 chut sau khi
+      // dnd-kit da bat dau keo (vi du do thuoc tinh DOM doi khi dang keo), cac phim ArrowLeft se
+      // gui NHAM sang mot phan tu khac voi phan tu dnd-kit dang thuc su lang nghe — dung dau la
+      // nguyen nhan lam Space "nhac len" chay dung (thong bao doi) nhung ArrowLeft khong co tac
+      // dung gi (thong bao luc tha van la "dropped over droppable area" TRUNG ID voi luc nhac len,
+      // tuc la khong he dich chuyen) — da xay ra dung y het truong hop nay tren thuc te.
+      let tayCam = timTayCamKeo(the);
       console.log(`[Etsy Auto] Sắp xếp ảnh ${k + 1}/${soAnhThem} — chữ ký mục tiêu:`, chuKy);
 
       try {
@@ -2278,15 +2292,23 @@
 
       for (let buoc = 0; buoc < soAnhCu; buoc++) {
         // Etsy co the ve lai DOM sau moi buoc — the cu co the bi go khoi cay, tim lai theo chu ky
+        // roi TINH LAI tayCam TU the moi (chi khi that su phai doi node, khong phai moi vong lap)
         if (!document.contains(the)) {
           const theMoi = layCacTheAnh().find((el) => chuKyThe(el) === chuKy);
-          if (theMoi) the = theMoi;
+          if (theMoi) {
+            the = theMoi;
+            tayCam = timTayCamKeo(the);
+          }
         }
-        guiPhimSapXep(timTayCamKeo(the), ...PHIM_TRAI);
+        guiPhimSapXep(tayCam, ...PHIM_TRAI); // luon dung DUNG 1 tay cam da nhac len tu dau
         await cho(NHIP_PHIM_SAP_XEP);
+
+        if (vungThongBao) {
+          console.log(`[Etsy Auto]   sau ArrowLeft #${buoc + 1}/${soAnhCu}:`, JSON.stringify(vungThongBao.textContent));
+        }
       }
 
-      guiPhimSapXep(timTayCamKeo(the), ...PHIM_CACH); // tha xuong
+      guiPhimSapXep(tayCam, ...PHIM_CACH); // tha xuong — van dung nguyen tay cam da nhac len
       await cho(500);
       if (vungThongBao) {
         console.log('[Etsy Auto] Thông báo dnd-kit sau khi thả:', JSON.stringify(vungThongBao.textContent));
