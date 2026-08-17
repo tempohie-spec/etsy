@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.5
+// @version      7.6
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Alt+U tren trang chinh sua: tu tai anh cua listing nguon roi nhoi thang vao o upload cua Etsy (bo tick san anh bang size), dua anh moi len dau luoi bang ban phim (dnd-kit), tuy chon bam ho Save as draft / Publish. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.5';
+  const PHIEN_BAN = '7.6';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2185,40 +2185,93 @@
   const PHIM_CACH = [' ', 'Space', 32];
   const PHIM_TRAI = ['ArrowLeft', 'ArrowLeft', 37];
 
+  // dnd-kit tu render 1 vung "live region" AN (aria-live) de doc to cho trinh doc man hinh moi buoc
+  // keo: "Picked up sortable item...", "...was moved into position...". Day la BANG CHUNG dang tin
+  // cay NHAT rang phim gia lap co thuc su toi duoc noi dnd-kit dang lang nghe hay khong — dang tin
+  // hon nhieu so voi doi DOM roi doan, vi no la chinh dnd-kit tu bao cao trang thai noi bo cua no.
+  function timVungThongBaoDnd() {
+    return document.querySelector('[id^="DndLiveRegion-"]') || document.querySelector('[role="status"][aria-live]');
+  }
+
+  // dnd-kit thuong danh listener ban phim (Space de "nhac len") cho 1 TAY CAM rieng trong the anh
+  // (co the la ca the, co the la 1 phan tu con nho hon), khong nhat thiet la ca <li> mang
+  // aria-roledescription="sortable". Uu tien chinh the do neu no da co tabindex (dau hieu no la noi
+  // nhan focus + phim), khong thi tim phan tu con gan nhat co tabindex="0" hoac role="button".
+  function timTayCamKeo(the) {
+    if (the.getAttribute('tabindex') !== null) return the;
+    return the.querySelector('[tabindex="0"], [role="button"]') || the;
+  }
+
   // Chuyen soAnhThem anh cuoi luoi len dau, giu nguyen thu tu giua chung.
   // Anh moi thu k dang o vi tri (soAnhCu + k), can ve vi tri k -> luon la dung soAnhCu buoc sang trai.
   async function chuyenAnhLenDau(soAnhCu, soAnhThem) {
     if (soAnhCu === 0) return { ok: true, soDaChuyen: soAnhThem };
 
+    const vungThongBao = timVungThongBaoDnd();
+    console.log(
+      vungThongBao
+        ? '[Etsy Auto] Tìm thấy vùng thông báo dnd-kit, sẽ dùng để xác minh từng bước:'
+        : '[Etsy Auto] KHÔNG tìm thấy vùng thông báo dnd-kit — vẫn thử sắp xếp nhưng không xác minh được qua kênh này.',
+      vungThongBao
+    );
+
     let soDaChuyen = 0;
     for (let k = 0; k < soAnhThem; k++) {
-      const cacThe = layCacTheAnh();
-      const the = cacThe[soAnhCu + k];
+      let cacThe = layCacTheAnh();
+      let the = cacThe[soAnhCu + k];
       if (!the) break;
 
       const chuKy = chuKyThe(the);
+      const tayCam = timTayCamKeo(the);
+      console.log(`[Etsy Auto] Sắp xếp ảnh ${k + 1}/${soAnhThem} — chữ ký mục tiêu:`, chuKy);
+
       try {
-        the.focus();
+        tayCam.focus();
       } catch (e) {
-        /* the co the khong nhan focus — van thu gui phim */
+        /* co the khong nhan focus — van thu gui phim */
       }
       await cho(150);
 
-      guiPhimSapXep(the, ...PHIM_CACH); // nhac len
-      await cho(300);
+      const truocKhiNhac = vungThongBao ? vungThongBao.textContent : '';
+      guiPhimSapXep(tayCam, ...PHIM_CACH); // nhac len
+      await cho(400);
+
+      if (vungThongBao) {
+        const sauKhiNhac = vungThongBao.textContent;
+        console.log('[Etsy Auto] Thông báo dnd-kit sau khi nhấc lên:', JSON.stringify(sauKhiNhac));
+        if (!sauKhiNhac || sauKhiNhac === truocKhiNhac) {
+          console.warn(
+            '[Etsy Auto] Phím Space giả lập KHÔNG kích hoạt được chế độ kéo của dnd-kit (vùng thông báo không đổi). ' +
+              'Dừng sắp xếp tự động ở ảnh thứ', k + 1
+          );
+          return { ok: false, soDaChuyen, lyDo: 'khong_nhac_len_duoc' };
+        }
+      }
+
       for (let buoc = 0; buoc < soAnhCu; buoc++) {
-        guiPhimSapXep(the, ...PHIM_TRAI);
+        // Etsy co the ve lai DOM sau moi buoc — the cu co the bi go khoi cay, tim lai theo chu ky
+        if (!document.contains(the)) {
+          const theMoi = layCacTheAnh().find((el) => chuKyThe(el) === chuKy);
+          if (theMoi) the = theMoi;
+        }
+        guiPhimSapXep(timTayCamKeo(the), ...PHIM_TRAI);
         await cho(NHIP_PHIM_SAP_XEP);
       }
-      guiPhimSapXep(the, ...PHIM_CACH); // tha xuong
-      await cho(450);
+
+      guiPhimSapXep(timTayCamKeo(the), ...PHIM_CACH); // tha xuong
+      await cho(500);
+      if (vungThongBao) {
+        console.log('[Etsy Auto] Thông báo dnd-kit sau khi thả:', JSON.stringify(vungThongBao.textContent));
+      }
 
       // Kiem tra that su co nhay len dau khong — neu khong thi dung lai, bao nguoi dung tu keo
-      if (chuKyThe(layCacTheAnh()[k]) === chuKy) {
+      const chuKySau = chuKyThe(layCacTheAnh()[k]);
+      console.log(`[Etsy Auto] Chữ ký ở vị trí ${k} sau khi thả:`, chuKySau, chuKySau === chuKy ? '(khớp)' : '(KHÔNG khớp)');
+      if (chuKySau === chuKy) {
         soDaChuyen++;
       } else {
         console.warn('[Etsy Auto] Ảnh không nhảy lên vị trí mong muốn, dừng sắp xếp tự động ở ảnh thứ', k + 1);
-        return { ok: false, soDaChuyen };
+        return { ok: false, soDaChuyen, lyDo: 'khong_doi_vi_tri' };
       }
     }
     return { ok: soDaChuyen === soAnhThem, soDaChuyen };
@@ -2307,9 +2360,15 @@
     if (soAnhCu > 0) {
       hienThongBao('⏳ Đang đưa ảnh mới lên đầu...', '#2563EB');
       const ketQua = await chuyenAnhLenDau(soAnhCu, cacFile.length);
+      const lyDoChu =
+        ketQua.lyDo === 'khong_nhac_len_duoc'
+          ? ' (bàn phím giả lập không kích hoạt được chế độ kéo)'
+          : ketQua.lyDo === 'khong_doi_vi_tri'
+            ? ' (ảnh không đổi vị trí sau khi thả)'
+            : '';
       ghiChuSapXep = ketQua.ok
         ? ' + đã đưa lên đầu'
-        : ` — ⚠️ chỉ đưa được ${ketQua.soDaChuyen}/${cacFile.length} ảnh lên đầu, phần còn lại bạn kéo tay giúp`;
+        : ` — ⚠️ chỉ đưa được ${ketQua.soDaChuyen}/${cacFile.length} ảnh lên đầu${lyDoChu}, phần còn lại bạn kéo tay giúp (xem Console F12 để biết chi tiết)`;
     }
 
     // Buoc 5: hanh dong ket thuc (chi khi nguoi dung da chon trong bang chon)

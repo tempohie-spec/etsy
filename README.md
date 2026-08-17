@@ -364,6 +364,33 @@ sẽ sai âm thầm. `laySoAnhConLai()` đọc thẳng từ trang, theo thứ t�
 
 Nếu không còn chỗ nào, script báo luôn và không mở bảng chọn.
 
+### Sắp xếp im lặng thất bại — vá bằng vùng thông báo của chính dnd-kit (v7.6)
+
+Có trường hợp thực tế: 7 ảnh upload thành công nhưng **không hề** nhảy lên đầu — nằm nguyên ở đúng vị
+trí Etsy vừa thêm vào. Nguyên nhân nhiều khả năng nhất: dnd-kit gắn listener bàn phím (Space để
+"nhấc lên") vào một **tay cầm kéo** cụ thể bên trong thẻ ảnh, không nhất thiết là cả `<li>` mang
+`aria-roledescription="sortable"` mà script nhắm tới — nên phím giả lập gửi sai chỗ, dnd-kit không
+hề vào chế độ kéo, và mọi phím `ArrowLeft` sau đó chỉ là no-op.
+
+Vá bằng cách dùng chính bằng chứng nội bộ của dnd-kit: nó tự render 1 **vùng thông báo ẩn**
+(`[id^="DndLiveRegion-"]`, `aria-live="assertive"`) để đọc to cho trình đọc màn hình mỗi bước kéo
+— "Picked up sortable item...", "...was moved into position...". Đây là tín hiệu đáng tin hơn nhiều
+so với đợi rồi đoán qua DOM, vì nó là chính dnd-kit tự báo cáo trạng thái nội bộ của nó:
+
+1. `timTayCamKeo()` ưu tiên gửi phím vào chính thẻ nếu nó đã có `tabindex`, không thì tìm phần tử
+   con gần nhất có `tabindex="0"` hoặc `role="button"` — tăng khả năng chạm đúng tay cầm.
+2. Sau khi gửi `Space`, so `textContent` của vùng thông báo trước/sau. Không đổi → dừng lại **ngay
+   lập tức** với lý do `khong_nhac_len_duoc`, thay vì cắm đầu gửi hết `ArrowLeft` rồi mới phát hiện
+   thất bại ở bước xác minh cuối.
+3. Nếu ảnh bị Etsy vẽ lại DOM giữa chừng (tham chiếu `the` cũ bị gỡ khỏi cây), tìm lại đúng thẻ theo
+   "chữ ký" (`img src`) trước khi gửi tiếp phím.
+4. Toast báo lỗi giờ nói rõ lý do: *"không kích hoạt được chế độ kéo"* hay *"ảnh không đổi vị trí
+   sau khi thả"* — kèm gợi ý xem Console (F12), nơi mỗi bước đều được log (chữ ký mục tiêu, nội dung
+   vùng thông báo trước/sau khi nhấc, trước/sau khi thả).
+
+Nếu vẫn thất bại sau bản vá này, log trong Console là thứ cần xem tiếp — nó cho biết chính xác
+dnd-kit có "nghe thấy" phím giả lập hay không, để chẩn đoán bước kế tiếp.
+
 ### Chọn đúng ô upload
 
 Trang chỉnh sửa có **2** ô `input[type="file"]` — một cho ảnh, một cho video. Script chấm điểm để
