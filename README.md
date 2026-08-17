@@ -12,6 +12,7 @@ Userscript (Violentmonkey / Tampermonkey) cho trang Etsy.
 | `Alt + G` | Lấy tiêu đề + tag + ô cá nhân hoá vào Clipboard **và** tải toàn bộ ảnh full size của listing |
 | `Alt + C` | Chỉ lấy tiêu đề + tag + ô cá nhân hoá (không tải ảnh) |
 | `Alt + V` | Dán tiêu đề + tag, tạo ô cá nhân hoá, rồi tự bấm tab **Photo & Video** |
+| `Alt + U` | Tự upload ảnh của listing nguồn lên trang chỉnh sửa, đẩy lên đầu lưới (xem mục dưới) |
 | 📊 Xem dữ liệu API | In nguyên phản hồi API của listing ra Console (xem mục dưới) |
 
 Giao diện nổi có thể thu nhỏ thành biểu tượng tròn "Listing" và kéo thả tự do; vị trí được nhớ lại qua `localStorage`.
@@ -291,6 +292,60 @@ Bây giờ:
 
 Nếu **không** tìm thấy khối carousel, script quay về chế độ quét cả trang như cũ (có bỏ 1 ảnh cuối,
 bật/tắt bằng hằng số `BO_ANH_CUOI_KHI_QUET_CA_TRANG`) và hiện cảnh báo màu vàng.
+
+## Tự upload ảnh nguồn lên trang chỉnh sửa — `Alt + U` (v7.4)
+
+Thay vì tải 10 file xuống máy rồi mở hộp thoại chọn file của hệ điều hành, script giữ luôn danh sách
+ảnh của listing nguồn và tự đẩy vào ô upload của Etsy.
+
+**Chi phí: 0 request API Etsy.** Ảnh lấy thẳng từ CDN `i.etsystatic.com` bằng `GM_xmlhttpRequest`,
+không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn băng thông tải ảnh.
+
+### Luồng chạy
+
+1. **Trang nguồn** — `Alt+G` *hoặc* `Alt+C` đều lưu danh sách ảnh vào `GM_setValue`
+   (khoá `etsy_auto_anh_nguon`), kèm chữ `alt` của từng ảnh. Vì dùng `GM_setValue` nên dữ liệu đọc
+   được sang tab khác, không cần lưu file xuống đĩa.
+2. **Trang chỉnh sửa** (tab *Photos & video*) — `Alt+U` mở bảng chọn ảnh có thumbnail
+   (dùng `il_180x135` cho nhẹ, không tải ảnh gốc vài MB).
+3. Ảnh nghi là **bảng size** bị **bỏ tick sẵn** — nhận diện qua `alt`:
+   `size chart`, `sizing chart`, `size guide`, `sizing guide`, `measurement`, hoặc từ `chart` đứng
+   riêng (`\bchart\b`, nên `Charter` không bị dính). Đây chỉ là gợi ý — tick lại được.
+4. Bảng chọn tự chặn khi tổng số ảnh vượt giới hạn 10 ảnh/listing của Etsy (nút *Bắt đầu upload* mờ đi).
+5. Script tải bytes từng ảnh → tạo `File` → nhồi vào `<input type="file">` bằng `DataTransfer`
+   rồi bắn `input` + `change`. Trình duyệt coi đây y hệt như vừa chọn file bằng tay.
+6. Chờ Etsy xử lý xong (tối đa 180s), rồi đưa ảnh mới lên đầu lưới.
+7. Tuỳ chọn cuối: **dừng lại** (mặc định), bấm hộ **Save as draft**, hoặc bấm hộ **Publish**.
+   Chọn *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing ra ngoài, khó lùi lại.
+
+### Chọn đúng ô upload
+
+Trang chỉnh sửa có **2** ô `input[type="file"]` — một cho ảnh, một cho video. Script chấm điểm để
+chọn đúng ô ảnh: `accept` chứa `video` → −100, chứa `image`/`jpeg`/`png` → +50, có `multiple` → +20,
+vùng bao quanh có chữ "photo" → +10.
+
+### Sắp xếp bằng bàn phím, không giả lập kéo thả chuột
+
+Lưới ảnh của Etsy dùng thư viện **dnd-kit**. Mỗi ô ảnh có `aria-roledescription="sortable"` và trỏ
+tới một khối hướng dẫn trợ năng do chính Etsy render — nội dung nguyên văn:
+
+> To pick up a draggable item, press the space bar. While dragging, use the arrow keys to move the
+> item. Press space again to drop the item in its new position, or press escape to cancel.
+
+Nên script dùng đúng đường điều khiển chính thức đó (`Space` → `ArrowLeft` × N → `Space`), an toàn
+hơn nhiều so với giả lập `pointerdown`/`pointermove` bằng toạ độ.
+
+**Số bước sang trái luôn bằng số ảnh cũ.** Ảnh mới thứ `k` nằm ở vị trí `soAnhCu + k`, cần về vị trí
+`k`, tức `(soAnhCu + k) − k = soAnhCu` bước — không phụ thuộc `k`, vì khi ảnh trước đó nhảy lên đầu
+thì mọi phần tử từ `0` đến `soAnhCu−1` dịch phải một ô, các ảnh mới còn lại đứng yên.
+
+Sau mỗi lần thả, script so "chữ ký" ô ảnh (`img src`) để **kiểm tra thật sự đã nhảy lên đầu chưa**.
+Nếu không ăn, nó dừng sắp xếp và báo còn bao nhiêu ảnh cần kéo tay — chứ không im lặng coi như xong.
+
+### Tìm ô ảnh trong lưới
+
+`layCacTheAnh()` lấy mọi `[aria-roledescription="sortable"]` rồi **nhóm theo phần tử cha và chọn
+nhóm đông nhất**, để không dính các vùng sortable khác của trang.
 
 ## Ô cá nhân hoá — "Add personalization" (v5.1)
 

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.3
-// @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
+// @version      7.4
+// @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Alt+U tren trang chinh sua: tu tai anh cua listing nguon roi nhoi thang vao o upload cua Etsy (bo tick san anh bang size), dua anh moi len dau luoi bang ban phim (dnd-kit), tuy chon bam ho Save as draft / Publish. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.3';
+  const PHIEN_BAN = '7.4';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -59,6 +59,25 @@
   // Khi KHONG tim thay khoi carousel va phai quet ca trang (che do du phong),
   // bo bot 1 anh cuoi cung tim thay (thuong la anh khong thuoc listing).
   const BO_ANH_CUOI_KHI_QUET_CA_TRANG = true;
+
+  // ---- Tu dong tai anh nguon LEN trang chinh sua listing ----
+
+  // Kho luu danh sach anh cua listing nguon (kem alt) de trang chinh sua doc lai.
+  // Dung GM_setValue nen dung duoc giua 2 tab khac nhau, khong can luu file xuong dia.
+  const KHOA_ANH_NGUON = 'etsy_auto_anh_nguon';
+
+  // Anh bang size / bang do thuong co alt chua cac tu nay -> tu bo tick san trong bang chon.
+  // Nguoi dung van tick lai duoc neu muon giu.
+  const RE_ANH_BANG_SIZE = /(size\s*chart|sizing\s*chart|size\s*guide|sizing\s*guide|measurement|\bchart\b)/i;
+
+  // Etsy cho toi da 10 anh moi listing
+  const GIOI_HAN_ANH_ETSY = 10;
+
+  // Thoi han (ms) cho Etsy xu ly xong cac anh vua nhoi vao o upload
+  const THOI_HAN_CHO_ETSY_XU_LY_ANH = 180000;
+
+  // Khoang nghi (ms) giua cac phim khi sap xep lai anh bang ban phim (dnd-kit)
+  const NHIP_PHIM_SAP_XEP = 170;
 
   // Key luu trang thai giao dien (vi tri + thu nho hay khong) vao localStorage cua trang Etsy,
   // de giu nguyen giua cac lan tai lai trang.
@@ -403,14 +422,41 @@
     return danhSach;
   }
 
-  // Lay danh sach anh full size cua listing.
+  // Rut anh tu khoi carousel, GIU LAI ca chu "alt" cua tung anh.
+  // Alt la thu duy nhat tren trang cho biet anh do la anh san pham hay anh bang size
+  // ("...size chart", "Sizing guide"...), nen phai lay kem de con tu bo tick khi upload lai.
+  // Cach lam: duyet TUNG MUC con (moi thumbnail la 1 <li>) de gan dung alt cho dung link,
+  // sau do quet lai ca khoi mot lan de khong bo sot anh nam ngoai cac muc con.
+  function rutAnhCoAlt(khoi) {
+    const daThay = new Set();
+    const danhSach = [];
+
+    const them = (url, alt) => {
+      if (daThay.has(url)) return;
+      daThay.add(url);
+      danhSach.push({ url, alt: (alt || '').trim() });
+    };
+
+    const cacMuc = khoi.querySelectorAll('li, [data-carousel-pagination-item]');
+    for (const muc of cacMuc) {
+      const anh = muc.querySelector('img');
+      const alt = anh ? anh.getAttribute('alt') || '' : '';
+      for (const url of rutLinkFullSize(muc.outerHTML)) them(url, alt);
+    }
+
+    for (const url of rutLinkFullSize(khoi.outerHTML)) them(url, '');
+
+    return danhSach;
+  }
+
+  // Lay danh sach anh full size cua listing, moi phan tu la { url, alt }.
   // Uu tien: chi doc trong khoi "data-carousel-pagination-list" (dung 100% anh cua listing,
   // khong dinh anh gia hang / anh shop khac). Neu khong tim thay khoi nay moi quet ca trang.
   function layDanhSachAnhFullSize() {
     const khoi = timKhoiCarousel();
 
     if (khoi) {
-      const danhSach = rutLinkFullSize(khoi.outerHTML);
+      const danhSach = rutAnhCoAlt(khoi);
       console.log(
         `[Etsy Auto] Tìm thấy khối carousel (<${khoi.tagName.toLowerCase()}>), số ảnh trong khối:`,
         danhSach.length,
@@ -424,8 +470,8 @@
       console.warn('[Etsy Auto] KHÔNG tìm thấy khối "data-carousel-pagination-list", chuyển sang quét cả trang');
     }
 
-    // Che do du phong: quet toan bo HTML cua trang
-    const danhSach = rutLinkFullSize(document.documentElement.outerHTML);
+    // Che do du phong: quet toan bo HTML cua trang (khong biet duoc alt cua tung anh)
+    const danhSach = rutLinkFullSize(document.documentElement.outerHTML).map((url) => ({ url, alt: '' }));
     if (BO_ANH_CUOI_KHI_QUET_CA_TRANG && danhSach.length > 0) {
       danhSach.pop();
     }
@@ -648,8 +694,9 @@
   }
 
   // Tai TUNG anh full size mot, luu thanh file rieng le xuong may (KHONG nen zip)
-  async function taiTungAnhRieng(tieuDe) {
-    const { danhSach: danhSachUrl, nguon } = layDanhSachAnhFullSize();
+  // "ketQuaAnhCoSan" (tuy chon) de dung lai ket qua da quet o noi goi, khong quet lai trang lan nua.
+  async function taiTungAnhRieng(tieuDe, ketQuaAnhCoSan) {
+    const { danhSach: danhSachUrl, nguon } = ketQuaAnhCoSan || layDanhSachAnhFullSize();
 
     if (danhSachUrl.length === 0) {
       hienThongBao('⚠️ Không tìm thấy ảnh nào trên trang này', '#DC2626');
@@ -677,7 +724,7 @@
     };
 
     for (let i = 0; i < danhSachUrl.length; i++) {
-      const url = danhSachUrl[i];
+      const url = danhSachUrl[i].url;
       const soThuTu = String(i + 1).padStart(2, '0');
       try {
         const duoi = laySoDuoiFile(url);
@@ -1260,9 +1307,14 @@
     const coPerso = !!perso.nhan;
     const ghiChuPerso = coPerso ? ' + cá nhân hoá' : '';
 
+    // Quet anh MOT LAN roi dung chung cho ca 2 viec: tai xuong may va luu lai de trang chinh sua
+    // tu upload lai. Ca Alt+G va Alt+C deu luu, nen chi "Chỉ lấy dữ liệu" van upload anh duoc.
+    const ketQuaAnh = layDanhSachAnhFullSize();
+    luuAnhNguon(tieuDe, ketQuaAnh.danhSach);
+
     // Chi tai anh full size (tung file rieng) neu coTaiAnh = true (chay nen, khong lien quan clipboard)
     if (coTaiAnh) {
-      taiTungAnhRieng(tieuDe).catch((loi) => {
+      taiTungAnhRieng(tieuDe, ketQuaAnh).catch((loi) => {
         console.error('[Etsy Auto] Lỗi khi tải ảnh:', loi);
         hienThongBao('❌ Lỗi khi tải ảnh: ' + loi.message, '#DC2626');
       });
@@ -1279,7 +1331,9 @@
       return;
     }
 
-    const ghiChuAnh = coTaiAnh ? ', đang tải ảnh full size' : '';
+    const soAnhNho = ketQuaAnh.danhSach.length;
+    const ghiChuAnh =
+      (coTaiAnh ? ', đang tải ảnh full size' : '') + (soAnhNho ? ` (đã nhớ ${soAnhNho} ảnh để tự upload)` : '');
     const ghiChuNguon = tagText ? ` [${nguonTag}]` : '';
 
     if (daLuuTieuDe && tagText) {
@@ -1768,6 +1822,413 @@
     } else {
       hienThongBao(`❌ ${ketQuaTieuDe.ly_do} | ${ketQuaTag.ly_do}${ghiChuPerso}`, '#DC2626');
     }
+  }
+
+  // ================== TU DONG UPLOAD ANH NGUON LEN TRANG CHINH SUA ==================
+
+  // Y tuong: o trang nguon (Alt+G / Alt+C) script da biet dung danh sach anh full size cua listing.
+  // Thay vi bat nguoi dung tai 10 file xuong may roi tu chon lai tung file trong hop thoai He dieu
+  // hanh, script GIU danh sach do lai, sang trang chinh sua thi tu tai bytes ve (GM_xmlhttpRequest,
+  // khong ton request API cua Etsy) va NHOI THANG vao <input type="file"> bang DataTransfer.
+  // Trinh duyet coi day y het nhu nguoi dung vua chon file, nen Etsy upload binh thuong.
+
+  function luuAnhNguon(tieuDe, danhSach) {
+    if (!danhSach || !danhSach.length) return;
+    try {
+      luuGiaTri(
+        KHOA_ANH_NGUON,
+        JSON.stringify({
+          tieuDe: tieuDe || '',
+          listingId: layListingId() || '',
+          thoiDiem: Date.now(),
+          anh: danhSach.map((a) => ({ url: a.url, alt: a.alt || '' })),
+        })
+      );
+    } catch (e) {
+      console.warn('[Etsy Auto] Không lưu được danh sách ảnh nguồn:', e);
+    }
+  }
+
+  function docAnhNguon() {
+    try {
+      const goi = JSON.parse(docGiaTriLuu(KHOA_ANH_NGUON) || 'null');
+      if (goi && Array.isArray(goi.anh) && goi.anh.length) return goi;
+    } catch (e) {
+      console.warn('[Etsy Auto] Không đọc được danh sách ảnh nguồn:', e);
+    }
+    return null;
+  }
+
+  // Doan alt cua Etsy cho anh bang size, vi du "... size chart", "Sizing guide".
+  // Chi la GOI Y (tu bo tick san) — nguoi dung van tick lai duoc trong bang chon.
+  function laAnhBangSize(alt) {
+    return RE_ANH_BANG_SIZE.test(alt || '');
+  }
+
+  // Doi link full size -> link thumbnail nho de ve bang chon cho nhe (khong tai anh goc nhieu MB)
+  function linhThuNho(url) {
+    return url.replace('il_fullxfull', 'il_180x135');
+  }
+
+  // ---- Bang chon anh ----
+
+  // Mo hop thoai cho nguoi dung tick lai truoc khi upload. Tra ve:
+  //   { cacAnh: [{url, alt}], hanhDong: 'khong' | 'nhap' | 'publish' }  hoac null neu bam Huy.
+  function moBangChonAnh(goi, soAnhDangCo) {
+    return new Promise((resolve) => {
+      const lop = document.createElement('div');
+      lop.style.cssText = `
+        position:fixed; inset:0; z-index:1000000; background:rgba(17,24,39,.6);
+        display:flex; align-items:center; justify-content:center; font-family:sans-serif;
+      `;
+
+      const hop = document.createElement('div');
+      hop.style.cssText = `
+        background:#fff; border-radius:12px; width:min(760px,94vw); max-height:88vh;
+        display:flex; flex-direction:column; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.35);
+      `;
+
+      const conLai = Math.max(0, GIOI_HAN_ANH_ETSY - soAnhDangCo);
+
+      hop.innerHTML = `
+        <div style="background:linear-gradient(135deg,#F56400,#FF8C42);color:#fff;padding:12px 16px;font-weight:bold;font-size:15px;">
+          🖼️ Chọn ảnh để tự upload
+        </div>
+        <div style="padding:10px 16px;font-size:12px;color:#374151;border-bottom:1px solid #E5E7EB;line-height:1.6;">
+          Listing nguồn: <b>${(goi.tieuDe || '(không rõ tiêu đề)').replace(/</g, '&lt;').slice(0, 90)}</b><br>
+          Listing này đang có <b>${soAnhDangCo}</b> ảnh — Etsy cho tối đa ${GIOI_HAN_ANH_ETSY} ảnh,
+          nên còn chỗ cho <b>${conLai}</b> ảnh nữa. Ảnh nghi là bảng size đã được bỏ tick sẵn.
+        </div>
+        <div id="ea-up-luoi" style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;overflow:auto;"></div>
+        <div style="padding:10px 16px;border-top:1px solid #E5E7EB;font-size:12px;color:#374151;">
+          <div style="margin-bottom:6px;font-weight:bold;">Sau khi upload &amp; đẩy ảnh lên đầu:</div>
+          <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked> Dừng lại, tôi tự bấm lưu (an toàn nhất)</label>
+          <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="nhap"> Bấm hộ <b>Save as draft</b></label>
+          <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="publish"> Bấm hộ <b>Publish</b> — đăng bán công khai ngay, khó lùi lại</label>
+        </div>
+        <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <div id="ea-up-dem" style="font-size:12px;font-weight:bold;color:#374151;"></div>
+          <div style="display:flex;gap:8px;">
+            <button id="ea-up-huy" style="padding:8px 14px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;cursor:pointer;">Huỷ</button>
+            <button id="ea-up-ok" style="padding:8px 16px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">Bắt đầu upload</button>
+          </div>
+        </div>
+      `;
+
+      lop.appendChild(hop);
+      document.body.appendChild(lop);
+
+      const luoi = hop.querySelector('#ea-up-luoi');
+      const oDem = hop.querySelector('#ea-up-dem');
+      const nutOk = hop.querySelector('#ea-up-ok');
+
+      goi.anh.forEach((anh, i) => {
+        const the = document.createElement('label');
+        the.style.cssText = `
+          display:block; border:2px solid #E5E7EB; border-radius:8px; overflow:hidden;
+          cursor:pointer; position:relative; background:#F9FAFB;
+        `;
+        const nghiBangSize = laAnhBangSize(anh.alt);
+        the.innerHTML = `
+          <img src="${linhThuNho(anh.url)}" style="width:100%;height:110px;object-fit:cover;display:block;" loading="lazy">
+          <div style="padding:5px 6px;font-size:10px;color:#6B7280;line-height:1.3;height:30px;overflow:hidden;">
+            ${nghiBangSize ? '⚠️ nghi là bảng size' : `#${i + 1}`}
+          </div>
+          <input type="checkbox" data-i="${i}" ${nghiBangSize ? '' : 'checked'}
+            style="position:absolute;top:6px;left:6px;width:18px;height:18px;cursor:pointer;">
+        `;
+        luoi.appendChild(the);
+      });
+
+      const cacTick = [...luoi.querySelectorAll('input[type="checkbox"]')];
+
+      const capNhatDem = () => {
+        const soChon = cacTick.filter((t) => t.checked).length;
+        const quaNhieu = soChon > conLai;
+        oDem.textContent = quaNhieu
+          ? `⚠️ Đang chọn ${soChon} ảnh nhưng chỉ còn chỗ cho ${conLai}`
+          : `Đang chọn ${soChon} ảnh`;
+        oDem.style.color = quaNhieu ? '#DC2626' : soChon === 0 ? '#DC2626' : '#374151';
+        nutOk.disabled = quaNhieu || soChon === 0;
+        nutOk.style.opacity = nutOk.disabled ? '.5' : '1';
+        nutOk.style.cursor = nutOk.disabled ? 'not-allowed' : 'pointer';
+        cacTick.forEach((t) => {
+          t.closest('label').style.borderColor = t.checked ? '#F56400' : '#E5E7EB';
+        });
+      };
+      cacTick.forEach((t) => t.addEventListener('change', capNhatDem));
+      capNhatDem();
+
+      const dong = (ketQua) => {
+        lop.remove();
+        resolve(ketQua);
+      };
+
+      hop.querySelector('#ea-up-huy').onclick = () => dong(null);
+      lop.addEventListener('click', (e) => {
+        if (e.target === lop) dong(null);
+      });
+      nutOk.onclick = () => {
+        const hanhDong = hop.querySelector('input[name="ea-up-xong"]:checked').value;
+        // Publish la thao tac dua listing ra ngoai, kho lui lai -> hoi lai them 1 lan cho chac
+        if (hanhDong === 'publish' && !window.confirm('Chắc chắn ĐĂNG BÁN (Publish) listing này ngay sau khi upload xong?')) {
+          return;
+        }
+        const cacAnh = cacTick.filter((t) => t.checked).map((t) => goi.anh[Number(t.dataset.i)]);
+        dong({ cacAnh, hanhDong });
+      };
+    });
+  }
+
+  // ---- Tim o upload anh (khong phai o upload video) ----
+
+  function timOChonAnhSanPham() {
+    const cacO = [...document.querySelectorAll('input[type="file"]')];
+    if (!cacO.length) return null;
+
+    // Trang chinh sua co 2 o file: 1 cho anh, 1 cho video. Cham diem de chon dung o anh.
+    let totNhat = null;
+    let diemTotNhat = -Infinity;
+    for (const o of cacO) {
+      const accept = (o.getAttribute('accept') || '').toLowerCase();
+      let diem = 0;
+      if (/video|\.mp4|\.mov/.test(accept)) diem -= 100;
+      if (/image|jpe?g|png|\.gif/.test(accept)) diem += 50;
+      if (o.hasAttribute('multiple')) diem += 20;
+      const quanhDay = (o.closest('section, fieldset, div[class]')?.textContent || '').toLowerCase();
+      if (quanhDay.includes('photo')) diem += 10;
+      if (diem > diemTotNhat) {
+        diemTotNhat = diem;
+        totNhat = o;
+      }
+    }
+    return diemTotNhat > -100 ? totNhat : null;
+  }
+
+  // ---- Tai anh ve thanh File de nhoi vao o upload ----
+
+  async function taiAnhThanhFile(url, ten) {
+    const duLieu = await taiMotAnhVoiRetry(url);
+    const duoi = laySoDuoiFile(url);
+    return new File([duLieu], `${lamSachTenFile(ten)}.${duoi}`, { type: laMimeTheoDuoi(duoi) });
+  }
+
+  // Nhoi danh sach File vao <input type="file"> y het nhu nguoi dung vua chon trong hop thoai.
+  // DataTransfer la cach duy nhat: thuoc tinh .files chi nhan doi tuong FileList, khong nhan mang.
+  function nhoiFileVaoO(o, cacFile) {
+    const kho = new DataTransfer();
+    cacFile.forEach((f) => kho.items.add(f));
+    o.files = kho.files;
+    o.dispatchEvent(new Event('input', { bubbles: true }));
+    o.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // ---- Cac the anh trong luoi (dnd-kit) ----
+
+  // Moi anh trong luoi la mot phan tu co aria-roledescription="sortable".
+  // Loc theo phan tu CHA dong anh em nhieu nhat de khong dinh cac vung sortable khac cua trang.
+  function layCacTheAnh() {
+    const tatCa = [...document.querySelectorAll('[aria-roledescription="sortable"]')];
+    if (tatCa.length < 2) return tatCa;
+
+    const nhomTheoCha = new Map();
+    for (const el of tatCa) {
+      const cha = el.parentElement;
+      if (!cha) continue;
+      if (!nhomTheoCha.has(cha)) nhomTheoCha.set(cha, []);
+      nhomTheoCha.get(cha).push(el);
+    }
+    let lonNhat = [];
+    for (const ds of nhomTheoCha.values()) {
+      if (ds.length > lonNhat.length) lonNhat = ds;
+    }
+    return lonNhat.length ? lonNhat : tatCa;
+  }
+
+  // "Chu ky" de nhan ra 1 the anh cu the sau khi luoi ve lai — dung de kiem tra sap xep co an khong
+  function chuKyThe(el) {
+    if (!el) return '';
+    const anh = el.querySelector('img');
+    return (anh && (anh.getAttribute('src') || anh.src)) || el.getAttribute('aria-describedby') || el.textContent.trim();
+  }
+
+  // Cho Etsy upload + ve xong cac the anh moi
+  async function choEtsyXuLyAnh(soAnhCu, soAnhThem) {
+    const moc = Date.now();
+    while (Date.now() - moc < THOI_HAN_CHO_ETSY_XU_LY_ANH) {
+      const cacThe = layCacTheAnh();
+      // Da du so the VA moi the moi deu da co anh xem truoc -> coi nhu Etsy xu ly xong
+      if (cacThe.length >= soAnhCu + soAnhThem) {
+        const cacTheMoi = cacThe.slice(soAnhCu, soAnhCu + soAnhThem);
+        if (cacTheMoi.every((t) => t.querySelector('img'))) return true;
+      }
+      await cho(1000);
+    }
+    return false;
+  }
+
+  // ---- Sap xep: dua cac anh vua upload len dau bang BAN PHIM ----
+
+  // Luoi anh cua Etsy dung thu vien dnd-kit. Chinh Etsy noi ro cach dieu khien bang ban phim
+  // trong phan huong dan tro nang cua luoi (id="DndDescribedBy-..."):
+  //   "To pick up a draggable item, press the space bar. While dragging, use the arrow keys to
+  //    move the item. Press space again to drop the item in its new position, or press escape
+  //    to cancel."
+  // Gia lap dung 3 phim do an toan hon nhieu so voi gia lap keo tha bang chuot (pointer events),
+  // vi day la duong dieu khien chinh thuc cua thu vien.
+  function guiPhimSapXep(el, key, code, maPhim) {
+    const tuyChon = {
+      key,
+      code,
+      keyCode: maPhim,
+      which: maPhim,
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    };
+    el.dispatchEvent(new KeyboardEvent('keydown', tuyChon));
+    el.dispatchEvent(new KeyboardEvent('keyup', tuyChon));
+  }
+
+  const PHIM_CACH = [' ', 'Space', 32];
+  const PHIM_TRAI = ['ArrowLeft', 'ArrowLeft', 37];
+
+  // Chuyen soAnhThem anh cuoi luoi len dau, giu nguyen thu tu giua chung.
+  // Anh moi thu k dang o vi tri (soAnhCu + k), can ve vi tri k -> luon la dung soAnhCu buoc sang trai.
+  async function chuyenAnhLenDau(soAnhCu, soAnhThem) {
+    if (soAnhCu === 0) return { ok: true, soDaChuyen: soAnhThem };
+
+    let soDaChuyen = 0;
+    for (let k = 0; k < soAnhThem; k++) {
+      const cacThe = layCacTheAnh();
+      const the = cacThe[soAnhCu + k];
+      if (!the) break;
+
+      const chuKy = chuKyThe(the);
+      try {
+        the.focus();
+      } catch (e) {
+        /* the co the khong nhan focus — van thu gui phim */
+      }
+      await cho(150);
+
+      guiPhimSapXep(the, ...PHIM_CACH); // nhac len
+      await cho(300);
+      for (let buoc = 0; buoc < soAnhCu; buoc++) {
+        guiPhimSapXep(the, ...PHIM_TRAI);
+        await cho(NHIP_PHIM_SAP_XEP);
+      }
+      guiPhimSapXep(the, ...PHIM_CACH); // tha xuong
+      await cho(450);
+
+      // Kiem tra that su co nhay len dau khong — neu khong thi dung lai, bao nguoi dung tu keo
+      if (chuKyThe(layCacTheAnh()[k]) === chuKy) {
+        soDaChuyen++;
+      } else {
+        console.warn('[Etsy Auto] Ảnh không nhảy lên vị trí mong muốn, dừng sắp xếp tự động ở ảnh thứ', k + 1);
+        return { ok: false, soDaChuyen };
+      }
+    }
+    return { ok: soDaChuyen === soAnhThem, soDaChuyen };
+  }
+
+  // ---- Nut ket thuc (Save as draft / Publish) ----
+
+  function timNutTheoNhan(chu) {
+    const can = chu.toLowerCase();
+    return [...document.querySelectorAll('button, a[role="button"]')].find(
+      (b) => b.textContent.trim().toLowerCase() === can && !b.disabled && dangHienThi(b)
+    );
+  }
+
+  // ---- Luong chinh ----
+
+  async function tuUploadAnh() {
+    const goi = docAnhNguon();
+    if (!goi) {
+      hienThongBao('⚠️ Chưa có ảnh nào được nhớ. Hãy bấm Alt+G (hoặc Alt+C) ở trang listing nguồn trước.', '#DC2626');
+      return;
+    }
+
+    if (!timOChonAnhSanPham()) {
+      hienThongBao('⚠️ Không thấy ô upload ảnh. Hãy mở tab "Photos & video" của trang chỉnh sửa listing rồi thử lại.', '#DC2626');
+      return;
+    }
+
+    const soAnhCu = layCacTheAnh().length;
+    const luaChon = await moBangChonAnh(goi, soAnhCu);
+    if (!luaChon) return;
+
+    const { cacAnh, hanhDong } = luaChon;
+
+    // Buoc 1: tai bytes cua tung anh ve (khong ton request API Etsy, chi ton bang thong)
+    hienThongBao(`⏳ Đang lấy ${cacAnh.length} ảnh từ listing nguồn...`, '#2563EB');
+    const cacFile = [];
+    const tenGoc = lamSachTenFile(goi.tieuDe || 'etsy-image');
+    for (let i = 0; i < cacAnh.length; i++) {
+      try {
+        cacFile.push(await taiAnhThanhFile(cacAnh[i].url, `${tenGoc} - ${String(i + 1).padStart(2, '0')}`));
+        hienThongBao(`⏳ Đã lấy ${cacFile.length}/${cacAnh.length} ảnh...`, '#2563EB');
+      } catch (loi) {
+        console.error('[Etsy Auto] Không lấy được ảnh để upload:', cacAnh[i].url, loi);
+      }
+    }
+    if (!cacFile.length) {
+      hienThongBao('❌ Không lấy được ảnh nào. Xem Console (F12) để biết chi tiết.', '#DC2626');
+      return;
+    }
+
+    // Buoc 2: nhoi vao o upload cua Etsy. Query lai o ngay truoc khi nhoi vi React co the
+    // da ve lai <input> khac trong luc dang tai anh.
+    const oChonAnh = timOChonAnhSanPham();
+    if (!oChonAnh) {
+      hienThongBao('❌ Ô upload ảnh biến mất giữa chừng. Hãy tải lại trang chỉnh sửa rồi thử lại.', '#DC2626');
+      return;
+    }
+    nhoiFileVaoO(oChonAnh, cacFile);
+    hienThongBao(`⏳ Đã đẩy ${cacFile.length} ảnh vào Etsy, đang chờ xử lý...`, '#2563EB');
+
+    // Buoc 3: cho Etsy upload xong
+    const xuLyXong = await choEtsyXuLyAnh(soAnhCu, cacFile.length);
+    if (!xuLyXong) {
+      hienThongBao(
+        `⚠️ Etsy chưa hiện đủ ${cacFile.length} ảnh sau ${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s. ` +
+          'Ảnh có thể vẫn đang lên — hãy kiểm tra rồi tự sắp xếp.',
+        '#F59E0B'
+      );
+      return;
+    }
+
+    // Buoc 4: dua anh moi len dau luoi
+    let ghiChuSapXep = '';
+    if (soAnhCu > 0) {
+      hienThongBao('⏳ Đang đưa ảnh mới lên đầu...', '#2563EB');
+      const ketQua = await chuyenAnhLenDau(soAnhCu, cacFile.length);
+      ghiChuSapXep = ketQua.ok
+        ? ' + đã đưa lên đầu'
+        : ` — ⚠️ chỉ đưa được ${ketQua.soDaChuyen}/${cacFile.length} ảnh lên đầu, phần còn lại bạn kéo tay giúp`;
+    }
+
+    // Buoc 5: hanh dong ket thuc (chi khi nguoi dung da chon trong bang chon)
+    let ghiChuKetThuc = '';
+    if (hanhDong !== 'khong') {
+      const nhan = hanhDong === 'publish' ? 'Publish' : 'Save as draft';
+      await cho(600);
+      const nut = timNutTheoNhan(nhan);
+      if (nut) {
+        nut.click();
+        ghiChuKetThuc = ` → đã bấm "${nhan}"`;
+      } else {
+        ghiChuKetThuc = ` — ⚠️ không tìm thấy nút "${nhan}", bạn bấm giúp`;
+      }
+    }
+
+    const thieu = cacAnh.length - cacFile.length;
+    hienThongBao(
+      `✅ Đã upload ${cacFile.length}/${cacAnh.length} ảnh${thieu ? ` (lỗi ${thieu} ảnh)` : ''}` +
+        `${ghiChuSapXep}${ghiChuKetThuc}`,
+      ghiChuSapXep.includes('⚠️') || ghiChuKetThuc.includes('⚠️') || thieu ? '#F59E0B' : '#16A34A'
+    );
   }
 
   // ================== GIAO DIEN NOI: KEO THA + THU NHO/MO RONG ==================
@@ -2331,6 +2792,7 @@
       <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh (Alt+G)</button>
       <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy dữ liệu (Alt+C)</button>
       <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu (Alt+V)</button>
+      <button id="ea-btn-upload" style="padding:8px 12px;background:#B45309;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🖼️ Upload ảnh nguồn (Alt+U)</button>
       <button id="ea-btn-stats" style="padding:8px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📊 Thống kê listing</button>
       <button id="ea-btn-autostats" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;"></button>
       <button id="ea-btn-apidata" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔍 Đổ dữ liệu API ra Console</button>
@@ -2381,6 +2843,12 @@
     document.getElementById('ea-btn-get').onclick = layVaTaiAnh;
     document.getElementById('ea-btn-get-notag').onclick = chiLayTieuDeVaTag;
     document.getElementById('ea-btn-paste').onclick = danTieuDeVaTag;
+    document.getElementById('ea-btn-upload').onclick = () => {
+      tuUploadAnh().catch((loi) => {
+        console.error('[Etsy Auto] Lỗi khi upload ảnh:', loi);
+        hienThongBao('❌ Lỗi khi upload ảnh: ' + loi.message, '#DC2626');
+      });
+    };
     document.getElementById('ea-btn-apidata').onclick = xemDuLieuApi;
     document.getElementById('ea-btn-stats').onclick = () => hienThongKeListing();
 
@@ -2454,5 +2922,12 @@
     if (key === 'g') { e.preventDefault(); layVaTaiAnh(); }
     if (key === 'c') { e.preventDefault(); chiLayTieuDeVaTag(); }
     if (key === 'v') { e.preventDefault(); danTieuDeVaTag(); }
+    if (key === 'u') {
+      e.preventDefault();
+      tuUploadAnh().catch((loi) => {
+        console.error('[Etsy Auto] Lỗi khi upload ảnh:', loi);
+        hienThongBao('❌ Lỗi khi upload ảnh: ' + loi.message, '#DC2626');
+      });
+    }
   });
 })();
