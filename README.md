@@ -622,12 +622,17 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
   dùng VPS/RDP đặt ở Mỹ để chạy Etsy — nếu tính theo giờ hệ thống của máy đó, ngày xuất ra có
   thể lệch cả nửa ngày so với ngày thực tế ở Việt Nam.
 
-## Không cần bấm sang tab Earnings
+## Bấm sang tab Earnings trước khi đọc số tiền
 
-Etsy đã render sẵn nội dung của cả 2 tab ("Order details" và "Earnings") ngay trong DOM
-từ lúc mở bảng order details, chỉ ẩn/hiện bằng CSS chứ không tải lại khi đổi tab. Vì vậy
-script chỉ cần mở bảng order details (bấm vào mã đơn) rồi đọc thẳng dòng "You earned $x.xx"
-là đủ, không cần bấm sang tab Earnings nữa — nhanh hơn và ít phụ thuộc vào việc bấm đúng tab.
+Trước đây script bỏ qua bước bấm tab "Earnings" vì cho rằng Etsy render sẵn nội dung cả 2 tab
+("Order details" và "Earnings") ngay khi mở bảng, chỉ ẩn/hiện bằng CSS. Thực tế đúng là cả 2 tab
+đều có sẵn trong DOM, nhưng **tab "Order details" mới là tab mặc định đang hiển thị** — nội dung
+tab "Earnings" vẫn bị ẩn (`display: none`) cho tới khi bấm chọn tab đó. Vì script sau đó có thêm
+bước chỉ chấp nhận span **đang thực sự hiển thị** (để tránh đọc nhầm số tiền cũ còn sót lại, xem
+mục bên dưới), nếu không bấm tab thì sẽ không bao giờ tìm thấy span nào hợp lệ và bị timeout.
+
+Script đã bấm lại tab "Earnings" (tìm theo đúng chữ "Earnings", khớp tuyệt đối) ngay sau khi mở
+bảng order details, trước khi đọc số tiền — chậm hơn một chút nhưng chắc chắn lấy đúng.
 
 ## Ghi chú trong panel
 

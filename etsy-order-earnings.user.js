@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.11
+// @version      2.12
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -56,6 +56,8 @@
     searchSubmitBtn: 'button[type="submit"]',
     // dong chu "You earned $xx.xx on this order" -> lay so trong <span>
     earningsAmountSelector: 'span.wt-text-title-large',
+    // tab "Earnings" trong bang order details - tim theo text vi class hay doi
+    earningsTabText: 'Earnings',
   };
 
   const WAIT_TIMEOUT = 15000; // 15s cho moi buoc
@@ -501,6 +503,19 @@
     return document.querySelector(`a[href*="order_id=${orderId}"]`);
   }
 
+  // Tim phan tu co the bam duoc, khop CHINH XAC theo noi dung chu (uu tien phan tu la LA -
+  // khong co con - de tranh bam nham vao 1 the bao ngoai lon hon). Dung rieng cho tab
+  // "Earnings" (chu ngan, khop tuyet doi, khong bi nham như truong hop tim theo "#<ma don>").
+  function findClickableByText(text, root = document) {
+    const candidates = root.querySelectorAll('a, button, div, span, li');
+    for (const el of candidates) {
+      if (el.children.length === 0 && el.textContent && el.textContent.trim() === text) {
+        return el;
+      }
+    }
+    return null;
+  }
+
   // Nut dong overlay: <button ...><svg class="etsy-icon">...</svg><span class="screen-reader-only">Close</span></button>
   function findCloseOrderDetailButton() {
     const spans = document.querySelectorAll('span.screen-reader-only');
@@ -538,13 +553,17 @@
     link.click();
     await sleep(STEP_DELAY);
 
-    // 2. KHONG CAN bam sang tab "Earnings" - Etsy render san noi dung ca 2 tab (Order details
-    // VA Earnings) ngay trong DOM tu luc mo bang order details, chi an/hien bang CSS. Vi vay
-    // chi can mo bang order details roi doc thang so tien "You earned $x.xx" la du, khong can
-    // click chuyen tab (nhanh hon, bot 1 buoc co the loi neu doi giao dien).
+    // 2. Bam sang tab "Earnings" trong bang order details de dam bao noi dung tab nay dang
+    // HIEN THI - tab "Order details" moi la tab mac dinh khi vua mo bang, nen span Earnings
+    // co the van con AN (khong hien thi) neu khong bam qua tab nay.
+    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
+    earningsTab.click();
+    await sleep(STEP_DELAY);
+
+    // 3. Lay so tien
     const amount = await waitForEarningsAmount(previousAmountText);
 
-    // 3. BAT BUOC dong overlay lai (bam X hoac nhan ESC) truoc khi sang don tiep theo
+    // 4. BAT BUOC dong overlay lai (bam X hoac nhan ESC) truoc khi sang don tiep theo
     await closeOrderDetailPanel();
 
     return amount;
@@ -636,11 +655,16 @@
     orderLink.click();
     await sleep(STEP_DELAY);
 
-    // 4. KHONG CAN bam tab "Earnings" - so tien "You earned $x.xx" da co san trong DOM
-    // ngay khi bang order details mo ra (Etsy render san ca 2 tab, chi an/hien bang CSS).
+    // 4. Bam sang tab "Earnings" - tab "Order details" moi la tab mac dinh, span Earnings
+    // co the con dang AN neu khong bam qua tab nay.
+    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
+    earningsTab.click();
+    await sleep(STEP_DELAY);
+
+    // 5. Lay so tien
     const amount = await waitForEarningsAmount(previousAmountText);
 
-    // 5. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
+    // 6. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
     await closeOrderDetailPanel();
 
     return amount;
