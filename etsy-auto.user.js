@@ -70,8 +70,9 @@
   // Nguoi dung van tick lai duoc neu muon giu.
   const RE_ANH_BANG_SIZE = /(size\s*chart|sizing\s*chart|size\s*guide|sizing\s*guide|measurement|\bchart\b)/i;
 
-  // Etsy cho toi da 10 anh moi listing
-  const GIOI_HAN_ANH_ETSY = 10;
+  // Gioi han so anh moi listing cua Etsy da tung la 10, nay la 20, va co the con doi tiep.
+  // -> KHONG han so cung, luon co doc tu chinh trang truoc; so nay chi la phao cuoi cung.
+  const GIOI_HAN_ANH_MAC_DINH = 20;
 
   // Thoi han (ms) cho Etsy xu ly xong cac anh vua nhoi vao o upload
   const THOI_HAN_CHO_ETSY_XU_LY_ANH = 180000;
@@ -1870,11 +1871,34 @@
     return url.replace('il_fullxfull', 'il_180x135');
   }
 
+  // Con bao nhieu cho trong cho anh moi? Doc thang tu trang, vi Etsy da doi gioi han
+  // (10 -> 20 anh) va co the con doi nua — han so cung trong script se sai am tham.
+  function laySoAnhConLai(soAnhDangCo) {
+    // Cach 1 (chac nhat): o "Add photos" tu ghi "N remaining".
+    // Lay phan tu co text NGAN NHAT trong so cac phan tu khop, de bat dung o do chu khong
+    // phai mot khoi cha to dung chua ca "Add videos ... 2 remaining".
+    const cacUngVien = [...document.querySelectorAll('div, button, label, span')].filter(
+      (el) => /add\s+photos/i.test(el.textContent) && /\d+\s*remaining/i.test(el.textContent)
+    );
+    if (cacUngVien.length) {
+      const goNhat = cacUngVien.reduce((a, b) => (b.textContent.length < a.textContent.length ? b : a));
+      const khop = goNhat.textContent.match(/(\d+)\s*remaining/i);
+      if (khop) return Number(khop[1]);
+    }
+
+    // Cach 2: dong "Add up to N photos and M videos" o dau muc
+    const khopTong = document.body.textContent.match(/add\s+up\s+to\s+(\d+)\s+photos?/i);
+    if (khopTong) return Math.max(0, Number(khopTong[1]) - soAnhDangCo);
+
+    // Cach 3: phao cuoi
+    return Math.max(0, GIOI_HAN_ANH_MAC_DINH - soAnhDangCo);
+  }
+
   // ---- Bang chon anh ----
 
   // Mo hop thoai cho nguoi dung tick lai truoc khi upload. Tra ve:
   //   { cacAnh: [{url, alt}], hanhDong: 'khong' | 'nhap' | 'publish' }  hoac null neu bam Huy.
-  function moBangChonAnh(goi, soAnhDangCo) {
+  function moBangChonAnh(goi, soAnhDangCo, conLai) {
     return new Promise((resolve) => {
       const lop = document.createElement('div');
       lop.style.cssText = `
@@ -1888,16 +1912,14 @@
         display:flex; flex-direction:column; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.35);
       `;
 
-      const conLai = Math.max(0, GIOI_HAN_ANH_ETSY - soAnhDangCo);
-
       hop.innerHTML = `
         <div style="background:linear-gradient(135deg,#F56400,#FF8C42);color:#fff;padding:12px 16px;font-weight:bold;font-size:15px;">
           🖼️ Chọn ảnh để tự upload
         </div>
         <div style="padding:10px 16px;font-size:12px;color:#374151;border-bottom:1px solid #E5E7EB;line-height:1.6;">
           Listing nguồn: <b>${(goi.tieuDe || '(không rõ tiêu đề)').replace(/</g, '&lt;').slice(0, 90)}</b><br>
-          Listing này đang có <b>${soAnhDangCo}</b> ảnh — Etsy cho tối đa ${GIOI_HAN_ANH_ETSY} ảnh,
-          nên còn chỗ cho <b>${conLai}</b> ảnh nữa. Ảnh nghi là bảng size đã được bỏ tick sẵn.
+          Listing này đang có <b>${soAnhDangCo}</b> ảnh, theo trang thì còn chỗ cho <b>${conLai}</b> ảnh nữa.
+          Ảnh nghi là bảng size đã được bỏ tick sẵn.
         </div>
         <div id="ea-up-luoi" style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;overflow:auto;"></div>
         <div style="padding:10px 16px;border-top:1px solid #E5E7EB;font-size:12px;color:#374151;">
@@ -2146,7 +2168,11 @@
   async function tuUploadAnh() {
     const goi = docAnhNguon();
     if (!goi) {
-      hienThongBao('⚠️ Chưa có ảnh nào được nhớ. Hãy bấm Alt+G (hoặc Alt+C) ở trang listing nguồn trước.', '#DC2626');
+      hienThongBao(
+        `⚠️ Chưa có ảnh nào được nhớ. Việc nhớ ảnh chỉ có từ bản ${PHIEN_BAN} — nếu lần Alt+G gần nhất ` +
+          'chạy trên bản cũ thì kho ảnh vẫn trống. Hãy quay lại trang listing nguồn bấm Alt+G (hoặc Alt+C) một lần nữa.',
+        '#DC2626'
+      );
       return;
     }
 
@@ -2156,7 +2182,14 @@
     }
 
     const soAnhCu = layCacTheAnh().length;
-    const luaChon = await moBangChonAnh(goi, soAnhCu);
+    const conLai = laySoAnhConLai(soAnhCu);
+    console.log(`[Etsy Auto] Lưới đang có ${soAnhCu} ảnh, trang báo còn chỗ cho ${conLai} ảnh nữa`);
+    if (conLai === 0) {
+      hienThongBao('⚠️ Listing này đã đầy ảnh, không còn chỗ để upload thêm.', '#DC2626');
+      return;
+    }
+
+    const luaChon = await moBangChonAnh(goi, soAnhCu, conLai);
     if (!luaChon) return;
 
     const { cacAnh, hanhDong } = luaChon;

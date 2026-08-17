@@ -311,12 +311,26 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 3. Ảnh nghi là **bảng size** bị **bỏ tick sẵn** — nhận diện qua `alt`:
    `size chart`, `sizing chart`, `size guide`, `sizing guide`, `measurement`, hoặc từ `chart` đứng
    riêng (`\bchart\b`, nên `Charter` không bị dính). Đây chỉ là gợi ý — tick lại được.
-4. Bảng chọn tự chặn khi tổng số ảnh vượt giới hạn 10 ảnh/listing của Etsy (nút *Bắt đầu upload* mờ đi).
+4. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
 5. Script tải bytes từng ảnh → tạo `File` → nhồi vào `<input type="file">` bằng `DataTransfer`
    rồi bắn `input` + `change`. Trình duyệt coi đây y hệt như vừa chọn file bằng tay.
 6. Chờ Etsy xử lý xong (tối đa 180s), rồi đưa ảnh mới lên đầu lưới.
 7. Tuỳ chọn cuối: **dừng lại** (mặc định), bấm hộ **Save as draft**, hoặc bấm hộ **Publish**.
    Chọn *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing ra ngoài, khó lùi lại.
+
+### Còn bao nhiêu chỗ cho ảnh? — đọc từ trang, không hard-code
+
+Giới hạn ảnh/listing của Etsy **đã đổi** (trước là 10, nay là 20) nên hard-code số này trong script
+sẽ sai âm thầm. `laySoAnhConLai()` đọc thẳng từ trang, theo thứ tự:
+
+1. Ô **"Add photos"** tự ghi `N remaining` — lấy phần tử có `textContent` **ngắn nhất** trong số các
+   phần tử khớp cả `add photos` lẫn `N remaining`, để bắt đúng ô đó chứ không dính khối cha to
+   đang chứa cả `Add videos … 2 remaining`.
+2. Dòng **"Add up to N photos and M videos"** ở đầu mục, trừ đi số ảnh đang có.
+   (Chuỗi này *không* khớp bước 1 vì `add up to 20 photos` ≠ `add photos`.)
+3. Phao cuối: hằng số `GIOI_HAN_ANH_MAC_DINH = 20`.
+
+Nếu không còn chỗ nào, script báo luôn và không mở bảng chọn.
 
 ### Chọn đúng ô upload
 
