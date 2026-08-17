@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.2
+// @version      7.3
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.2';
+  const PHIEN_BAN = '7.3';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -248,6 +248,25 @@
     }
   }
 
+  // Bat moi dau ngan cach dang |||CHU_HOA||| — ke ca dau cua phien ban script MOI HON
+  // ma ban dang chay chua biet.
+  const RE_DAU_NGAN_CACH = /\|\|\|[A-Z_]+\|\|\|/;
+
+  // Neu con sot dau ngan cach trong mot gia tri thi Clipboard duoc tao boi ban script moi hon:
+  // ban nay khong hieu dau do nen da nuot ca cum vao lam gia tri. Cat bo tu cho do tro di,
+  // vi tha thieu du lieu con hon nhoi chuoi ky thuat "|||PERSO_OPTS|||..." thang vao o cua Etsy.
+  let coDauLa = false;
+  function catBoDauLa(chuoi, tenTruong) {
+    const khop = String(chuoi || '').match(RE_DAU_NGAN_CACH);
+    if (!khop) return chuoi;
+    coDauLa = true;
+    console.warn(
+      `[Etsy Auto] Thấy dấu lạ "${khop[0]}" trong ${tenTruong} — Clipboard được tạo bởi bản script ` +
+        'mới hơn bản đang chạy ở trang này. Hãy cập nhật script ở đây rồi lấy lại dữ liệu.'
+    );
+    return chuoi.slice(0, khop.index);
+  }
+
   // Tach chuoi lam 2 phan tai LAN XUAT HIEN DAU TIEN cua dau ngan cach
   function tachMotLan(chuoi, dauNganCach) {
     const viTri = chuoi.indexOf(dauNganCach);
@@ -300,13 +319,17 @@
       }
     }
 
-    return {
-      tieuDe: tieuDe.trim(),
-      tagText: tagText.trim(),
-      persoNhan: persoNhan.trim(),
-      persoHuongDan: persoHuongDan.trim(),
-      persoLuaChon,
+    coDauLa = false;
+    const ketQua = {
+      tieuDe: catBoDauLa(tieuDe, 'tiêu đề').trim(),
+      tagText: catBoDauLa(tagText, 'tag').trim(),
+      persoNhan: catBoDauLa(persoNhan, 'nhãn cá nhân hoá').trim(),
+      persoHuongDan: catBoDauLa(persoHuongDan, 'hướng dẫn cá nhân hoá').trim(),
+      persoLuaChon: persoLuaChon.map((x) => catBoDauLa(x, 'lựa chọn').trim()).filter(Boolean),
+      dauLa: false,
     };
+    ketQua.dauLa = coDauLa;
+    return ketQua;
   }
 
   // Ghi chuoi vao clipboard he thong. Thu CA HAI duong (GM_setClipboard va
@@ -1661,7 +1684,20 @@
 
   // Ham gop: doc Clipboard 1 lan roi dan ca tieu de va tag, sau do tu dong bam tab Photo & Video
   async function danTieuDeVaTag() {
-    const { tieuDe, tagText, persoNhan, persoHuongDan, persoLuaChon } = tachDuLieu(await docClipboard());
+    const { tieuDe, tagText, persoNhan, persoHuongDan, persoLuaChon, dauLa } = tachDuLieu(
+      await docClipboard()
+    );
+
+    // Chan ngay: dan tiep se nhoi chuoi ky thuat vao o cua Etsy, hong du lieu that
+    if (dauLa) {
+      hienThongBao(
+        `❌ Clipboard tạo bởi bản script MỚI HƠN bản đang chạy ở trang này (${PHIEN_BAN}). ` +
+          'Hãy cập nhật script ở đây rồi lấy lại dữ liệu — xem Console để biết chi tiết.',
+        '#DC2626'
+      );
+      return;
+    }
+
     if (!tieuDe && !tagText) {
       hienThongBao('⚠️ Clipboard chưa có dữ liệu. Hãy chạy Alt+G trên trang nguồn trước rồi copy sang trình duyệt này', '#DC2626');
       return;

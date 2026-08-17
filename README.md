@@ -355,6 +355,30 @@ Chuỗi của bản 6.x cũ (chỉ có `PERSO_INSTR`) vẫn đọc được như
 
 Toast báo rõ số lựa chọn đã thêm: `✅ Đã dán tiêu đề + 13 tag + ô cá nhân hoá (2 lựa chọn)`
 
+### Chống lệch phiên bản giữa các trình duyệt (v7.3)
+
+Script dùng Clipboard hệ thống để chuyển dữ liệu giữa các trình duyệt, nên **hai bên có thể chạy
+hai phiên bản khác nhau**. Khi bên lấy dữ liệu mới hơn bên dán, bên dán gặp dấu ngăn cách nó chưa
+biết và **nuốt cả cụm vào làm giá trị**:
+
+```
+Bên lấy (7.2) tạo:  …|||PERSO_LABEL|||Please choose the design|||PERSO_OPTS|||Mickey|;|Minnie
+Bên dán (7.1) hiểu: nhãn = "Please choose the design|||PERSO_OPTS|||Micke"   ← nhồi thẳng vào Etsy
+```
+
+Kết quả: mở nhầm "Text box" thay vì "List of options", và chuỗi kỹ thuật lọt vào ô Field title của
+listing thật.
+
+Từ 7.3, bên dán quét mọi giá trị bằng `/\|\|\|[A-Z_]+\|\|\|/` — bắt được **cả dấu của phiên bản
+tương lai chưa tồn tại**. Thấy dấu lạ thì **dừng hẳn, không dán gì cả**, và báo:
+
+```
+❌ Clipboard tạo bởi bản script MỚI HƠN bản đang chạy ở trang này (7.3).
+   Hãy cập nhật script ở đây rồi lấy lại dữ liệu.
+```
+
+Thà không dán còn hơn dán hỏng vào listing thật.
+
 Etsy giới hạn **45 ký tự** cho Field title và **120 ký tự** cho Instructions, nên script tự cắt bớt
 cho vừa và ghi cảnh báo ra Console nếu có cắt. Sửa bằng 2 hằng số `GIOI_HAN_NHAN_FIELD`
 và `GIOI_HAN_HUONG_DAN_FIELD`.
