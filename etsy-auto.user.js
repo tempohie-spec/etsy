@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.8
+// @version      7.9
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Alt+U tren trang chinh sua: tu tai anh cua listing nguon roi nhoi thang vao o upload cua Etsy (bo tick san anh bang size), dua anh moi len dau luoi bang ban phim (dnd-kit), tuy chon bam ho Save as draft / Publish. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.8';
+  const PHIEN_BAN = '7.9';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2218,6 +2218,67 @@
 
   const PHIM_CACH = [' ', 'Space', 32];
   const PHIM_TRAI = ['ArrowLeft', 'ArrowLeft', 37];
+  const PHIM_PHAI = ['ArrowRight', 'ArrowRight', 39];
+  const PHIM_LEN = ['ArrowUp', 'ArrowUp', 38];
+  const PHIM_XUONG = ['ArrowDown', 'ArrowDown', 40];
+
+  // Thu tu uu tien khi tim phim "tien gan hon ve dich": Trai truoc (di chuyen thong thuong trong
+  // hang), roi Len (nhay len hang truoc). Day chinh la ly do cach cu "luon dung N lan ArrowLeft"
+  // that bai tren thuc te: luoi anh cua Etsy la LUOI NHIEU COT (2 chieu), khong phai danh sach
+  // 1 chieu — dnd-kit tinh "trai" theo TOA DO THUC TE tren man hinh (collisionRect.left >
+  // rect.left), nen mot anh dang o DAU HANG khong con anh nao ben trai trong CUNG HANG de nhay
+  // sang, ArrowLeft khong tim duoc dich va khong lam gi ca (kiem chung qua vung thong bao dnd-kit:
+  // 5 lan ArrowLeft lien tiep deu bao "dropped/moved over droppable area" TRUNG Y HET 1 ID, tuc la
+  // khong he dich chuyen). Can ArrowUp de nhay len cuoi hang truoc thi ArrowLeft moi tiep tuc co tac
+  // dung — nhung khong biet truoc luoi co bao nhieu cot, nen thay vi tinh truoc so buoc, o MOI buoc
+  // thu lan luot tung huong va CHI CHAP NHAN huong nao THAT SU dua vi tri ve gan dich hon.
+  const CAC_PHIM_HUONG = [PHIM_TRAI, PHIM_LEN, PHIM_PHAI, PHIM_XUONG];
+
+  // Di chuyen 1 anh (da o trang thai "nhac len") toi dung viTriDich trong layCacTheAnh(), bang cach
+  // o moi buoc thu tung huong trong CAC_PHIM_HUONG cho toi khi tim duoc huong lam vi tri GIAM
+  // xuong (gan dich hon). Tra ve true neu toi dung dich, false neu bi ket (khong huong nao con
+  // tac dung) hoac mat dau vet the anh giua chung.
+  async function diChuyenVeViTri(the0, tayCam0, chuKy, viTriDich, vungThongBao) {
+    let the = the0;
+    let tayCam = tayCam0;
+    const GIOI_HAN_BUOC = 60;
+
+    let viTriHienTai = layCacTheAnh().findIndex((el) => chuKyThe(el) === chuKy);
+    if (viTriHienTai === -1) return false;
+
+    for (let buoc = 0; buoc < GIOI_HAN_BUOC && viTriHienTai > viTriDich; buoc++) {
+      if (!document.contains(tayCam)) {
+        const theMoi = layCacTheAnh().find((el) => chuKyThe(el) === chuKy);
+        if (!theMoi) return false;
+        the = theMoi;
+        tayCam = timTayCamKeo(the);
+      }
+
+      let tienDuocMotBuoc = false;
+      for (const phim of CAC_PHIM_HUONG) {
+        guiPhimSapXep(tayCam, ...phim);
+        await cho(NHIP_PHIM_SAP_XEP);
+        const viTriMoi = layCacTheAnh().findIndex((el) => chuKyThe(el) === chuKy);
+        if (viTriMoi === -1) return false;
+        if (viTriMoi < viTriHienTai) {
+          if (vungThongBao) {
+            console.log(`[Etsy Auto]   ${phim[0]} đưa vị trí ${viTriHienTai} -> ${viTriMoi}`);
+          }
+          viTriHienTai = viTriMoi;
+          tienDuocMotBuoc = true;
+          break;
+        }
+      }
+      if (!tienDuocMotBuoc) {
+        console.warn(
+          '[Etsy Auto] Không hướng phím nào giúp ảnh tiến gần vị trí đích hơn — đang ở vị trí',
+          viTriHienTai, 'cần tới', viTriDich
+        );
+        return false;
+      }
+    }
+    return viTriHienTai === viTriDich;
+  }
 
   // dnd-kit tu render 1 vung "live region" AN (aria-live) de doc to cho trinh doc man hinh moi buoc
   // keo: "Picked up sortable item...", "...was moved into position...". Day la BANG CHUNG dang tin
@@ -2237,7 +2298,22 @@
   }
 
   // Chuyen soAnhThem anh cuoi luoi len dau, giu nguyen thu tu giua chung.
-  // Anh moi thu k dang o vi tri (soAnhCu + k), can ve vi tri k -> luon la dung soAnhCu buoc sang trai.
+  //
+  // CACH LAM: LUON lay PHAN TU CUOI CUNG cua luoi hien tai va LUON dua no ve VI TRI 0 — khong
+  // con nham toi vi tri giua chung (k) nhu ban truoc. Ly do doi:
+  //   1) Etsy them anh moi upload vao CUOI mang, nen ngay tu dau anh moi cuoi cung dang la
+  //      phan tu cuoi cung cua luoi.
+  //   2) Sau khi dua NO ve vi tri 0 (xoa khoi cuoi, chen vao dau), MOI phan tu con lai deu dich
+  //      +1, nen ke tiep no anh moi TRUOC DO (a) van con o gan cuoi mang va (b) do vua bi day
+  //      xuong bang cach hoan doi, no VAN LA phan tu cuoi cung moi — cu the: xoa phan tu cuoi
+  //      cung khoi mang roi chen vao dau khong lam thay doi vi tri TUONG DOI cua cac phan tu con
+  //      lai o giua, nen ai dang o sat cuoi (truoc do bi che khuat boi phan tu vua xoa) gio tro
+  //      thanh phan tu cuoi moi. Da kiem chung bang mo phong: dung "luon lay phan tu cuoi, dua ve
+  //      vi tri 0" cho ket qua dung 100% (920/920 to hop N=5..20, so cot=2..6).
+  //   3) Dich LUON LA 0 con giai quyet triet de 1 loi khac: dua ve vi tri GIUA chung (vi du vi
+  //      tri 3) co the bi "vuot qua" dich (dnd-kit nhay thang toi o gan nhat theo huong, co the
+  //      nhay qua nhieu hon 1 o mot luc) — dich la 0 thi KHONG THE vuot qua duoc (khong co vi tri
+  //      am), nen luon hoi tu dung.
   async function chuyenAnhLenDau(soAnhCu, soAnhThem) {
     if (soAnhCu === 0) return { ok: true, soDaChuyen: soAnhThem };
 
@@ -2251,21 +2327,21 @@
 
     let soDaChuyen = 0;
     for (let k = 0; k < soAnhThem; k++) {
-      let cacThe = layCacTheAnh();
-      let the = cacThe[soAnhCu + k];
+      const cacThe = layCacTheAnh();
+      const the = cacThe[cacThe.length - 1];
       if (!the) break;
 
       const chuKy = chuKyThe(the);
       // QUAN TRONG: tinh tayCam MOT LAN va DUNG LAI DUNG PHAN TU NAY cho toan bo chuoi phim cua
-      // anh nay (Space nhac len -> N x ArrowLeft -> Space tha xuong). Ban truoc goi lai
+      // anh nay (Space nhac len -> N x phim huong -> Space tha xuong). Ban truoc goi lai
       // timTayCamKeo(the) o MOI phim — neu ham nay chon ra phan tu khac di du chi 1 chut sau khi
-      // dnd-kit da bat dau keo (vi du do thuoc tinh DOM doi khi dang keo), cac phim ArrowLeft se
+      // dnd-kit da bat dau keo (vi du do thuoc tinh DOM doi khi dang keo), cac phim huong se
       // gui NHAM sang mot phan tu khac voi phan tu dnd-kit dang thuc su lang nghe — dung dau la
-      // nguyen nhan lam Space "nhac len" chay dung (thong bao doi) nhung ArrowLeft khong co tac
+      // nguyen nhan lam Space "nhac len" chay dung (thong bao doi) nhung phim huong khong co tac
       // dung gi (thong bao luc tha van la "dropped over droppable area" TRUNG ID voi luc nhac len,
       // tuc la khong he dich chuyen) — da xay ra dung y het truong hop nay tren thuc te.
       let tayCam = timTayCamKeo(the);
-      console.log(`[Etsy Auto] Sắp xếp ảnh ${k + 1}/${soAnhThem} — chữ ký mục tiêu:`, chuKy);
+      console.log(`[Etsy Auto] Sắp xếp ảnh ${k + 1}/${soAnhThem} (đang ở cuối lưới) — chữ ký mục tiêu:`, chuKy);
 
       try {
         tayCam.focus();
@@ -2290,33 +2366,25 @@
         }
       }
 
-      for (let buoc = 0; buoc < soAnhCu; buoc++) {
-        // Etsy co the ve lai DOM sau moi buoc — the cu co the bi go khoi cay, tim lai theo chu ky
-        // roi TINH LAI tayCam TU the moi (chi khi that su phai doi node, khong phai moi vong lap)
-        if (!document.contains(the)) {
-          const theMoi = layCacTheAnh().find((el) => chuKyThe(el) === chuKy);
-          if (theMoi) {
-            the = theMoi;
-            tayCam = timTayCamKeo(the);
-          }
-        }
-        guiPhimSapXep(tayCam, ...PHIM_TRAI); // luon dung DUNG 1 tay cam da nhac len tu dau
-        await cho(NHIP_PHIM_SAP_XEP);
-
-        if (vungThongBao) {
-          console.log(`[Etsy Auto]   sau ArrowLeft #${buoc + 1}/${soAnhCu}:`, JSON.stringify(vungThongBao.textContent));
-        }
+      // Di chuyen bang cach thu tung huong (Trai/Len/Phai/Xuong) — dich LUON LA vi tri 0 (xem
+      // giai thich o dinh nghia chuyenAnhLenDau ben tren).
+      const diChuyenOk = await diChuyenVeViTri(the, tayCam, chuKy, 0, vungThongBao);
+      if (!diChuyenOk) {
+        console.warn('[Etsy Auto] Không đưa được ảnh về đúng vị trí bằng phím mũi tên — vẫn thử thả xuống ở vị trí hiện tại.');
       }
 
-      guiPhimSapXep(tayCam, ...PHIM_CACH); // tha xuong — van dung nguyen tay cam da nhac len
+      // Tim lai tayCam moi nhat theo chu ky truoc khi tha, phong khi DOM da ve lai giua chung
+      const theHienTai = layCacTheAnh().find((el) => chuKyThe(el) === chuKy) || the;
+      const tayCamTha = timTayCamKeo(theHienTai);
+      guiPhimSapXep(tayCamTha, ...PHIM_CACH); // tha xuong
       await cho(500);
       if (vungThongBao) {
         console.log('[Etsy Auto] Thông báo dnd-kit sau khi thả:', JSON.stringify(vungThongBao.textContent));
       }
 
       // Kiem tra that su co nhay len dau khong — neu khong thi dung lai, bao nguoi dung tu keo
-      const chuKySau = chuKyThe(layCacTheAnh()[k]);
-      console.log(`[Etsy Auto] Chữ ký ở vị trí ${k} sau khi thả:`, chuKySau, chuKySau === chuKy ? '(khớp)' : '(KHÔNG khớp)');
+      const chuKySau = chuKyThe(layCacTheAnh()[0]);
+      console.log('[Etsy Auto] Chữ ký ở vị trí 0 sau khi thả:', chuKySau, chuKySau === chuKy ? '(khớp)' : '(KHÔNG khớp)');
       if (chuKySau === chuKy) {
         soDaChuyen++;
       } else {

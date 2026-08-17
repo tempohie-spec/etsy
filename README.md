@@ -410,6 +410,39 @@ Sửa: tính `tayCam` **đúng một lần** cho toàn bộ chuỗi phím của 
 thời log vùng thông báo sau **từng** `ArrowLeft` — nếu ID vẫn còn đứng yên qua các bước, Console sẽ
 chỉ ra ngay bước nào bắt đầu gãy.
 
+### `ArrowLeft` một mình không đủ — lưới ảnh là lưới NHIỀU CỘT, không phải danh sách 1 chiều (v7.9)
+
+Log thực tế sau bản vá trên vẫn cho thấy **cả 5 lần `ArrowLeft` liên tiếp giống hệt nhau từng ký
+tự** — dù đã dùng đúng một `tayCam` cố định. Nghĩa là bug không nằm ở việc gửi nhầm phần tử, mà ở
+chính **thuật toán**: code cũ giả định lưới ảnh là danh sách 1 chiều ("luôn cần đúng N lần sang
+trái"), nhưng lưới ảnh của Etsy hiển thị **nhiều cột trên một hàng**. Ảnh đang cần di chuyển hoàn
+toàn có thể đang đứng ở **đầu một hàng** — dnd-kit tính hướng "trái" theo toạ độ thật trên màn hình
+(`collisionRect.left > rect.left`), nên nếu không có ảnh nào bên trái trong **cùng hàng**,
+`ArrowLeft` không tìm được ô đích và không làm gì cả, bất kể gửi bao nhiêu lần. Cần `ArrowUp` để
+nhảy lên cuối hàng trước đó thì `ArrowLeft` mới tiếp tục có tác dụng.
+
+Hai thay đổi:
+
+1. **`diChuyenVeViTri()`** thay lối "tính trước N bước" bằng lối dò từng bước: mỗi bước thử lần
+   lượt 4 hướng (`Trái`, `Lên`, `Phải`, `Xuống` — thứ tự ưu tiên này), chỉ chấp nhận hướng nào
+   **thực sự đưa vị trí giảm xuống** (gần đích hơn), tối đa 60 bước. Không cần biết trước lưới có
+   bao nhiêu cột.
+2. **Đích luôn luôn là vị trí 0**, không còn nhắm tới vị trí giữa chừng `k` như trước. Mô phỏng
+   phát hiện: nhắm tới vị trí giữa chừng có thể bị "vượt quá" (dnd-kit nhảy thẳng tới ô gần nhất
+   theo hướng, có khi nhảy qua nhiều hơn 1 ô một lúc) — nhắm tới `0` thì không thể vượt quá được
+   (không có vị trí âm), nên luôn hội tụ đúng.
+
+   Cách lấy đúng ảnh cần xử lý mỗi vòng cũng đổi theo: **luôn lấy phần tử cuối cùng của lưới**
+   (`layCacTheAnh()[length-1]`) thay vì tính chỉ số `soAnhCu + k`. Vì Etsy luôn thêm ảnh mới vào
+   cuối mảng, và sau khi đưa 1 ảnh từ cuối lên đầu, ảnh mới tiếp theo cần xử lý **tình cờ luôn**
+   trở thành phần tử cuối mới (xoá 1 phần tử ở cuối rồi chèn vào đầu không làm đổi vị trí tương đối
+   của các phần tử còn lại ở giữa).
+
+Đã mô phỏng bằng thuật toán chọn "ứng viên gần nhất theo hướng" giống `sortableKeyboardCoordinates`
+mặc định của dnd-kit, quét toàn bộ **920 tổ hợp** (số ảnh 5–20, số cột 2–6, mọi vị trí bắt đầu) với
+đích luôn là 0 — **920/920 hội tụ đúng**, so với việc từng phát hiện hàng trăm trường hợp sai khi
+nhắm tới vị trí giữa chừng.
+
 ### Chọn đúng ô upload
 
 Trang chỉnh sửa có **2** ô `input[type="file"]` — một cho ảnh, một cho video. Script chấm điểm để
