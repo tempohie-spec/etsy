@@ -672,6 +672,14 @@ tiền **ẩn** còn sót lại của đơn trước, dẫn tới Earnings bị 
    hiện đúng số tiền cũ, script sẽ đợi thêm cho tới khi nội dung thực sự cập nhật rồi mới đọc,
    thay vì chấp nhận ngay giá trị có thể vẫn là của đơn trước.
 
+## Sửa lỗi Earnings lệch 1-2 cent
+
+Etsy hiển thị số tiền "You earned $x.xx" bằng hiệu ứng **đếm chạy tăng dần** (count-up), không
+hiện ngay số cuối cùng. Nếu script đọc đúng lúc số đang chạy, nó có thể bắt trúng một bước trung
+gian lệch 1-2 cent so với số tiền thật. Đã sửa: sau khi tìm thấy một giá trị ứng viên, script đợi
+giá trị đó **giữ nguyên ổn định qua 2 lần kiểm tra liên tiếp** (~400ms) rồi mới chấp nhận là số
+tiền cuối cùng, thay vì lấy ngay lần đọc đầu tiên.
+
 ## Nút Dừng
 
 Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),

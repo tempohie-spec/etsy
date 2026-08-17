@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.10
+// @version      2.11
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -452,23 +452,39 @@
     return !!(el.offsetParent || el.getClientRects().length);
   }
 
+  function findCandidateEarningsSpan(previousAmountText, start) {
+    const spans = document.querySelectorAll(SEL.earningsAmountSelector);
+    for (const s of spans) {
+      const text = s.textContent.trim();
+      if (!/^\$[\d,.]+$/.test(text)) continue;
+      if (!isVisible(s)) continue;
+      if (previousAmountText && text === previousAmountText && Date.now() - start < 2000) continue;
+      return text;
+    }
+    return null;
+  }
+
   // previousAmountText: chuoi "$xx.xx" da doc duoc o lan truoc (neu co). Neu span dang thay
   // van con giu nguyen gia tri cu nay trong ~2s dau, tiep tuc cho thay vi chap nhan ngay -
   // tranh doc nham gia tri Earnings cua don TRUOC con sot lai trong DOM (xem isVisible o tren).
+  //
+  // Sau khi tim thay 1 gia tri ung vien, KHONG chap nhan ngay: Etsy hien thi so tien bang hieu
+  // ung dem chay tang dan (count-up), nen doc qua som co the bat trung 1 buoc trung gian LECH
+  // 1-2 CENT so voi so tien that su. Vi vay bat buoc gia tri phai GIU NGUYEN ON DINH qua 2 lan
+  // kiem tra lien tiep (~400ms) roi moi chap nhan la gia tri cuoi cung.
   async function waitForEarningsAmount(previousAmountText) {
     const start = Date.now();
-    const amountEl = await waitFor(() => {
-      const spans = document.querySelectorAll(SEL.earningsAmountSelector);
-      for (const s of spans) {
-        const text = s.textContent.trim();
-        if (!/^\$[\d,.]+$/.test(text)) continue;
-        if (!isVisible(s)) continue;
-        if (previousAmountText && text === previousAmountText && Date.now() - start < 2000) continue;
-        return s;
+    let stableText = null;
+    const raw = await waitFor(() => {
+      const text = findCandidateEarningsSpan(previousAmountText, start);
+      if (!text) {
+        stableText = null;
+        return null;
       }
+      if (stableText === text) return text;
+      stableText = text;
       return null;
-    }, WAIT_TIMEOUT, 'so tien Earnings');
-    const raw = amountEl.textContent.trim();
+    }, WAIT_TIMEOUT, 'so tien Earnings (on dinh)');
     return { raw, value: parseAmountToNumberString(raw) };
   }
 
