@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Etsy Deposit Tracker
 // @namespace    etsy-deposit-tracker
-// @version      1.1
-// @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, tự chuyển trang và chuyển tháng, in kết quả (Date + Số tiền, không kèm đơn vị) ra Console.
+// @version      1.2
+// @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, tự chuyển trang và chuyển tháng (dò nút chuyển trang linh hoạt hơn), in kết quả (Date + Số tiền, không kèm đơn vị) ra Console.
 // @match        https://www.etsy.com/your/account/payments/monthly-statement*
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -15,6 +15,7 @@
   'use strict';
 
   const STATE_KEY = 'etsyDepositTrackerState_v1';
+  const SCRIPT_VERSION = '1.2';
 
   // ---------- Tiện ích chung ----------
   function sleep(ms) {
@@ -118,7 +119,7 @@
       if (!sentMatch) return;
 
       // Bước 4: DATE gần nhất đứng trước / trong dòng đó
-      const dateMatch = rowText.match(/(\d{1,2}\s+[A-Za-z]{3},\s*\d{4})/);
+      const dateMatch = rowText.match(/([A-Za-z]{3}\s+\d{1,2},\s*\d{4})/);
       if (!dateMatch) return;
 
       const rowDate = parseListDate(dateMatch[1]);
@@ -170,17 +171,53 @@
   // (aria-current / class có thể không đúng như kỳ vọng), nên KHÔNG dựa vào
   // DOM để biết "đang ở trang mấy". Thay vào đó, script tự đếm số trang qua
   // state.currentPage và luôn cộng dồn mỗi lần bấm thành công.
+  //
+  // Cấu trúc phân trang có thể khác nhau tuỳ trang/thiết bị (nav có/không có
+  // aria-label, dùng <button> hoặc <a>, nút "Next" có thể chỉ có icon không
+  // có chữ...), nên các hàm dưới đây thử nhiều cách dò trước khi bỏ cuộc.
   function getPaginationNav() {
-    return document.querySelector('nav[aria-label="Pagination"]');
+    return (
+      document.querySelector('nav[aria-label="Pagination"]') ||
+      document.querySelector('nav[aria-label*="pagination" i]') ||
+      document.querySelector('[data-clg-id*="Pagination" i]') ||
+      document.querySelector('nav')
+    );
+  }
+
+  function findClickableByPageNumber(container, num) {
+    if (!container) return null;
+    const candidates = Array.from(container.querySelectorAll('button, a'));
+    return candidates.find((el) => {
+      const t = (el.textContent || '').trim();
+      return /^\d+$/.test(t) && parseInt(t, 10) === num;
+    }) || null;
+  }
+
+  function findNextControl(container) {
+    if (!container) return null;
+    const candidates = Array.from(container.querySelectorAll('button, a'));
+    return candidates.find((el) => {
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      const rel = (el.getAttribute('rel') || '').toLowerCase();
+      const title = (el.getAttribute('title') || '').toLowerCase();
+      return aria.includes('next') || rel === 'next' || title.includes('next');
+    }) || null;
+  }
+
+  function isControlDisabled(el) {
+    if (!el) return true;
+    return (
+      el.disabled === true ||
+      el.getAttribute('aria-disabled') === 'true' ||
+      el.classList.contains('disabled')
+    );
   }
 
   // Bấm về đúng trang 1 trước khi bắt đầu quét (đảm bảo luôn xuất phát từ trang 1).
   async function ensureOnFirstPage() {
     const nav = getPaginationNav();
-    if (!nav) return;
-    const buttons = Array.from(nav.querySelectorAll('button'));
-    const page1Btn = buttons.find((b) => parseInt(b.textContent.trim(), 10) === 1);
-    if (!page1Btn || page1Btn.disabled) return;
+    const page1Btn = findClickableByPageNumber(nav, 1) || findClickableByPageNumber(document, 1);
+    if (!page1Btn || isControlDisabled(page1Btn)) return;
 
     const oldSig = getRowsSignature();
     page1Btn.click();
@@ -189,25 +226,29 @@
   }
 
   // Tự động bấm sang trang kế tiếp dựa trên state.currentPage (số trang tự đếm).
-  // Trả về true nếu đã bấm được, false nếu hết trang.
+  // Trả về true nếu đã bấm được, false nếu hết trang / không tìm thấy nút.
   function clickNextPage(state) {
-    const nav = getPaginationNav();
-    if (!nav) return false;
-
-    const buttons = Array.from(nav.querySelectorAll('button'));
     const nextPageNum = (state.currentPage || 1) + 1;
+    const nav = getPaginationNav();
 
-    let target = buttons.find((b) => parseInt(b.textContent.trim(), 10) === nextPageNum);
+    // Thử theo thứ tự: số trang trong nav -> nút "Next" trong nav
+    // -> số trang trong toàn trang -> nút "Next" trong toàn trang.
+    let target =
+      findClickableByPageNumber(nav, nextPageNum) ||
+      findNextControl(nav) ||
+      findClickableByPageNumber(document, nextPageNum) ||
+      findNextControl(document);
 
-    if (!target) {
-      target = buttons.find((b) => /next/i.test(b.getAttribute('aria-label') || ''));
-    }
-
-    if (target && !target.disabled && target.getAttribute('aria-disabled') !== 'true') {
+    if (target && !isControlDisabled(target)) {
       target.click();
       state.currentPage = nextPageNum;
       return true;
     }
+
+    console.log(
+      `[Etsy Deposit] Không tìm thấy nút chuyển sang trang ${nextPageNum}. ` +
+      `Nếu trang thực sự còn dữ liệu, cấu trúc phân trang của Etsy có thể đã đổi.`
+    );
     return false;
   }
 
@@ -239,7 +280,7 @@
     const panel = document.createElement('div');
     panel.id = 'edt-panel';
     panel.innerHTML = `
-      <h3>Etsy Deposit Tracker</h3>
+      <h3>Etsy Deposit Tracker <span style="font-weight:normal;color:#888;">v${SCRIPT_VERSION}</span></h3>
       <div id="edt-body">
         <label for="edt-start">Từ ngày</label>
         <input type="date" id="edt-start" />
@@ -392,7 +433,7 @@
       } else {
         const firstRow = getRows()[0];
         const txt = firstRow ? firstRow.innerText : '';
-        const dm = txt.match(/(\d{1,2}\s+[A-Za-z]{3},\s*\d{4})/);
+        const dm = txt.match(/([A-Za-z]{3}\s+\d{1,2},\s*\d{4})/);
         const d = dm ? parseListDate(dm[1]) : new Date();
         state.currentMonth = d.getMonth() + 1;
         state.currentYear = d.getFullYear();
