@@ -1,0 +1,509 @@
+// ==UserScript==
+// @name         Etsy Deposit Tracker
+// @namespace    etsy-deposit-tracker
+// @version      1.1
+// @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, tự chuyển trang và chuyển tháng, in kết quả (Date + Số tiền, không kèm đơn vị) ra Console.
+// @match        https://www.etsy.com/your/account/payments/monthly-statement*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_addStyle
+// @run-at       document-idle
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  const STATE_KEY = 'etsyDepositTrackerState_v1';
+
+  // ---------- Tiện ích chung ----------
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  function loadState() {
+    return GM_getValue(STATE_KEY, null);
+  }
+  function saveState(s) {
+    GM_setValue(STATE_KEY, s);
+  }
+  function clearState() {
+    GM_deleteValue(STATE_KEY);
+  }
+
+  const MONTHS = {
+    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+  };
+
+  // Chuyển "Aug 3, 2026" (định dạng thực tế của Etsy: Tháng Ngày, Năm) -> Date object
+  function parseListDate(str) {
+    const m = str && str.match(/([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})/);
+    if (!m) return null;
+    const mon = MONTHS[m[1]];
+    const day = parseInt(m[2], 10);
+    const year = parseInt(m[3], 10);
+    if (mon === undefined) return null;
+    return new Date(year, mon, day);
+  }
+
+  function buildStatementUrl(month, year) {
+    return `https://www.etsy.com/your/account/payments/monthly-statement?month=${month}&year=${year}`;
+  }
+
+  function getCurrentMonthYearFromUrl() {
+    const p = new URLSearchParams(location.search);
+    const m = parseInt(p.get('month'), 10);
+    const y = parseInt(p.get('year'), 10);
+    if (m && y) return { month: m, year: y };
+    return null;
+  }
+
+  function getRows() {
+    return Array.from(document.querySelectorAll('table tbody tr'));
+  }
+
+  function getRowsSignature() {
+    const rows = getRows();
+    if (!rows.length) return '';
+    return rows[0].innerText.slice(0, 80) + '|' + rows.length;
+  }
+
+  async function waitForTable(timeout = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (getRows().length > 0) return true;
+      await sleep(250);
+    }
+    return false;
+  }
+
+  async function waitForPageChange(oldSig, timeout = 10000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const sig = getRowsSignature();
+      if (sig && sig !== oldSig) return true;
+      await sleep(200);
+    }
+    return false;
+  }
+
+  // ---------- Trích xuất dữ liệu deposit trên trang hiện tại ----------
+  // Chỉ bắt các dòng loại "Deposit" có nội dung "sent to your bank account"
+  // hoặc "sent to your Payoneer Wallet". Lấy phần SỐ (bỏ đơn vị tiền tệ)
+  // và DATE gần nhất đứng trước dòng đó, in ra Console.
+  // Trả về: { addedCount, minDateOnPage, sawOlderThanStart }
+  function collectDepositsOnPage(results, startDate, endDate, pageNumber) {
+    let minDateOnPage = null;
+    let sawOlderThanStart = false;
+    let addedCount = 0;
+
+    const rows = getRows();
+
+    rows.forEach((tr) => {
+      const rowText = tr.innerText;
+
+      // Bước 1: dòng phải thuộc loại "Deposit"
+      if (!/\bDeposit\b/i.test(rowText)) return;
+
+      // Bước 2: lấy phần mô tả chính (nếu Etsy có cấu trúc data-test-id này),
+      // nếu không có thì dùng luôn text của cả dòng
+      const descEl = tr.querySelector(
+        '[data-test-id^="recent-activity-description-primary"], [data-test-id="RecentActivityDescription"]'
+      );
+      const primaryText = (descEl ? descEl.innerText : rowText).trim();
+
+      // Bước 3: chỉ nhận "sent to your bank account" hoặc "sent to your Payoneer Wallet"
+      const sentMatch = primaryText.match(/sent to your (bank account|payoneer wallet)/i);
+      if (!sentMatch) return;
+
+      // Bước 4: DATE gần nhất đứng trước / trong dòng đó
+      const dateMatch = rowText.match(/(\d{1,2}\s+[A-Za-z]{3},\s*\d{4})/);
+      if (!dateMatch) return;
+
+      const rowDate = parseListDate(dateMatch[1]);
+      if (!rowDate) return;
+
+      if (minDateOnPage === null || rowDate < minDateOnPage) minDateOnPage = rowDate;
+
+      if (rowDate < startDate) {
+        sawOlderThanStart = true;
+        return; // đã ra ngoài khoảng ngày (quá cũ) -> dừng thu thập
+      }
+      if (rowDate > endDate) {
+        return; // quá mới -> bỏ qua dòng này, vẫn tiếp tục quét
+      }
+
+      // Bước 5: tách phần SỐ (bỏ đơn vị tiền tệ) khỏi "... sent to your ..."
+      const amtMatch = primaryText.match(/^(.+?)\s+sent to your/i);
+      const chunk = amtMatch ? amtMatch[1] : primaryText;
+      const numMatch = chunk.match(/[\d.,]+(?:\.\d+)?/);
+      const amountNumber = numMatch ? parseFloat(numMatch[0].replace(/,/g, '')) : null;
+      const currencyLabel = numMatch ? chunk.replace(numMatch[0], '').trim() : '';
+      const destination = /payoneer/i.test(sentMatch[1]) ? 'Payoneer Wallet' : 'Bank Account';
+
+      const key = dateMatch[1] + '|' + primaryText;
+      if (!results.some((r) => r.key === key)) {
+        const entry = {
+          key,
+          date: dateMatch[1],
+          dateISO: `${rowDate.getFullYear()}-${String(rowDate.getMonth() + 1).padStart(2, '0')}-${String(rowDate.getDate()).padStart(2, '0')}`,
+          amountText: primaryText,
+          amountNumber,
+          currencyLabel,
+          destination,
+          page: pageNumber || null,
+        };
+        results.push(entry);
+        addedCount++;
+
+        // In ra Console: DATE + số tiền (không kèm đơn vị) + số thứ tự trang
+        console.log(`[Etsy Deposit] Trang ${entry.page} | ${entry.date} -> ${entry.amountNumber} (${entry.destination})`);
+      }
+    });
+
+    return { addedCount, minDateOnPage, sawOlderThanStart };
+  }
+
+  // ---------- Điều khiển phân trang (tự động) ----------
+  // LƯU Ý: Etsy không đánh dấu nút trang đang active theo cách đáng tin cậy
+  // (aria-current / class có thể không đúng như kỳ vọng), nên KHÔNG dựa vào
+  // DOM để biết "đang ở trang mấy". Thay vào đó, script tự đếm số trang qua
+  // state.currentPage và luôn cộng dồn mỗi lần bấm thành công.
+  function getPaginationNav() {
+    return document.querySelector('nav[aria-label="Pagination"]');
+  }
+
+  // Bấm về đúng trang 1 trước khi bắt đầu quét (đảm bảo luôn xuất phát từ trang 1).
+  async function ensureOnFirstPage() {
+    const nav = getPaginationNav();
+    if (!nav) return;
+    const buttons = Array.from(nav.querySelectorAll('button'));
+    const page1Btn = buttons.find((b) => parseInt(b.textContent.trim(), 10) === 1);
+    if (!page1Btn || page1Btn.disabled) return;
+
+    const oldSig = getRowsSignature();
+    page1Btn.click();
+    await waitForPageChange(oldSig, 4000); // nếu đã ở trang 1 sẵn thì sẽ timeout, không sao
+    await sleep(300);
+  }
+
+  // Tự động bấm sang trang kế tiếp dựa trên state.currentPage (số trang tự đếm).
+  // Trả về true nếu đã bấm được, false nếu hết trang.
+  function clickNextPage(state) {
+    const nav = getPaginationNav();
+    if (!nav) return false;
+
+    const buttons = Array.from(nav.querySelectorAll('button'));
+    const nextPageNum = (state.currentPage || 1) + 1;
+
+    let target = buttons.find((b) => parseInt(b.textContent.trim(), 10) === nextPageNum);
+
+    if (!target) {
+      target = buttons.find((b) => /next/i.test(b.getAttribute('aria-label') || ''));
+    }
+
+    if (target && !target.disabled && target.getAttribute('aria-disabled') !== 'true') {
+      target.click();
+      state.currentPage = nextPageNum;
+      return true;
+    }
+    return false;
+  }
+
+  // ---------- Giao diện điều khiển ----------
+  GM_addStyle(`
+    #edt-panel {
+      position: fixed; top: 80px; right: 20px; width: 320px;
+      background: #fff; border: 1px solid #ccc; border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 999999;
+      font-family: Arial, sans-serif; font-size: 13px; color: #222;
+      max-height: 80vh; overflow-y: auto;
+    }
+    #edt-panel h3 { margin: 0; padding: 10px 12px; background: #f5f2ea; border-bottom: 1px solid #ddd; font-size: 14px; }
+    #edt-body { padding: 10px 12px; }
+    #edt-panel label { display: block; margin: 6px 0 2px; font-weight: bold; }
+    #edt-panel input[type=date] { width: 100%; box-sizing: border-box; padding: 4px; margin-bottom: 6px; }
+    #edt-panel button { padding: 6px 10px; margin-right: 6px; margin-top: 4px; cursor: pointer; border-radius: 4px; border: 1px solid #999; background: #f0f0f0; }
+    #edt-panel button.primary { background: #f56400; color: #fff; border-color: #f56400; }
+    #edt-status { margin-top: 8px; font-style: italic; color: #555; white-space: pre-wrap; }
+    #edt-results table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+    #edt-results th, #edt-results td { border: 1px solid #ddd; padding: 3px 5px; text-align: left; }
+    #edt-total { margin-top: 6px; font-weight: bold; }
+    #edt-toggle { position: fixed; top: 40px; right: 20px; z-index: 999999; }
+  `);
+
+  function ensurePanel() {
+    if (document.getElementById('edt-panel')) return;
+
+    const panel = document.createElement('div');
+    panel.id = 'edt-panel';
+    panel.innerHTML = `
+      <h3>Etsy Deposit Tracker</h3>
+      <div id="edt-body">
+        <label for="edt-start">Từ ngày</label>
+        <input type="date" id="edt-start" />
+        <label for="edt-end">Đến ngày</label>
+        <input type="date" id="edt-end" />
+        <div>
+          <button id="edt-start-btn" class="primary">Bắt đầu</button>
+          <button id="edt-stop-btn">Dừng</button>
+          <button id="edt-clear-btn">Xoá kết quả</button>
+        </div>
+        <div id="edt-status"></div>
+        <div id="edt-results"></div>
+        <div id="edt-total"></div>
+        <div>
+          <button id="edt-csv-btn" style="display:none;">Tải CSV</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+
+    document.getElementById('edt-start-btn').addEventListener('click', onStartClick);
+    document.getElementById('edt-stop-btn').addEventListener('click', onStopClick);
+    document.getElementById('edt-clear-btn').addEventListener('click', onClearClick);
+    document.getElementById('edt-csv-btn').addEventListener('click', downloadCsv);
+  }
+
+  function updateStatus(text) {
+    ensurePanel();
+    const el = document.getElementById('edt-status');
+    if (el) el.textContent = text;
+  }
+
+  function renderResultsPreview(results) {
+    ensurePanel();
+    const container = document.getElementById('edt-results');
+    const totalEl = document.getElementById('edt-total');
+    if (!container) return;
+
+    const sorted = [...results].sort((a, b) => (a.dateISO < b.dateISO ? 1 : -1));
+    let html = '<table><thead><tr><th>Ngày</th><th>Số tiền</th><th>Nơi nhận</th><th>Trang</th></tr></thead><tbody>';
+    sorted.forEach((r) => {
+      html += `<tr><td>${r.date}</td><td>${escapeHtml(String(r.amountNumber ?? ''))}</td><td>${escapeHtml(r.destination || '')}</td><td>${escapeHtml(String(r.page ?? ''))}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    const totalsByCurrency = {};
+    results.forEach((r) => {
+      if (r.amountNumber == null) return;
+      const cur = r.currencyLabel || '';
+      totalsByCurrency[cur] = (totalsByCurrency[cur] || 0) + r.amountNumber;
+    });
+    const totalLines = Object.entries(totalsByCurrency)
+      .map(([cur, sum]) => `Tổng ${cur || '(không rõ đơn vị)'}: ${sum.toLocaleString()}`)
+      .join(' | ');
+    if (totalEl) totalEl.textContent = totalLines;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  function downloadCsv() {
+    const s = loadState();
+    const results = (s && s.results) || [];
+    const sorted = [...results].sort((a, b) => (a.dateISO < b.dateISO ? -1 : 1));
+    let csv = 'Date,Amount Number,Destination,Page\n';
+    sorted.forEach((r) => {
+      csv += `${r.date},${r.amountNumber ?? ''},${r.destination || ''},${r.page ?? ''}\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `etsy-deposits-${s.startDate}_to_${s.endDate}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function onStartClick() {
+    const startVal = document.getElementById('edt-start').value;
+    const endVal = document.getElementById('edt-end').value;
+    if (!startVal || !endVal) {
+      alert('Vui lòng chọn cả ngày bắt đầu và ngày kết thúc.');
+      return;
+    }
+    if (startVal > endVal) {
+      alert('Ngày bắt đầu phải trước ngày kết thúc.');
+      return;
+    }
+
+    updateStatus('Đang đưa về trang 1 trước khi quét...');
+    await ensureOnFirstPage();
+
+    const state = {
+      active: true,
+      startDate: startVal,
+      endDate: endVal,
+      results: [],
+      currentMonth: null,
+      currentYear: null,
+      currentPage: 1, // luôn bắt đầu đếm từ trang 1
+      iterations: 0,
+    };
+    saveState(state);
+    document.getElementById('edt-csv-btn').style.display = 'none';
+    console.log(`[Etsy Deposit] Bắt đầu quét từ ${startVal} đến ${endVal}, xuất phát từ trang 1`);
+    runAutomation(state);
+  }
+
+  function onStopClick() {
+    const s = loadState();
+    if (s) {
+      s.active = false;
+      saveState(s);
+    }
+    updateStatus('Đã dừng theo yêu cầu.');
+  }
+
+  function onClearClick() {
+    clearState();
+    document.getElementById('edt-results').innerHTML = '';
+    document.getElementById('edt-total').textContent = '';
+    document.getElementById('edt-csv-btn').style.display = 'none';
+    updateStatus('');
+  }
+
+  // ---------- Vòng lặp tự động chính ----------
+  async function runAutomation(state) {
+    updateStatus('Đang chờ bảng dữ liệu tải...');
+    const ok = await waitForTable();
+    if (!ok) {
+      updateStatus('Không tìm thấy bảng dữ liệu trên trang này.');
+      return;
+    }
+
+    const startDate = new Date(state.startDate + 'T00:00:00');
+    const endDate = new Date(state.endDate + 'T23:59:59');
+    let results = state.results || [];
+
+    if (!state.currentMonth) {
+      const urlMY = getCurrentMonthYearFromUrl();
+      if (urlMY) {
+        state.currentMonth = urlMY.month;
+        state.currentYear = urlMY.year;
+      } else {
+        const firstRow = getRows()[0];
+        const txt = firstRow ? firstRow.innerText : '';
+        const dm = txt.match(/(\d{1,2}\s+[A-Za-z]{3},\s*\d{4})/);
+        const d = dm ? parseListDate(dm[1]) : new Date();
+        state.currentMonth = d.getMonth() + 1;
+        state.currentYear = d.getFullYear();
+      }
+      if (!state.currentPage) state.currentPage = 1; // trang mới của tháng luôn bắt đầu từ 1
+      saveState(state);
+    }
+
+    let keepGoingOnThisMonth = true;
+
+    while (keepGoingOnThisMonth) {
+      const fresh = loadState();
+      if (!fresh || !fresh.active) {
+        updateStatus('Đã dừng.');
+        return;
+      }
+
+      const { minDateOnPage, sawOlderThanStart } = collectDepositsOnPage(results, startDate, endDate, state.currentPage);
+      state.results = results;
+      saveState(state);
+      renderResultsPreview(results);
+
+      if (sawOlderThanStart) {
+        console.log(`[Etsy Deposit] Đã gặp DATE nằm ngoài khoảng chọn (trước ${state.startDate}) -> dừng quét.`);
+        finish(results, state);
+        return;
+      }
+
+      updateStatus(
+        `Đang quét tháng ${state.currentMonth}/${state.currentYear}...\n` +
+        `Đã tìm thấy ${results.length} khoản deposit trong khoảng ngày.`
+      );
+
+      const oldSig = getRowsSignature();
+      const clicked = clickNextPage(state);
+
+      if (clicked) {
+        const changed = await waitForPageChange(oldSig);
+        if (!changed) {
+          keepGoingOnThisMonth = false;
+        } else {
+          await sleep(400);
+        }
+      } else {
+        keepGoingOnThisMonth = false;
+      }
+
+      state.iterations = (state.iterations || 0) + 1;
+      if (state.iterations > 300) {
+        updateStatus('Đã dừng để tránh vòng lặp quá dài (vượt quá 300 lần).');
+        finish(results, state);
+        return;
+      }
+    }
+
+    // Hết trang của tháng hiện tại — kiểm tra có cần lùi về tháng trước không
+    const startYM = startDate.getFullYear() * 12 + startDate.getMonth();
+    const curYM = state.currentYear * 12 + (state.currentMonth - 1);
+
+    if (curYM > startYM) {
+      let m = state.currentMonth - 1;
+      let y = state.currentYear;
+      if (m < 1) {
+        m = 12;
+        y -= 1;
+      }
+      state.currentMonth = m;
+      state.currentYear = y;
+      state.currentPage = 1; // trang của URL tháng mới luôn tải lại từ trang 1
+      saveState(state);
+      updateStatus(`Chuyển sang tháng ${m}/${y}...`);
+      console.log(`[Etsy Deposit] Chuyển sang tháng ${m}/${y}...`);
+      location.href = buildStatementUrl(m, y);
+      return; // trang sẽ tải lại, script tự tiếp tục nhờ state đã lưu
+    }
+
+    finish(results, state);
+  }
+
+  function finish(results, state) {
+    state.active = false;
+    saveState(state);
+    updateStatus(`Hoàn tất! Tìm thấy ${results.length} khoản deposit từ ${state.startDate} đến ${state.endDate}.`);
+    console.log(`[Etsy Deposit] Hoàn tất. Tổng cộng ${results.length} khoản deposit.`);
+    console.table(results.map((r) => ({ Page: r.page, Date: r.date, Amount: r.amountNumber, Destination: r.destination })));
+    renderResultsPreview(results);
+    const csvBtn = document.getElementById('edt-csv-btn');
+    if (csvBtn) csvBtn.style.display = 'inline-block';
+  }
+
+  // ---------- Khởi động khi trang load ----------
+  async function init() {
+    ensurePanel();
+    const state = loadState();
+    if (state) {
+      document.getElementById('edt-start').value = state.startDate || '';
+      document.getElementById('edt-end').value = state.endDate || '';
+      if (state.results && state.results.length) {
+        renderResultsPreview(state.results);
+      }
+      if (state.active) {
+        updateStatus('Tiếp tục quét sau khi chuyển trang...');
+        await runAutomation(state);
+      }
+    }
+  }
+
+  // Chờ DOM sẵn sàng rồi khởi tạo
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(init, 500);
+  } else {
+    window.addEventListener('DOMContentLoaded', () => setTimeout(init, 500));
+  }
+})();
