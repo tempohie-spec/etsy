@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Etsy Deposit Tracker
 // @namespace    etsy-deposit-tracker
-// @version      1.2
-// @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, tự chuyển trang và chuyển tháng (dò nút chuyển trang linh hoạt hơn), in kết quả (Date + Số tiền, không kèm đơn vị) ra Console.
+// @version      1.5
+// @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, tự tải thêm dữ liệu (nút Load more / phân trang số / cuộn từng đoạn nhỏ), chờ nội dung ổn định và quét bổ sung sau khi chuyển trang để tránh bỏ sót do loading, tự chuyển tháng, in kết quả (Date + Số tiền, không kèm đơn vị) ra Console.
 // @match        https://www.etsy.com/your/account/payments/monthly-statement*
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -15,7 +15,7 @@
   'use strict';
 
   const STATE_KEY = 'etsyDepositTrackerState_v1';
-  const SCRIPT_VERSION = '1.2';
+  const SCRIPT_VERSION = '1.5';
 
   // ---------- Tiện ích chung ----------
   function sleep(ms) {
@@ -79,12 +79,43 @@
     return false;
   }
 
+  async function waitForRowCountIncrease(oldCount, timeout = 8000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (getRows().length > oldCount) return true;
+      await sleep(250);
+    }
+    return false;
+  }
+
   async function waitForPageChange(oldSig, timeout = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
       const sig = getRowsSignature();
       if (sig && sig !== oldSig) return true;
       await sleep(200);
+    }
+    return false;
+  }
+
+  // Chờ nội dung bảng THỰC SỰ ổn định (không đổi liên tục nữa) trước khi quét.
+  // Cần thiết vì sau khi chuyển trang, DOM có thể ở trạng thái loading/skeleton
+  // trong chốc lát trước khi dữ liệu thật render xong — nếu quét ngay lúc đó
+  // sẽ bỏ sót dòng dù trang đã "đổi tín hiệu".
+  async function waitForContentStable(timeout = 8000, stableChecksNeeded = 2, interval = 250) {
+    let lastSig = getRowsSignature();
+    let stableCount = 0;
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      await sleep(interval);
+      const sig = getRowsSignature();
+      if (sig === lastSig) {
+        stableCount++;
+        if (stableCount >= stableChecksNeeded) return true;
+      } else {
+        stableCount = 0;
+        lastSig = sig;
+      }
     }
     return false;
   }
@@ -225,31 +256,108 @@
     await sleep(300);
   }
 
-  // Tự động bấm sang trang kế tiếp dựa trên state.currentPage (số trang tự đếm).
-  // Trả về true nếu đã bấm được, false nếu hết trang / không tìm thấy nút.
-  function clickNextPage(state) {
+  // Tự động chuyển sang "phần dữ liệu" kế tiếp — thử lần lượt 3 cách vì không
+  // biết chắc trang dùng cơ chế nào: (1) nút "Load more/Xem thêm", (2) nút
+  // phân trang dạng số hoặc "Next", (3) cuộn từng đoạn nhỏ để kích hoạt
+  // infinite scroll, QUÉT LẠI sau mỗi đoạn cuộn nhỏ (thay vì nhảy thẳng
+  // xuống đáy) — vì nếu danh sách dùng virtualized rendering (chỉ giữ một
+  // số dòng nhất định trong DOM tại một thời điểm), nhảy quá nhanh có thể
+  // khiến một dòng "lướt qua" mà không bao giờ được quét.
+  //
+  // scanFn: hàm gọi lại để quét DOM hiện tại sau mỗi bước cuộn nhỏ, trả về
+  // { sawOlderThanStart }.
+  // Trả về { advanced, hitOlder }.
+  async function advanceToNextBatch(state, scanFn) {
     const nextPageNum = (state.currentPage || 1) + 1;
-    const nav = getPaginationNav();
+    const oldSig = getRowsSignature();
+    const oldCount = getRows().length;
 
-    // Thử theo thứ tự: số trang trong nav -> nút "Next" trong nav
-    // -> số trang trong toàn trang -> nút "Next" trong toàn trang.
-    let target =
+    // Cách 1: nút "Load more" / "Show more" / "Xem thêm" / "Tải thêm"
+    const moreBtn = Array.from(document.querySelectorAll('button, a')).find((el) => {
+      const t = (el.textContent || '').trim().toLowerCase();
+      return /load more|show more|xem thêm|tải thêm|more results|more activities/.test(t);
+    });
+    if (moreBtn && !isControlDisabled(moreBtn)) {
+      moreBtn.click();
+      const changed = await waitForRowCountIncrease(oldCount, 8000);
+      if (changed) {
+        state.currentPage = nextPageNum;
+        await waitForContentStable(); // chờ nội dung ổn định, tránh quét trúng lúc đang loading
+        const { sawOlderThanStart } = scanFn();
+        return { advanced: true, hitOlder: sawOlderThanStart };
+      }
+    }
+
+    // Cách 2: nút phân trang dạng số hoặc "Next" (nav hoặc toàn trang)
+    const nav = getPaginationNav();
+    const pageTarget =
       findClickableByPageNumber(nav, nextPageNum) ||
       findNextControl(nav) ||
       findClickableByPageNumber(document, nextPageNum) ||
       findNextControl(document);
+    if (pageTarget && !isControlDisabled(pageTarget)) {
+      pageTarget.click();
+      const changed = await waitForPageChange(oldSig, 8000);
+      if (changed) {
+        state.currentPage = nextPageNum;
+        await waitForContentStable(); // chờ nội dung ổn định, tránh quét trúng lúc đang loading/skeleton
+        let { sawOlderThanStart } = scanFn();
+        if (!sawOlderThanStart) {
+          await sleep(500); // quét bổ sung phòng trường hợp có dữ liệu tải muộn hơn nữa
+          ({ sawOlderThanStart } = scanFn());
+        }
+        return { advanced: true, hitOlder: sawOlderThanStart };
+      }
+    }
 
-    if (target && !isControlDisabled(target)) {
-      target.click();
+    // Cách 3: cuộn TỪNG ĐOẠN NHỎ (không nhảy thẳng xuống đáy), quét lại sau
+    // mỗi đoạn để không bỏ sót dòng nếu danh sách dùng virtualized rendering.
+    const stepPx = Math.max(Math.round(window.innerHeight * 0.6), 300);
+    const maxSteps = 60;
+    let advancedAny = false;
+    let stallSteps = 0;
+    let lastCount = getRows().length;
+
+    for (let i = 0; i < maxSteps; i++) {
+      const before = window.scrollY || document.documentElement.scrollTop || 0;
+      const target = before + stepPx;
+      window.scrollTo(0, target);
+      document.documentElement.scrollTop = target;
+      await sleep(350);
+
+      // Quét ngay sau mỗi bước cuộn nhỏ, trong khi các dòng còn đang hiển thị.
+      const { sawOlderThanStart } = scanFn();
+      if (sawOlderThanStart) {
+        return { advanced: true, hitOlder: true };
+      }
+
+      const newCount = getRows().length;
+      if (newCount > lastCount) {
+        advancedAny = true;
+        lastCount = newCount;
+        stallSteps = 0;
+      } else {
+        stallSteps++;
+      }
+
+      const atBottom =
+        window.innerHeight + (window.scrollY || document.documentElement.scrollTop || 0) >=
+        document.body.scrollHeight - 10;
+
+      if (atBottom && stallSteps >= 2) break; // đã cuộn hết trang và không còn tải thêm
+      if (stallSteps >= 8) break; // an toàn, tránh cuộn vô hạn nếu bị kẹt
+    }
+
+    if (advancedAny) {
       state.currentPage = nextPageNum;
-      return true;
+      return { advanced: true, hitOlder: false };
     }
 
     console.log(
-      `[Etsy Deposit] Không tìm thấy nút chuyển sang trang ${nextPageNum}. ` +
-      `Nếu trang thực sự còn dữ liệu, cấu trúc phân trang của Etsy có thể đã đổi.`
+      `[Etsy Deposit] Không tải thêm được dữ liệu (đã thử nút "Load more", nút phân trang, và cuộn từng đoạn). ` +
+      `Coi như đã hết dữ liệu của tháng này.`
     );
-    return false;
+    return { advanced: false, hitOlder: false };
   }
 
   // ---------- Giao diện điều khiển ----------
@@ -444,6 +552,21 @@
 
     let keepGoingOnThisMonth = true;
 
+    // Hàm quét dùng chung: được gọi cho lần quét ban đầu của mỗi vòng lặp,
+    // và cũng được advanceToNextBatch gọi lại nhiều lần trong lúc cuộn từng
+    // đoạn nhỏ, để không bỏ sót dòng nào xuất hiện thoáng qua giữa 2 lần cuộn.
+    const scanFn = () => {
+      const result = collectDepositsOnPage(results, startDate, endDate, state.currentPage);
+      state.results = results;
+      saveState(state);
+      renderResultsPreview(results);
+      updateStatus(
+        `Đang quét tháng ${state.currentMonth}/${state.currentYear}...\n` +
+        `Đã tìm thấy ${results.length} khoản deposit trong khoảng ngày.`
+      );
+      return result;
+    };
+
     while (keepGoingOnThisMonth) {
       const fresh = loadState();
       if (!fresh || !fresh.active) {
@@ -451,10 +574,7 @@
         return;
       }
 
-      const { minDateOnPage, sawOlderThanStart } = collectDepositsOnPage(results, startDate, endDate, state.currentPage);
-      state.results = results;
-      saveState(state);
-      renderResultsPreview(results);
+      const { sawOlderThanStart } = scanFn();
 
       if (sawOlderThanStart) {
         console.log(`[Etsy Deposit] Đã gặp DATE nằm ngoài khoảng chọn (trước ${state.startDate}) -> dừng quét.`);
@@ -462,23 +582,13 @@
         return;
       }
 
-      updateStatus(
-        `Đang quét tháng ${state.currentMonth}/${state.currentYear}...\n` +
-        `Đã tìm thấy ${results.length} khoản deposit trong khoảng ngày.`
-      );
+      const { advanced, hitOlder } = await advanceToNextBatch(state, scanFn);
+      keepGoingOnThisMonth = advanced && !hitOlder;
 
-      const oldSig = getRowsSignature();
-      const clicked = clickNextPage(state);
-
-      if (clicked) {
-        const changed = await waitForPageChange(oldSig);
-        if (!changed) {
-          keepGoingOnThisMonth = false;
-        } else {
-          await sleep(400);
-        }
-      } else {
-        keepGoingOnThisMonth = false;
+      if (hitOlder) {
+        console.log(`[Etsy Deposit] Đã gặp DATE nằm ngoài khoảng chọn (trước ${state.startDate}) trong lúc cuộn -> dừng quét.`);
+        finish(results, state);
+        return;
       }
 
       state.iterations = (state.iterations || 0) + 1;
