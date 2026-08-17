@@ -415,10 +415,26 @@ thì mọi phần tử từ `0` đến `soAnhCu−1` dịch phải một ô, cá
 Sau mỗi lần thả, script so "chữ ký" ô ảnh (`img src`) để **kiểm tra thật sự đã nhảy lên đầu chưa**.
 Nếu không ăn, nó dừng sắp xếp và báo còn bao nhiêu ảnh cần kéo tay — chứ không im lặng coi như xong.
 
-### Tìm ô ảnh trong lưới
+### Tìm ô ảnh trong lưới — đếm sai vì mỗi ảnh nằm trong `<li>` riêng (v7.7)
 
-`layCacTheAnh()` lấy mọi `[aria-roledescription="sortable"]` rồi **nhóm theo phần tử cha và chọn
-nhóm đông nhất**, để không dính các vùng sortable khác của trang.
+`layCacTheAnh()` lấy mọi `[aria-roledescription="sortable"]` rồi nhóm lại để không dính các vùng
+sortable khác của trang. Bản đầu nhóm theo **cha trực tiếp** (`el.parentElement`) — sai trên thực tế:
+Console log ra *"Lưới đang có 1 ảnh"* trong khi ảnh chụp cho thấy rõ ràng nhiều hơn, lặp lại y hệt
+trên hai listing khác nhau.
+
+Nguyên nhân: lưới ảnh của Etsy bọc **mỗi ảnh trong một `<li>` riêng**, nên cha trực tiếp của từng thẻ
+`sortable` là khác nhau cho từng ảnh — mọi "nhóm" chỉ có đúng 1 phần tử, và hàm tình cờ trả về nhóm
+đầu tiên tìm thấy (1 ảnh bất kỳ). Số `soAnhCu` sai kéo theo toàn bộ phép tính "bước sang trái bao
+nhiêu lần" ở bước sắp xếp cũng sai theo — đây chính là lý do 7 ảnh Star Wars/Mickey Mouse trước đó
+tưởng "sắp xếp mà không chạy" thật ra chạy với dữ liệu sai từ đầu.
+
+Sửa bằng cách nhóm theo **container danh sách gần nhất** thay vì cha trực tiếp — `timChaDanhSach()`
+đi lên tối đa 6 cấp tìm `<ul>`/`<ol>`/`[role="list"]`/`[role="grid"]`. Nếu việc gom nhóm vẫn không
+chắc chắn (nhóm lớn nhất chưa tới 60% tổng số thẻ tìm được), hàm **bỏ qua bộ lọc và trả về toàn bộ**
+thay vì một con số sai lệch — thừa còn hơn thiếu, vì thiếu sẽ phá hỏng cả phép tính giới hạn ảnh lẫn
+bước sắp xếp phía sau. Đã mô phỏng bằng cây DOM giả trong Node cho 3 kịch bản: mỗi ảnh 1 `<li>` riêng
+(đúng lỗi thực tế), các ảnh chung 1 cha trực tiếp (cách cũ vẫn đúng), và có 1 vùng sortable lạ dính
+vào trang (phải bị loại bỏ).
 
 ## Ô cá nhân hoá — "Add personalization" (v5.1)
 

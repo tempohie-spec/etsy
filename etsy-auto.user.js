@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      7.6
+// @version      7.7
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Alt+U tren trang chinh sua: tu tai anh cua listing nguon roi nhoi thang vao o upload cua Etsy (bo tick san anh bang size), dua anh moi len dau luoi bang ban phim (dnd-kit), tuy chon bam ho Save as draft / Publish. Giao dien co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '7.6';
+  const PHIEN_BAN = '7.7';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2117,15 +2117,35 @@
 
   // ---- Cac the anh trong luoi (dnd-kit) ----
 
+  // Tim to tien GAN NHAT trong dan la container danh sach (ul/ol/role=list|grid), toi da 6 buoc.
+  function timChaDanhSach(el) {
+    let vc = el.parentElement;
+    for (let buoc = 0; vc && buoc < 6; buoc++) {
+      if (/^(UL|OL)$/.test(vc.tagName) || vc.getAttribute('role') === 'list' || vc.getAttribute('role') === 'grid') {
+        return vc;
+      }
+      vc = vc.parentElement;
+    }
+    return el.parentElement;
+  }
+
   // Moi anh trong luoi la mot phan tu co aria-roledescription="sortable".
-  // Loc theo phan tu CHA dong anh em nhieu nhat de khong dinh cac vung sortable khac cua trang.
+  // Loc theo container danh sach dung nhat de khong dinh cac vung sortable khac cua trang.
+  //
+  // LUU Y quan trong: KHONG the gom nhom theo CHA TRUC TIEP — nhieu luoi boc moi the trong 1 <li>
+  // RIENG, khi do parentElement cua moi the KHAC NHAU va gom nhom se vo tinh tra ve dung 1 phan tu
+  // (da tung xay ra thuc te: Console log "Lưới đang có 1 ảnh" trong khi anh chup cho thay ro co
+  // nhieu hon). Vi vay tim CHA GAN NHAT dang la container danh sach (timChaDanhSach) roi moi gom
+  // nhom theo container do. Neu nhom "lon nhat" van chi chiem mot phan nho trong tong so the tim
+  // duoc, coi nhu gom nhom that bai — tra ve TAT CA thay vi mot con so sai lech: thua con hon
+  // thieu, vi thieu se pha hong ca phep tinh soAnhCu / gioi han anh / buoc sap xep phia sau.
   function layCacTheAnh() {
     const tatCa = [...document.querySelectorAll('[aria-roledescription="sortable"]')];
     if (tatCa.length < 2) return tatCa;
 
     const nhomTheoCha = new Map();
     for (const el of tatCa) {
-      const cha = el.parentElement;
+      const cha = timChaDanhSach(el);
       if (!cha) continue;
       if (!nhomTheoCha.has(cha)) nhomTheoCha.set(cha, []);
       nhomTheoCha.get(cha).push(el);
@@ -2134,7 +2154,15 @@
     for (const ds of nhomTheoCha.values()) {
       if (ds.length > lonNhat.length) lonNhat = ds;
     }
-    return lonNhat.length ? lonNhat : tatCa;
+
+    if (lonNhat.length < tatCa.length * 0.6) {
+      console.warn(
+        '[Etsy Auto] Gom nhóm thẻ ảnh theo cha không chắc chắn (nhóm lớn nhất chỉ có',
+        lonNhat.length, '/', tatCa.length, 'thẻ) — dùng toàn bộ để tránh đếm thiếu.'
+      );
+      return tatCa;
+    }
+    return lonNhat;
   }
 
   // "Chu ky" de nhan ra 1 the anh cu the sau khi luoi ve lai — dung de kiem tra sap xep co an khong
