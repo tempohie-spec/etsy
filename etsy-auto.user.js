@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      8.1
+// @version      8.2
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '8.1';
+  const PHIEN_BAN = '8.2';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -731,10 +731,21 @@
   // Tai TUNG anh full size mot, luu thanh file rieng le xuong may (KHONG nen zip)
   // "ketQuaAnhCoSan" (tuy chon) de dung lai ket qua da quet o noi goi, khong quet lai trang lan nua.
   async function taiTungAnhRieng(tieuDe, ketQuaAnhCoSan) {
-    const { danhSach: danhSachUrl, nguon } = ketQuaAnhCoSan || layDanhSachAnhFullSize();
+    const { danhSach: danhSachGoc, nguon } = ketQuaAnhCoSan || layDanhSachAnhFullSize();
+
+    // Bo qua ngay tu dau nhung anh nghi la bang size (cung dieu kien "tu bo tick san" o buoc
+    // upload — xem laAnhBangSize()), vi day la tai xuong may nen khong co buoc chon lai nhu
+    // bang chon anh upload — bo hang truoc, chu khong bo tick de nguoi dung tu chon.
+    const danhSachUrl = danhSachGoc.filter((a) => !laAnhBangSize(a.alt));
+    const soBoQuaBangSize = danhSachGoc.length - danhSachUrl.length;
 
     if (danhSachUrl.length === 0) {
-      hienThongBao('⚠️ Không tìm thấy ảnh nào trên trang này', '#DC2626');
+      hienThongBao(
+        soBoQuaBangSize > 0
+          ? '⚠️ Chỉ tìm thấy ảnh nghi là bảng size — không còn ảnh nào để tải'
+          : '⚠️ Không tìm thấy ảnh nào trên trang này',
+        '#DC2626'
+      );
       return;
     }
 
@@ -743,7 +754,8 @@
       await cho(1200);
     }
 
-    hienThongBao(`⏳ Đang tải ${danhSachUrl.length} ảnh (từng file riêng)...`, '#2563EB');
+    const ghiChuBoQua = soBoQuaBangSize > 0 ? ` (đã bỏ qua ${soBoQuaBangSize} ảnh bảng size)` : '';
+    hienThongBao(`⏳ Đang tải ${danhSachUrl.length} ảnh (từng file riêng)${ghiChuBoQua}...`, '#2563EB');
 
     const tenGoc = lamSachTenFile(tieuDe);
     let soLuongThanhCong = 0;
@@ -783,11 +795,14 @@
 
     if (danhSachLoi.length > 0) {
       hienThongBao(
-        `⚠️ Đã tải ${soLuongThanhCong}/${danhSachUrl.length} ảnh. Lỗi ảnh số: ${danhSachLoi.join(', ')}`,
+        `⚠️ Đã tải ${soLuongThanhCong}/${danhSachUrl.length} ảnh${ghiChuBoQua}. Lỗi ảnh số: ${danhSachLoi.join(', ')}`,
         '#F59E0B'
       );
     } else {
-      hienThongBao(`✅ Đã tải xong tất cả ${soLuongThanhCong} ảnh (file riêng lẻ, không nén zip)`, '#16A34A');
+      hienThongBao(
+        `✅ Đã tải xong tất cả ${soLuongThanhCong} ảnh (file riêng lẻ, không nén zip)${ghiChuBoQua}`,
+        '#16A34A'
+      );
     }
 
   }

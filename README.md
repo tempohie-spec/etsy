@@ -291,6 +291,18 @@ Bây giờ:
 Nếu **không** tìm thấy khối carousel, script quay về chế độ quét cả trang như cũ (có bỏ 1 ảnh cuối,
 bật/tắt bằng hằng số `BO_ANH_CUOI_KHI_QUET_CA_TRANG`) và hiện cảnh báo màu vàng.
 
+### Tự bỏ qua ảnh bảng size khi tải xuống (v8.2)
+
+Cùng điều kiện nhận diện `laAnhBangSize()` dùng để tự bỏ tick sẵn ở bảng chọn ảnh upload (mục dưới)
+giờ áp dụng luôn cho `Alt+G` (tải ảnh xuống máy): ảnh có `alt` khớp `size chart`, `sizing chart`,
+`size guide`, `sizing guide`, `measurement`, hoặc từ `chart` đứng riêng — bị **loại thẳng khỏi danh
+sách tải**, không tạo ra file trên máy. Khác với bảng chọn ảnh upload (chỉ bỏ tick, người dùng tick
+lại được), tải xuống không có bước chọn lại nên loại hẳn thay vì để tuỳ chọn.
+
+Toast báo rõ đã bỏ qua bao nhiêu ảnh: `⏳ Đang tải 5 ảnh (từng file riêng) (đã bỏ qua 2 ảnh bảng
+size)...`. Ở chế độ dự phòng (quét cả trang, không có `alt` theo từng ảnh) thì không lọc được gì —
+việc lọc chỉ có tác dụng khi tìm thấy khối carousel.
+
 ## Tự upload ảnh nguồn lên trang chỉnh sửa — gộp vào `Alt + V` (v7.4, gộp ở v8.1)
 
 Thay vì tải 10 file xuống máy rồi mở hộp thoại chọn file của hệ điều hành, script giữ luôn danh sách
