@@ -1189,100 +1189,6 @@
     }
   }
 
-  // Goi API roi in NGUYEN VAN phan hoi ra Console. Muc dich: xem tan mat app cua minh doc duoc
-  // nhung truong nao (num_favorers, views, quantity...) thay vi doan mo theo tai lieu — Etsy khoa
-  // bot mot so truong tuy loai app, nen chi co cach thu that moi biet chac.
-  async function xemDuLieuApi() {
-    if (!coKhoaXacThuc()) {
-      hienThongBao('⚠️ Chưa có khoá API — bấm 🔑 để nhập trước', '#F59E0B');
-      return;
-    }
-
-    const listingId = layListingId();
-    if (!listingId) {
-      hienThongBao('⚠️ Trang này không phải trang listing nên không có gì để gọi', '#F59E0B');
-      return;
-    }
-
-    hienThongBao('⏳ Đang gọi API...', '#2563EB');
-    try {
-      const { duLieu, tenKhoa } = await goiApi(
-        `https://openapi.etsy.com/v3/application/listings/${listingId}`
-      );
-
-      console.log(
-        `%c[Etsy Auto] Dữ liệu API — listing ${listingId} (khoá dùng: ${tenKhoa})`,
-        'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;'
-      );
-
-      // In ca doi tuong de bam mo ra xem tung truong
-      console.log(duLieu);
-
-      // Bang tom tat cac chi so hay quan tam. Truong nao Etsy khong tra ve thi ghi ro,
-      // de phan biet "bang 0" (co cong bo, that su chua co luot nao) voi "khong co du lieu"
-      // (Etsy khoa truong do) — hai thu nay y nghia nguoc han nhau.
-      const hienGiaTri = (v) => (v === undefined ? '(API không trả về)' : v === null ? '(null)' : v);
-      const shop = duLieu.shop || {};
-
-      console.table({
-        '👁️ Lượt xem listing (views)': hienGiaTri(duLieu.views),
-        '❤️ Lượt thích listing (num_favorers)': hienGiaTri(duLieu.num_favorers),
-        '🛒 Lượt bán listing': '(Etsy KHÔNG công bố — xem ghi chú bên dưới)',
-        '📦 Số lượng còn — chụp lại để tính bán': hienGiaTri(duLieu.quantity),
-        '🏪 Tổng đơn của shop (transaction_sold_count)': hienGiaTri(shop.transaction_sold_count),
-        '🏪 Người theo dõi shop': hienGiaTri(shop.num_favorers),
-        '🏪 Đánh giá shop': shop.review_count === undefined
-          ? '(API không trả về)'
-          : `${shop.review_average ?? '?'} ⭐ / ${shop.review_count} lượt`,
-        '🏪 Listing đang bán': hienGiaTri(shop.listing_active_count),
-        'Số tag': Array.isArray(duLieu.tags) ? duLieu.tags.length : '(API không trả về)',
-        'Trạng thái (state)': hienGiaTri(duLieu.state),
-        'Giá': duLieu.price
-          ? `${(duLieu.price.amount / duLieu.price.divisor).toFixed(2)} ${duLieu.price.currency_code}`
-          : '(API không trả về)',
-      });
-
-      // So review cua listing: moi review ung voi mot don hang that, nen day la CAN DUOI chac chan
-      // cua luot ban — chi so "cung" gan nhat voi luot ban ma API cong khai cho doc.
-      // Goi rieng vi no la endpoint khac; that bai thi bo qua, khong lam hong ca nut.
-      let soReview = '(không gọi được)';
-      try {
-        const kq = await goiApi(
-          `https://openapi.etsy.com/v3/application/listings/${listingId}/reviews?limit=1`
-        );
-        soReview = kq.duLieu && kq.duLieu.count !== undefined ? kq.duLieu.count : '(API không trả về count)';
-        console.log('[Etsy Auto] Phản hồi endpoint reviews:', kq.duLieu);
-      } catch (loi) {
-        soReview = `(lỗi: ${loi.message})`;
-        console.warn('[Etsy Auto] Không lấy được số review của listing:', loi.message);
-      }
-      console.log('[Etsy Auto] 📝 Số review của listing (cận dưới của lượt bán):', soReview);
-
-      console.info(
-        '[Etsy Auto] Ghi chú về LƯỢT BÁN: Etsy không có trường số bán cho từng listing — không ' +
-          'trong API, không trong HTML trang, và cũng không có trường ẩn nào. ' +
-          'Các công cụ như HeyEtsy KHÔNG đọc được gì hơn: họ ƯỚC LƯỢNG bằng cách chụp dữ liệu ' +
-          'theo thời gian rồi lấy hiệu số — quantity giảm bao nhiêu là bán bấy nhiêu, views tăng ' +
-          'bao nhiêu là lượt xem/ngày, shop.transaction_sold_count tăng bao nhiêu là số đơn cả ' +
-          'shop trong kỳ. Muốn số bán CHÍNH XÁC của riêng listing thì chỉ có getShopReceipts, mà ' +
-          'nó cần OAuth và chỉ đọc được đơn của chính shop bạn.'
-      );
-
-      console.log('[Etsy Auto] Tất cả trường API trả về:', Object.keys(duLieu).sort().join(', '));
-
-      // Tom tat ngan ngay tren toast de khong phai mo Console cho cau hoi don gian
-      const soHoacGach = (v) => (v === undefined || v === null ? '—' : v);
-      hienThongBao(
-        `👁️ ${soHoacGach(duLieu.views)} xem · ❤️ ${soHoacGach(duLieu.num_favorers)} thích · ` +
-          `🏪 shop ${soHoacGach(shop.transaction_sold_count)} đơn — chi tiết ở Console (F12)`,
-        '#16A34A'
-      );
-    } catch (loi) {
-      console.error('[Etsy Auto] Gọi API thất bại:', loi);
-      hienThongBao('❌ Gọi API thất bại — ' + loi.message, '#DC2626');
-    }
-  }
-
   function timNutCopyTag() {
     const nhan = timTheoChuHienThi('dt, span, div, h2, h3, label', 'tags');
     if (!nhan) return null;
@@ -1865,6 +1771,18 @@
       hienThongBao(`✅ Đã dán ${ketQuaTag.soLuong} tag${ghiChuPerso}${ghiChuTab}. ${ketQuaTieuDe.ly_do}`, '#DC2626');
     } else {
       hienThongBao(`❌ ${ketQuaTieuDe.ly_do} | ${ketQuaTag.ly_do}${ghiChuPerso}`, '#DC2626');
+    }
+
+    // Dan xong thi tu chay luon buoc upload anh (gop chung vao Alt+V, khong con nut/phim rieng).
+    // Doi them 1 chut de tab "Photo & Video" (vua bam o tren, neu co) kip ve xong o upload.
+    if (danhSachAnh && danhSachAnh.length) {
+      await cho(500);
+      try {
+        await tuUploadAnh();
+      } catch (loi) {
+        console.error('[Etsy Auto] Lỗi khi upload ảnh:', loi);
+        hienThongBao('❌ Lỗi khi upload ảnh: ' + loi.message, '#DC2626');
+      }
     }
   }
 
@@ -2489,22 +2407,36 @@
     if (cu) cu.remove();
   }
 
+  const RONG_THE_THONG_KE = 260;
+
+  // Vi tri mac dinh cua the thong ke: NGAY DUOI panel "Listing Tools" (du dang thu nho hay mo
+  // rong), de khi xo ra no dinh lien vao card chinh thay vi hien o goc khac man hinh. Chi dung
+  // khi nguoi dung CHUA TUNG tu keo the nay di dau (xem noi goi ham nay) — da keo roi thi tu
+  // trong vi tri da luu.
+  function viTriMacDinhTheThongKe() {
+    const panel = document.getElementById('etsy-auto-panel');
+    if (!panel) return { top: '120px', left: '16px' };
+    const rect = panel.getBoundingClientRect();
+    const traiToiDa = window.innerWidth - RONG_THE_THONG_KE - 8;
+    const trai = Math.min(Math.max(8, rect.left), Math.max(8, traiToiDa));
+    return { top: `${Math.round(rect.bottom + 8)}px`, left: `${Math.round(trai)}px` };
+  }
+
   function veTheThongKe(tk) {
     xoaTheThongKe();
 
     const khung = document.createElement('div');
     khung.id = 'etsy-auto-stats';
     khung.style.cssText = `
-      position:fixed; z-index:999998; top:120px; left:16px; width:260px;
+      position:fixed; z-index:999998; top:120px; left:16px; width:${RONG_THE_THONG_KE}px;
       background:#fff; border-radius:10px; overflow:hidden; font-family:sans-serif;
       box-shadow:0 6px 20px rgba(0,0,0,.25); user-select:none;
     `;
 
     const viTri = docTrangThaiPanel()[KHOA_VI_TRI_THONG_KE];
-    if (viTri && viTri.left && viTri.top) {
-      khung.style.left = viTri.left;
-      khung.style.top = viTri.top;
-    }
+    const viTriDat = viTri && viTri.left && viTri.top ? viTri : viTriMacDinhTheThongKe();
+    khung.style.left = viTriDat.left;
+    khung.style.top = viTriDat.top;
 
     // Mot dong so lieu: nhan ben trai, gia tri chinh ben phai, gia tri phu mo hon o duoi
     const dong = (bieuTuong, nhan, giaTri, phu) => `
@@ -2859,6 +2791,7 @@
     bieuTuongThuNho.innerHTML = `
       <div style="font-size:20px; line-height:1;">🏷️</div>
       <div style="font-size:10px; font-weight:bold; letter-spacing:.3px; margin-top:2px;">Listing</div>
+      <div style="font-size:8px; opacity:.85; line-height:1;">v${PHIEN_BAN}</div>
     `;
     khung.appendChild(bieuTuongThuNho);
 
@@ -2879,7 +2812,7 @@
       padding:8px 10px; cursor:grab; font-weight:bold; font-size:13px;
     `;
     thanhTieuDe.innerHTML = `
-      <span>🏷️ Listing Tools</span>
+      <span>🏷️ Listing Tools <span style="font-weight:normal;opacity:.8;font-size:11px;">v${PHIEN_BAN}</span></span>
       <button id="ea-btn-minimize" title="Thu nhỏ" style="
         background:rgba(255,255,255,.25); border:none; color:#fff;
         width:22px; height:22px; border-radius:6px; cursor:pointer;
@@ -2893,13 +2826,9 @@
     vungNut.innerHTML = `
       <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh (Alt+G)</button>
       <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy dữ liệu (Alt+C)</button>
-      <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu (Alt+V)</button>
-      <button id="ea-btn-upload" style="padding:8px 12px;background:#B45309;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🖼️ Upload ảnh nguồn (Alt+U)</button>
-      <button id="ea-btn-stats" style="padding:8px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📊 Thống kê listing</button>
+      <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu + upload ảnh (Alt+V)</button>
+      <button id="ea-btn-apikey" style="padding:6px 8px;background:#F3F4F6;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:11px;font-weight:bold;cursor:pointer;text-align:center;">🔑 <span id="ea-apikey-label"></span> · <span id="ea-quota-inline">⚡ …</span></button>
       <button id="ea-btn-autostats" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;"></button>
-      <button id="ea-btn-apidata" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔍 Đổ dữ liệu API ra Console</button>
-      <button id="ea-btn-apikey" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔑 <span id="ea-apikey-label"></span></button>
-      <div id="ea-quota" style="margin-top:2px;padding:6px 8px;border-radius:6px;background:#F3F4F6;border:1px solid #D1D5DB;font-size:11px;font-weight:bold;text-align:center;color:#374151;">⚡ …</div>
     `;
     khungMoRong.appendChild(vungNut);
     khung.appendChild(khungMoRong);
@@ -2945,33 +2874,35 @@
     document.getElementById('ea-btn-get').onclick = layVaTaiAnh;
     document.getElementById('ea-btn-get-notag').onclick = chiLayTieuDeVaTag;
     document.getElementById('ea-btn-paste').onclick = danTieuDeVaTag;
-    document.getElementById('ea-btn-upload').onclick = () => {
-      tuUploadAnh().catch((loi) => {
-        console.error('[Etsy Auto] Lỗi khi upload ảnh:', loi);
-        hienThongBao('❌ Lỗi khi upload ảnh: ' + loi.message, '#DC2626');
-      });
-    };
-    document.getElementById('ea-btn-apidata').onclick = xemDuLieuApi;
-    document.getElementById('ea-btn-stats').onclick = () => hienThongKeListing();
 
-    // Dong ho han muc: cho biet hom nay da dung bao nhieu trong 5.000 request,
-    // doi mau khi sap het de con biet ma han che
-    const oQuota = document.getElementById('ea-quota');
+    // Nut gop: nhan/doi khoa API (bam de mo hop thoai nhap) + dong ho han muc hom nay,
+    // cho biet hom nay da dung bao nhieu trong 5.000 request, doi mau khi sap het.
+    const nhanApiKey = document.getElementById('ea-apikey-label');
+    const oQuota = document.getElementById('ea-quota-inline');
+    const capNhatNhanApiKey = () => {
+      nhanApiKey.textContent = coKhoaXacThuc() ? 'Đã có khoá API' : 'Chưa có khoá API';
+    };
     const capNhatQuota = () => {
       if (!oQuota) return;
       const { so } = docDemNgay();
       const conLai = Math.max(0, GIOI_HAN_QPD - so);
-      oQuota.textContent = `⚡ API hôm nay: ${so.toLocaleString('vi-VN')}/${GIOI_HAN_QPD.toLocaleString('vi-VN')}`;
-      oQuota.style.color = conLai === 0 ? '#DC2626' : conLai < 500 ? '#D97706' : '#374151';
+      oQuota.textContent = `⚡ ${so.toLocaleString('vi-VN')}/${GIOI_HAN_QPD.toLocaleString('vi-VN')}`;
+      oQuota.style.color = conLai === 0 ? '#DC2626' : conLai < 500 ? '#D97706' : 'inherit';
       oQuota.title = `Còn ${conLai.toLocaleString('vi-VN')} request cho hôm nay (giới hạn Etsy: ${GIOI_HAN_QPD.toLocaleString('vi-VN')}/ngày, 5 QPS)`;
     };
+    capNhatNhanApiKey();
     capNhatQuota();
     HEN_GIO.setInterval(capNhatQuota, 5000);
+    document.getElementById('ea-btn-apikey').onclick = async () => {
+      await hoiApiKey();
+      capNhatNhanApiKey();
+    };
 
-    // Cong tac bat/tat viec tu hien the thong ke moi khi mo mot listing
+    // Nut gop: bat/tat tu hien the thong ke moi khi mo mot listing (bam BAT se hien luon
+    // the cua listing dang mo, giong nhu nut "Thong ke listing" rieng truoc day).
     const nutTuHien = document.getElementById('ea-btn-autostats');
     const capNhatNhanTuHien = () => {
-      nutTuHien.textContent = dangBatTuHien() ? '📊 Tự hiện: BẬT' : '📊 Tự hiện: TẮT';
+      nutTuHien.textContent = dangBatTuHien() ? '📊 Thống kê listing: BẬT' : '📊 Thống kê listing: TẮT';
     };
     capNhatNhanTuHien();
     nutTuHien.onclick = () => {
@@ -2986,50 +2917,48 @@
         xoaTatCaTheMini();
       }
     };
-
-    // Nut nhap / doi API key, kem nhan cho biet da co key hay chua
-    const nhanApiKey = document.getElementById('ea-apikey-label');
-    const capNhatNhanApiKey = () => {
-      nhanApiKey.textContent = coKhoaXacThuc() ? 'Đã có khoá API' : 'Chưa có khoá API';
-    };
-    capNhatNhanApiKey();
-    document.getElementById('ea-btn-apikey').onclick = async () => {
-      await hoiApiKey();
-      capNhatNhanApiKey();
-    };
   }
 
-  taoGiaoDien();
-
-  console.log(
-    `%c[Etsy Auto] Đã nạp script phiên bản ${PHIEN_BAN}`,
-    'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;',
-    `| Nguồn hẹn giờ: ${HEN_GIO.nguon} | API hôm nay: ${docDemNgay().so}/${GIOI_HAN_QPD}`
-  );
-
-  // Tu hien the thong ke khi dang o trang listing (co the tat bang nut trong panel).
-  // "imLangKhiLoi" de lan chay tu dong khong bung toast do khi chua nhap khoa hay API tam loi —
-  // nguoi dung dau co chu dong yeu cau gi.
-  if (layListingId() && dangBatTuHien()) {
-    hienThongKeListing({ imLangKhiLoi: true });
+  // Chi kich hoat giao dien + tinh nang tren dung 3 dang trang lam viec, khong hien tool o
+  // nhung trang khong lien quan (trang chu, gio hang, tin nhan, tai khoan...):
+  //   - /search                        trang tim kiem / luoi san pham
+  //   - /listing/...                   trang chi tiet 1 listing — nguon de Alt+G / Alt+C
+  //   - /your/shops/me/listing-editor  trang tao/sua listing — dich de Alt+V
+  function trangDuocHoTro() {
+    const duong = location.pathname;
+    return (
+      /\/search(\/|$)/.test(duong) ||
+      /\/listing\//.test(duong) ||
+      duong.includes('/your/shops/me/listing-editor')
+    );
   }
 
-  // Gan the mini vao luoi san pham tren MOI trang, va theo doi de gan tiep khi trang nap them the
-  ganThongKeVaoLuoi();
-  theoDoiLuoiSanPham();
+  if (trangDuocHoTro()) {
+    taoGiaoDien();
 
-  document.addEventListener('keydown', (e) => {
-    if (!e.altKey) return;
-    const key = e.key.toLowerCase();
-    if (key === 'g') { e.preventDefault(); layVaTaiAnh(); }
-    if (key === 'c') { e.preventDefault(); chiLayTieuDeVaTag(); }
-    if (key === 'v') { e.preventDefault(); danTieuDeVaTag(); }
-    if (key === 'u') {
-      e.preventDefault();
-      tuUploadAnh().catch((loi) => {
-        console.error('[Etsy Auto] Lỗi khi upload ảnh:', loi);
-        hienThongBao('❌ Lỗi khi upload ảnh: ' + loi.message, '#DC2626');
-      });
+    console.log(
+      `%c[Etsy Auto] Đã nạp script phiên bản ${PHIEN_BAN}`,
+      'background:#F56400;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold;',
+      `| Nguồn hẹn giờ: ${HEN_GIO.nguon} | API hôm nay: ${docDemNgay().so}/${GIOI_HAN_QPD}`
+    );
+
+    // Tu hien the thong ke khi dang o trang listing (co the tat bang nut trong panel).
+    // "imLangKhiLoi" de lan chay tu dong khong bung toast do khi chua nhap khoa hay API tam loi —
+    // nguoi dung dau co chu dong yeu cau gi.
+    if (layListingId() && dangBatTuHien()) {
+      hienThongKeListing({ imLangKhiLoi: true });
     }
-  });
+
+    // Gan the mini vao luoi san pham tren MOI trang, va theo doi de gan tiep khi trang nap them the
+    ganThongKeVaoLuoi();
+    theoDoiLuoiSanPham();
+
+    document.addEventListener('keydown', (e) => {
+      if (!e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'g') { e.preventDefault(); layVaTaiAnh(); }
+      if (key === 'c') { e.preventDefault(); chiLayTieuDeVaTag(); }
+      if (key === 'v') { e.preventDefault(); danTieuDeVaTag(); }
+    });
+  }
 })();
