@@ -11,11 +11,16 @@ Userscript (Violentmonkey / Tampermonkey) cho trang Etsy.
 |---|---|
 | `Alt + G` | Lấy tiêu đề + tag + ô cá nhân hoá vào Clipboard **và** tải toàn bộ ảnh full size của listing |
 | `Alt + C` | Chỉ lấy tiêu đề + tag + ô cá nhân hoá (không tải ảnh) |
-| `Alt + V` | Dán tiêu đề + tag, tạo ô cá nhân hoá, rồi tự bấm tab **Photo & Video** |
-| `Alt + U` | Tự upload ảnh của listing nguồn lên trang chỉnh sửa, đẩy lên đầu lưới (xem mục dưới) |
-| 📊 Xem dữ liệu API | In nguyên phản hồi API của listing ra Console (xem mục dưới) |
+| `Alt + V` | Dán tiêu đề + tag, tạo ô cá nhân hoá, bấm tab **Photo & Video**, rồi **tự upload luôn ảnh** của listing nguồn (xem mục dưới) — không còn nút/phím tắt upload riêng |
 
-Giao diện nổi có thể thu nhỏ thành biểu tượng tròn "Listing" và kéo thả tự do; vị trí được nhớ lại qua `localStorage`.
+Giao diện nổi có thể thu nhỏ thành biểu tượng tròn "Listing" và kéo thả tự do; vị trí được nhớ lại
+qua `localStorage`. Số phiên bản hiện ngay trên card, kể cả khi thu nhỏ.
+
+**Chỉ hiện trên 3 dạng trang** (trang khác trên etsy.com — trang chủ, giỏ hàng, tin nhắn... — script
+không làm gì cả):
+- `www.etsy.com/search` — trang tìm kiếm/lưới sản phẩm
+- `www.etsy.com/listing/...` — trang chi tiết 1 listing (nguồn cho `Alt+G`/`Alt+C`)
+- `www.etsy.com/your/shops/me/listing-editor` — trang tạo/sửa listing (đích cho `Alt+V`)
 
 ## Lấy tag qua Etsy Open API (v6.1)
 
@@ -79,19 +84,12 @@ Keystring:Shared secret → Keystring → Shared secret → Shared secret:Keystr
 
 Console cho biết đang dùng tổ hợp nào: `[Etsy Auto] API OK bằng Keystring:Shared secret`
 
-### Nút 📊 Xem dữ liệu API (v6.5)
+### Nút 📊 Xem dữ liệu API (v6.5, xoá ở v8.1)
 
-Gọi `getListing` cho listing đang mở rồi in **nguyên văn** phản hồi ra Console — để biết tận mắt
-app của bạn đọc được những trường nào, thay vì đoán theo tài liệu (Etsy khoá bớt một số trường
-tuỳ loại app).
-
-Console in ra 3 thứ:
-
-1. Nguyên đối tượng JSON, bấm mở ra xem từng trường.
-2. Bảng tóm tắt các chỉ số hay quan tâm — lượt thích, lượt xem, số lượng còn, số tag, trạng thái, giá.
-3. Danh sách **tất cả** tên trường API trả về, sắp xếp A→Z.
-
-Toast tóm tắt ngay trên màn hình: `✅ ❤️ Thích: 15 · 👁️ Xem: 342 — chi tiết xem Console (F12)`
+Từng gọi `getListing` cho listing đang mở rồi in nguyên văn phản hồi ra Console, để biết tận mắt
+app đọc được những trường nào (Etsy khoá bớt một số trường tuỳ loại app). Đây là công cụ debug lúc
+làm rõ khả năng của API (mục trên) — sau khi đã xác định xong bộ trường khả dụng, nút này không còn
+tác dụng gì trong vận hành hàng ngày nên đã bỏ khỏi giao diện để panel gọn hơn.
 
 Bảng phân biệt rõ **`0`** với **`(API không trả về)`** — hai thứ này khác hẳn nhau khi cần biết
 Etsy có công bố chỉ số đó hay không.
@@ -293,7 +291,7 @@ Bây giờ:
 Nếu **không** tìm thấy khối carousel, script quay về chế độ quét cả trang như cũ (có bỏ 1 ảnh cuối,
 bật/tắt bằng hằng số `BO_ANH_CUOI_KHI_QUET_CA_TRANG`) và hiện cảnh báo màu vàng.
 
-## Tự upload ảnh nguồn lên trang chỉnh sửa — `Alt + U` (v7.4)
+## Tự upload ảnh nguồn lên trang chỉnh sửa — gộp vào `Alt + V` (v7.4, gộp ở v8.1)
 
 Thay vì tải 10 file xuống máy rồi mở hộp thoại chọn file của hệ điều hành, script giữ luôn danh sách
 ảnh của listing nguồn và tự đẩy vào ô upload của Etsy.
@@ -305,8 +303,9 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 
 1. **Trang nguồn** — `Alt+G` *hoặc* `Alt+C` đều đóng danh sách ảnh vào **gói Clipboard**, cùng chỗ với
    tiêu đề và tag (xem mục dưới). Không cần lưu file xuống đĩa.
-2. **Trang chỉnh sửa** (tab *Photos & video*) — `Alt+U` mở bảng chọn ảnh có thumbnail
-   (dùng `il_180x135` cho nhẹ, không tải ảnh gốc vài MB).
+2. **Trang chỉnh sửa** — `Alt+V` dán tiêu đề/tag/cá nhân hoá, bấm tab *Photos & video*, rồi
+   (nếu gói Clipboard có ảnh) **tự mở luôn** bảng chọn ảnh có thumbnail (dùng `il_180x135` cho nhẹ,
+   không tải ảnh gốc vài MB) — không cần bấm gì thêm.
 3. Ảnh nghi là **bảng size** bị **bỏ tick sẵn** — nhận diện qua `alt`:
    `size chart`, `sizing chart`, `size guide`, `sizing guide`, `measurement`, hoặc từ `chart` đứng
    riêng (`\bchart\b`, nên `Charter` không bị dính). Đây chỉ là gợi ý — tick lại được.
@@ -345,9 +344,9 @@ tiêu đề |||TAGS||| tag [|||PERSO_LABEL||| … ] [|||IMGS||| url|>|1 |;| url|
 Đường đi của danh sách ảnh:
 
 1. `Alt+V` nhận gói → **cất ảnh vào kho của trình duyệt đích** *trước khi* Clipboard bị rút gọn lại
-   còn mỗi tiêu đề.
-2. `Alt+U` đọc kho trước; kho trống thì **đọc thẳng Clipboard** — nên vẫn chạy được kể cả khi bạn
-   chưa bấm `Alt+V` ở trình duyệt này.
+   còn mỗi tiêu đề, rồi tự gọi luôn bước upload (`tuUploadAnh()`) bên dưới.
+2. Bước upload đọc kho trước; kho trống thì **đọc thẳng Clipboard** — vẫn là lớp phòng hờ hữu ích
+   nếu ai đó gọi `tuUploadAnh()` tay qua Console mà chưa từng bấm `Alt+V` ở trình duyệt này.
 
 Gói của bản cũ (không có `|||IMGS|||`) vẫn đọc bình thường.
 
