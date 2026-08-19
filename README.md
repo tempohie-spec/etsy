@@ -634,6 +634,14 @@ mục bên dưới), nếu không bấm tab thì sẽ không bao giờ tìm th�
 Script đã bấm lại tab "Earnings" (tìm theo đúng chữ "Earnings", khớp tuyệt đối) ngay sau khi mở
 bảng order details, trước khi đọc số tiền — chậm hơn một chút nhưng chắc chắn lấy đúng.
 
+## Chỉ hiện panel trên đúng trang danh sách đơn hàng
+
+`@match` khớp theo dạng `https://www.etsy.com/your/orders*` (có dấu `*` ở cuối) nên về mặt kỹ
+thuật script cũng chạy trên các trang con khác cùng tiền tố, ví dụ `/your/orders/completed`.
+Script giờ kiểm tra thêm `location.pathname` và **chỉ tạo panel khi đang ở đúng** trang
+`https://www.etsy.com/your/orders` (cho phép dấu `/` ở cuối hoặc query phân trang như
+`?page=2`), không hiện ở các trang con khác.
+
 ## Hiển thị số phiên bản trên panel
 
 Panel giờ hiện số phiên bản đang chạy (vd `v2.13`) ở cả 2 dạng: dưới biểu tượng 📦 khi thu nhỏ,
