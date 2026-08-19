@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.14
+// @version      2.15
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -32,7 +32,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.14';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.15';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -1104,11 +1104,12 @@
     updatePanelCount();
   }
 
-  // Chi hien panel dung tren trang danh sach don hang "/your/orders" (vd co the co dau / o
-  // cuoi hoac query phan trang nhu ?page=2, nhung KHONG phai cac trang con khac cua Etsy ma
-  // @match dang khop rong hon vi dung dau *, vi du /your/orders/completed).
+  // Chi hien panel tren cac trang thuoc "/your/orders" (vd trang mac dinh cua Etsy la
+  // "/your/orders/sold", cac tab loc nhu "Completed" cung doi sang "/your/orders/completed"...).
+  // Dung startsWith thay vi khop tuyet doi "/your/orders" vi ban than URL that cua trang don
+  // hang KHONG bao gio la "/your/orders" tran trui - luon co them 1 doan nhu "/sold".
   function dangOTrangDonHang() {
-    return /^\/your\/orders\/?$/.test(window.location.pathname);
+    return /^\/your\/orders(\/|$)/.test(window.location.pathname);
   }
 
   if (dangOTrangDonHang()) {

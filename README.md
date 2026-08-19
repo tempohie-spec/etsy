@@ -638,9 +638,13 @@ bảng order details, trước khi đọc số tiền — chậm hơn một chú
 
 `@match` khớp theo dạng `https://www.etsy.com/your/orders*` (có dấu `*` ở cuối) nên về mặt kỹ
 thuật script cũng chạy trên các trang con khác cùng tiền tố, ví dụ `/your/orders/completed`.
-Script giờ kiểm tra thêm `location.pathname` và **chỉ tạo panel khi đang ở đúng** trang
-`https://www.etsy.com/your/orders` (cho phép dấu `/` ở cuối hoặc query phân trang như
-`?page=2`), không hiện ở các trang con khác.
+Script giờ kiểm tra thêm `location.pathname` và chỉ tạo panel khi đang ở trang thuộc
+`/your/orders` (vd `/your/orders/sold` — URL thật của trang đơn hàng mặc định, các tab lọc như
+"Completed" cũng đổi sang `/your/orders/completed`), không hiện ở các trang hoàn toàn khác.
+
+*(Bản đầu yêu cầu khớp tuyệt đối `/your/orders` không có đoạn nào theo sau — bị lỗi ẩn mất
+panel vì URL thật của trang đơn hàng không bao giờ trần trụi như vậy, luôn có thêm `/sold` hay
+tên tab. Đã sửa lại dùng `startsWith` thay vì khớp tuyệt đối.)*
 
 ## Hiển thị số phiên bản trên panel
 
