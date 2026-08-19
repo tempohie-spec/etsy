@@ -4,20 +4,8 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📦 Order Processing')
-    .addItem('▶ Chạy TẤT CẢ sheet', 'processOrdersByDate')
-    .addSeparator()
     .addItem('▶ Chọn sheet để chạy', 'processSelectedSheets')
     .addToUi();
-}
-
-// ============================================================
-// MAIN - Chạy tất cả sheet
-// ============================================================
-function processOrdersByDate() {
-  const ui = SpreadsheetApp.getUi();
-  const dateInput = promptDate(ui);
-  if (!dateInput) return;
-  _runProcessing(dateInput, null); // null = chạy tất cả
 }
 
 // ============================================================
