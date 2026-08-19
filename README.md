@@ -12,6 +12,7 @@ Userscript (Violentmonkey / Tampermonkey) cho trang Etsy.
 | `Alt + G` | Lấy tiêu đề + tag + ô cá nhân hoá vào Clipboard **và** tải toàn bộ ảnh full size của listing |
 | `Alt + C` | Chỉ lấy tiêu đề + tag + ô cá nhân hoá (không tải ảnh) |
 | `Alt + V` | Dán tiêu đề + tag, tạo ô cá nhân hoá, bấm tab **Photo & Video**, rồi **tự upload luôn ảnh** của listing nguồn (xem mục dưới) — không còn nút/phím tắt upload riêng |
+| 📐 Ảnh bảng size | Quản lý danh sách ảnh bảng size của riêng bạn, tự thêm vào **sau cùng** mỗi lần upload (xem mục dưới) |
 
 Giao diện nổi có thể thu nhỏ thành biểu tượng tròn "Listing" và kéo thả tự do; vị trí được nhớ lại
 qua `localStorage`. Số phiên bản hiện ngay trên card, kể cả khi thu nhỏ.
@@ -322,16 +323,44 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
    `size chart`, `sizing chart`, `size guide`, `sizing guide`, `measurement`, hoặc từ `chart` đứng
    riêng (`\bchart\b`, nên `Charter` không bị dính). Đây chỉ là gợi ý — tick lại được.
 4. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
-5. Script tải bytes từng ảnh (**song song**, xem mục dưới) → tạo `File` → nhồi vào
-   `<input type="file">` bằng `DataTransfer` rồi bắn `input` + `change`. Trình duyệt coi đây y hệt
-   như vừa chọn file bằng tay.
+5. Script tải bytes ảnh sản phẩm **trước** (song song, xem mục dưới), rồi tới ảnh trong **thư viện
+   ảnh bảng size** của bạn nếu có (mục ngay dưới đây) → tạo `File` cho từng ảnh, ghép **đúng thứ tự
+   sản phẩm trước – bảng size sau** → nhồi vào `<input type="file">` bằng `DataTransfer` rồi bắn
+   `input` + `change`. Trình duyệt coi đây y hệt như vừa chọn file bằng tay.
 6. Chờ Etsy xử lý xong (tối đa 180s). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên đầu
    được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
-7. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu), có thêm
-   tuỳ chọn: **dừng lại** (mặc định), bấm hộ **Save as draft**, hoặc bấm hộ **Publish**. Chọn
-   *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing ra ngoài, khó lùi lại. Khi
-   listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động lưu/đăng lúc ảnh còn sai thứ tự
-   không có ý nghĩa gì.
+7. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu — kể cả
+   ảnh bảng size ở cuối cùng), có thêm tuỳ chọn: **dừng lại** (mặc định), bấm hộ **Save as draft**,
+   hoặc bấm hộ **Publish**. Chọn *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing
+   ra ngoài, khó lùi lại. Khi listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động lưu/đăng
+   lúc ảnh còn sai thứ tự không có ý nghĩa gì.
+
+### Thư viện ảnh bảng size của riêng bạn — nút 📐 (v9.0)
+
+Vì bước "đưa ảnh mới lên đầu" không tự động hoá được (xem mục dưới), cách duy nhất để ảnh bảng size
+luôn nằm **đúng ở cuối** lưới mà không cần kéo tay là: xoá hết ảnh bảng size cũ trong listing đích
+trước (đưa `soAnhCu` về càng gần 0 càng tốt, lý tưởng là đúng 0), rồi để script nhồi ảnh theo
+**đúng thứ tự mong muốn ngay từ đầu** — không cần sắp xếp lại sau đó nữa.
+
+Nút **📐 Ảnh bảng size (N)** trên panel mở bảng quản lý một danh sách URL ảnh **dùng chung cho mọi
+lần upload sau này** (không gắn với 1 listing cụ thể):
+
+- Dán link ảnh vào ô, bấm **Thêm** (hoặc Enter). Ảnh hiện thumbnail ngay để kiểm tra link đúng.
+- Nút **↑ / ↓** đổi thứ tự, **✕** xoá — mọi thay đổi lưu ngay lập tức (`GM_setValue`), không cần bấm
+  "Lưu" riêng.
+- Cố tình dùng nút Lên/Xuống thay vì kéo-thả: đây là bài học từ chính bước sắp xếp lưới ảnh chính —
+  kéo-thả cần giả lập sự kiện mà trình duyệt chặn (xem mục "KHÔNG tự động hoá được" bên dưới); nút
+  Lên/Xuống là thao tác bấm chuột thật của người dùng nên không dính giới hạn đó.
+
+Khi `Alt+V` có ảnh để upload: nếu thư viện đang có N ảnh, script trừ luôn N khỏi số chỗ còn lại
+**trước khi** cho bạn chọn ảnh sản phẩm (báo rõ trong bảng chọn), rồi tự tải + nhồi N ảnh đó vào
+**sau cùng** ảnh sản phẩm bạn chọn, đúng thứ tự đã sắp trong thư viện. Nếu chỗ trống trên listing
+còn ít hơn số ảnh trong thư viện, script báo lỗi ngay từ đầu thay vì để bạn chọn ảnh sản phẩm rồi
+mới phát hiện không đủ chỗ.
+
+**Ảnh trong thư viện không bị giới hạn phải là link của Etsy** — script tải qua `GM_xmlhttpRequest`
+với `@connect *` trong header (tải được từ mọi domain), khác với ảnh sản phẩm vốn luôn lấy từ CDN
+`i.etsystatic.com` của chính listing nguồn.
 
 ### Tải ảnh song song để tăng tốc (v8.3)
 
