@@ -322,8 +322,9 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
    `size chart`, `sizing chart`, `size guide`, `sizing guide`, `measurement`, hoặc từ `chart` đứng
    riêng (`\bchart\b`, nên `Charter` không bị dính). Đây chỉ là gợi ý — tick lại được.
 4. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
-5. Script tải bytes từng ảnh → tạo `File` → nhồi vào `<input type="file">` bằng `DataTransfer`
-   rồi bắn `input` + `change`. Trình duyệt coi đây y hệt như vừa chọn file bằng tay.
+5. Script tải bytes từng ảnh (**song song**, xem mục dưới) → tạo `File` → nhồi vào
+   `<input type="file">` bằng `DataTransfer` rồi bắn `input` + `change`. Trình duyệt coi đây y hệt
+   như vừa chọn file bằng tay.
 6. Chờ Etsy xử lý xong (tối đa 180s). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên đầu
    được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
 7. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu), có thêm
@@ -331,6 +332,27 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
    *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing ra ngoài, khó lùi lại. Khi
    listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động lưu/đăng lúc ảnh còn sai thứ tự
    không có ý nghĩa gì.
+
+### Tải ảnh song song để tăng tốc (v8.3)
+
+Trước v8.3, bước 5 tải **từng ảnh một, tuần tự** — chờ ảnh trước tải xong mới bắt đầu ảnh sau, dù
+đây hoàn toàn là việc I/O (chờ mạng) chứ không tốn CPU, có thể chồng lấp được.
+
+`taiCacAnhSongSong()` dùng mô hình hàng đợi (`DO_SONG_SONG_TAI_ANH = 4` luồng): 4 "worker" cùng rút
+ảnh tiếp theo từ một con trỏ chung (`chiSoTiepTheo`) và tải song song, ghi kết quả vào đúng ô theo
+**chỉ số gốc** trong mảng kết quả — nên dù ảnh nào tải xong trước (tuỳ tốc độ mạng, không theo thứ
+tự yêu cầu), thứ tự cuối cùng vẫn khớp đúng thứ tự đã chọn (quan trọng vì thứ tự này quyết định tên
+file `- 01`, `- 02`... và thứ tự ảnh xuất hiện trong lưới sau khi upload). Ảnh lỗi bị bỏ qua
+(`.filter(Boolean)`) mà không làm lệch vị trí các ảnh còn lại.
+
+Đã mô phỏng 4 kịch bản trong Node: giữ đúng thứ tự dù hoàn thành lệch nhịp, bỏ đúng ảnh lỗi không
+lệch vị trí, độ song song vượt số ảnh vẫn chạy đúng, và đo thời gian thực tế nhanh hơn hẳn so với
+chạy tuần tự (xấp xỉ 4 lần với `DO_SONG_SONG_TAI_ANH = 4`).
+
+**Giới hạn tốc độ tổng thể — phần KHÔNG tối ưu được:** sau khi ảnh đã nhồi vào ô upload
+(bước 5), bước 6 (chờ Etsy xử lý xong) là **Etsy tự tải ảnh lên máy chủ của họ và tạo ảnh xem
+trước** — đây là tốc độ phía server Etsy, script chỉ đứng chờ (`choEtsyXuLyAnh()` kiểm tra mỗi
+giây), không có cách nào làm nhanh hơn từ userscript.
 
 ### Ảnh đi đường Clipboard, không đi `GM_setValue` (v7.5)
 

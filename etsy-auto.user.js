@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      8.2
+// @version      8.3
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '8.2';
+  const PHIEN_BAN = '8.3';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2044,6 +2044,40 @@
     return new File([duLieu], `${lamSachTenFile(ten)}.${duoi}`, { type: laMimeTheoDuoi(duoi) });
   }
 
+  // So anh tai CUNG LUC toi da — GM_xmlhttpRequest khong bi gioi han 6 ket noi/goc nhu fetch
+  // thuong cua trang, nhung van chon so vua phai de khong lam CDN/Etsy nghi la spam.
+  const DO_SONG_SONG_TAI_ANH = 4;
+
+  // Tai NHIEU anh CUNG LUC (thay vi tung anh mot lan luot) de tang toc buoc lay du lieu truoc
+  // khi nhoi vao o upload — day la phan DUY NHAT script kiem soat duoc ve toc do, con buoc Etsy
+  // tu xu ly anh sau khi nhan duoc (choEtsyXuLyAnh) la toc do may chu cua Etsy, khong lam nhanh
+  // hon duoc tu phia script.
+  // Dung "hang doi" (worker) thay vi Promise.all() thang de GIU DUNG THU TU ket qua trong mang
+  // dau ra (khop voi thu tu chon anh, dung cho ten file/thu tu upload), du cac lan tai xong khong
+  // theo dung thu tu do toc do mang khac nhau.
+  async function taiCacAnhSongSong(cacAnh, tenGoc, capNhatTienDo) {
+    const ketQua = new Array(cacAnh.length).fill(null);
+    let chiSoTiepTheo = 0;
+    let daXong = 0;
+
+    async function motLuongTai() {
+      while (chiSoTiepTheo < cacAnh.length) {
+        const i = chiSoTiepTheo++;
+        try {
+          ketQua[i] = await taiAnhThanhFile(cacAnh[i].url, `${tenGoc} - ${String(i + 1).padStart(2, '0')}`);
+        } catch (loi) {
+          console.error('[Etsy Auto] Không lấy được ảnh để upload:', cacAnh[i].url, loi);
+        }
+        daXong++;
+        capNhatTienDo(daXong, cacAnh.length);
+      }
+    }
+
+    const soLuong = Math.min(DO_SONG_SONG_TAI_ANH, cacAnh.length);
+    await Promise.all(Array.from({ length: soLuong }, motLuongTai));
+    return ketQua.filter(Boolean);
+  }
+
   // Nhoi danh sach File vao <input type="file"> y het nhu nguoi dung vua chon trong hop thoai.
   // DataTransfer la cach duy nhat: thuoc tinh .files chi nhan doi tuong FileList, khong nhan mang.
   function nhoiFileVaoO(o, cacFile) {
@@ -2197,18 +2231,15 @@
 
     const { cacAnh, hanhDong } = luaChon;
 
-    // Buoc 1: tai bytes cua tung anh ve (khong ton request API Etsy, chi ton bang thong)
-    hienThongBao(`⏳ Đang lấy ${cacAnh.length} ảnh từ listing nguồn...`, '#2563EB');
-    const cacFile = [];
+    // Buoc 1: tai bytes cua tung anh ve (khong ton request API Etsy, chi ton bang thong).
+    // Tai SONG SONG (toi da DO_SONG_SONG_TAI_ANH anh cung luc) thay vi tung anh mot — day la
+    // phan chinh quyet dinh toc do tong the, vi buoc Etsy tu xu ly anh o buoc sau la toc do
+    // may chu cua ho, khong lam nhanh hon duoc.
+    hienThongBao(`⏳ Đang lấy ${cacAnh.length} ảnh từ listing nguồn (song song)...`, '#2563EB');
     const tenGoc = lamSachTenFile(goi.tieuDe || 'etsy-image');
-    for (let i = 0; i < cacAnh.length; i++) {
-      try {
-        cacFile.push(await taiAnhThanhFile(cacAnh[i].url, `${tenGoc} - ${String(i + 1).padStart(2, '0')}`));
-        hienThongBao(`⏳ Đã lấy ${cacFile.length}/${cacAnh.length} ảnh...`, '#2563EB');
-      } catch (loi) {
-        console.error('[Etsy Auto] Không lấy được ảnh để upload:', cacAnh[i].url, loi);
-      }
-    }
+    const cacFile = await taiCacAnhSongSong(cacAnh, tenGoc, (daXong, tong) => {
+      hienThongBao(`⏳ Đã lấy ${daXong}/${tong} ảnh...`, '#2563EB');
+    });
     if (!cacFile.length) {
       hienThongBao('❌ Không lấy được ảnh nào. Xem Console (F12) để biết chi tiết.', '#DC2626');
       return;
