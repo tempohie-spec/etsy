@@ -634,6 +634,28 @@ mục bên dưới), nếu không bấm tab thì sẽ không bao giờ tìm th�
 Script đã bấm lại tab "Earnings" (tìm theo đúng chữ "Earnings", khớp tuyệt đối) ngay sau khi mở
 bảng order details, trước khi đọc số tiền — chậm hơn một chút nhưng chắc chắn lấy đúng.
 
+## Hiển thị số phiên bản trên panel
+
+Panel giờ hiện số phiên bản đang chạy (vd `v2.13`) ở cả 2 dạng: dưới biểu tượng 📦 khi thu nhỏ,
+và cạnh tiêu đề "Order Scraper" khi mở rộng — để biết đang chạy đúng bản mới nhất mà không cần
+mở Violentmonkey ra kiểm tra `@version`.
+
+## Tối ưu tốc độ quét/lấy Earnings
+
+Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overlay...) đều có 1 khoảng nghỉ CỐ ĐỊNH
+600ms trước khi kiểm tra kết quả, dù trang có render nhanh hơn hay không — cộng dồn lại làm mỗi
+đơn tốn thêm khoảng 2 giây nghỉ vô ích. Đã tối ưu:
+
+- Bỏ các khoảng nghỉ cố định đứng ngay trước một bước tự chờ (`waitFor`) — bước chờ đó đã tự
+  kiểm tra liên tục cho tới khi phần tử xuất hiện, nên nghỉ thêm trước đó chỉ làm chậm vô ích.
+- Giảm chu kỳ kiểm tra của `waitFor` từ 200ms xuống 100ms, giúp bắt được kết quả sớm hơn.
+- Giảm khoảng nghỉ giữa các đơn (chỉ để tránh gửi yêu cầu dồn dập) từ 400ms xuống 200ms.
+- Riêng bước chờ số tiền Earnings **ổn định** (không bắt trúng số đang chạy hiệu ứng đếm) vẫn
+  giữ đúng độ an toàn — tính theo thời gian thực (300ms không đổi giá trị), không bị ảnh hưởng
+  bởi việc kiểm tra nhanh hơn.
+
+Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
+
 ## Ghi chú trong panel
 
 Panel có thêm 1 ô ghi chú nhỏ (ngay dưới dòng "Đã lưu: N dòng") để bạn tự ghi lại, ví dụ
