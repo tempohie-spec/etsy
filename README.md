@@ -466,9 +466,32 @@ không dính giới hạn này) — bước sắp xếp để người dùng t�
 
 ### Chọn đúng ô upload
 
-Trang chỉnh sửa có **2** ô `input[type="file"]` — một cho ảnh, một cho video. Script chấm điểm để
-chọn đúng ô ảnh: `accept` chứa `video` → −100, chứa `image`/`jpeg`/`png` → +50, có `multiple` → +20,
-vùng bao quanh có chữ "photo" → +10.
+Trang chỉnh sửa có thể có **2** ô `input[type="file"]` (ảnh riêng, video riêng) hoặc **1 ô gộp**
+tuỳ trạng thái lưới. Script chấm điểm để chọn đúng ô ảnh: `accept` chứa `video` → −100, chứa
+`image`/`jpeg`/`png` → +50, có `multiple` → +20, vùng bao quanh có chữ "photo" → +10, và (mạnh
+nhất) `id` của một tổ tiên chứa `image`/`photo` → +200, chứa `video` → −200.
+
+#### Lưới trống đổi hẳn giao diện upload — vá bằng tín hiệu `id`, không dùng `accept`/class (v9.1)
+
+Khi listing **chưa có ảnh nào** (ví dụ sau khi tự xoá hết ảnh bảng size cũ để dùng thư viện ảnh bảng
+size ở trên), Etsy gộp khu vực Photo & Video thành **1 ô "Drag and drop files or [+ Upload]" duy
+nhất** thay vì lưới + các ô "Add photos"/"Add videos" riêng như lúc đã có ảnh. Lúc này:
+
+- `<input type="file">` **không còn `accept`** — mọi điểm cộng/trừ dựa vào `accept` đều bằng 0.
+- Thẻ cha **gần nhất** có class lại mang tên `le-video-multiple-upload-area` — component upload
+  dùng chung cho cả 2 loại field, tình cờ giữ tên cũ có chữ "video" **dù đang nằm trong field ảnh**.
+  Đây chính là cái bẫy: dò theo class/chữ xung quanh ở tổ tiên gần nhất sẽ hiểu nhầm là ô video.
+
+Sửa bằng cách ưu tiên tín hiệu ổn định hơn: `timTruongChaTheoId()` đi lên tối đa 10 cấp tổ tiên,
+tìm phần tử có thuộc tính `id` (không phải class) chứa `image`/`photo` hoặc `video`. Etsy đặt id này
+**có chủ đích** cho từng field (ví dụ `id="field-listingImages"`) ở một tổ tiên **xa hơn** — nằm
+ngoài phạm vi cái div class gây nhầm lẫn ở trên — nên đi đủ xa sẽ luôn gặp đúng id thật, bỏ qua được
+class dùng lại gây nhiễu ở giữa đường.
+
+Đã mô phỏng bằng cây DOM giả trong Node cho 3 tình huống: lưới có sẵn ảnh (2 ô riêng, có `accept`,
+cách cũ vẫn đúng), lưới trống chỉ có 1 ô gộp không `accept` với class gây hiểu lầm (đúng tình huống
+gặp phải), và trường hợp khó nhất — cả 2 ô đều thiếu `accept` và mang class giống hệt nhau, chỉ phân
+biệt được nhờ `id` của tổ tiên xa hơn.
 
 ### Tìm ô ảnh trong lưới — đếm sai vì mỗi ảnh nằm trong `<li>` riêng (v7.7)
 

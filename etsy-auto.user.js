@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.0
+// @version      9.1
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -19,7 +19,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.0';
+  const PHIEN_BAN = '9.1';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2159,11 +2159,32 @@
 
   // ---- Tim o upload anh (khong phai o upload video) ----
 
+  // Di len toi da 10 cap tim to tien co ID chua "image"/"photo" hoac "video" — dung ID vi no ON
+  // DINH HON NHIEU so voi class: khi luoi anh CON TRONG (chua co anh nao), Etsy gop khu vuc upload
+  // thanh 1 o "Drag and drop" duy nhat, input luc do KHONG CON thuoc tinh "accept" de phan biet
+  // anh/video, va the CHA GAN NHAT co the mang class ten gay hieu lam (vi du class
+  // "...video-multiple-upload-area" dung chung cho ca 2 loai field, khong co id). Di tiep len tren
+  // se gap khoi CHA XA HON mang id rieng cho tung field (vi du id="field-listingImages"), dang tin
+  // cay hon nhieu vi Etsy dat co chu dich, khong bi anh huong boi viec tai su dung component.
+  function timTruongChaTheoId(el) {
+    let vc = el.parentElement;
+    for (let buoc = 0; vc && buoc < 10; buoc++) {
+      if (vc.id) {
+        const id = vc.id.toLowerCase();
+        if (/video/.test(id)) return 'video';
+        if (/image|photo/.test(id)) return 'image';
+      }
+      vc = vc.parentElement;
+    }
+    return null;
+  }
+
   function timOChonAnhSanPham() {
     const cacO = [...document.querySelectorAll('input[type="file"]')];
     if (!cacO.length) return null;
 
-    // Trang chinh sua co 2 o file: 1 cho anh, 1 cho video. Cham diem de chon dung o anh.
+    // Trang chinh sua co the co 2 o file (1 cho anh, 1 cho video) hoac chi 1 o gop chung (luc
+    // luoi con trong). Cham diem de chon dung o anh trong ca 2 truong hop.
     let totNhat = null;
     let diemTotNhat = -Infinity;
     for (const o of cacO) {
@@ -2172,8 +2193,16 @@
       if (/video|\.mp4|\.mov/.test(accept)) diem -= 100;
       if (/image|jpe?g|png|\.gif/.test(accept)) diem += 50;
       if (o.hasAttribute('multiple')) diem += 20;
+
+      // Tin hieu MANH nhat: id cua khoi cha bao quanh (vd "field-listingImages"), uu tien hon
+      // han class/chu xung quanh vi khong bi nham lan boi component tai su dung.
+      const truongTheoId = timTruongChaTheoId(o);
+      if (truongTheoId === 'image') diem += 200;
+      if (truongTheoId === 'video') diem -= 200;
+
       const quanhDay = (o.closest('section, fieldset, div[class]')?.textContent || '').toLowerCase();
       if (quanhDay.includes('photo')) diem += 10;
+
       if (diem > diemTotNhat) {
         diemTotNhat = diem;
         totNhat = o;
