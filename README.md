@@ -382,20 +382,29 @@ nhiều khả năng là bị chặn ngầm ở tầng mạng/tiện ích khi g�
 luồng tải xuống, hoá ra áp dụng luôn cho luồng upload). Việc debug dồn dập trong ngày lặp đi lặp lại
 trên cùng vài listing rất có thể là nguyên nhân trực tiếp kích hoạt chặn ngầm này.
 
-### Giảm tải để né bị chặn ngầm (v9.3)
+### Giảm tải để né bị chặn ngầm (v9.3) — hoá ra không cần, trả lại tốc độ cũ (v9.4)
 
-Hai thay đổi phòng vệ, không sửa được nguyên nhân gốc (nếu đúng là chặn ngầm tầng mạng thì chỉ có
-đợi mới hết) nhưng giảm khả năng kích hoạt lại:
+v9.3 từng đưa ra 2 thay đổi phòng vệ dựa trên giả thuyết "bị chặn ngầm do gọi request dồn dập tới
+cùng 1 CDN":
 
-- `DO_SONG_SONG_TAI_ANH` giảm từ 4 xuống **2** — bớt dồn dập request cùng lúc tới cùng 1 CDN.
-- Thời gian đợi giữa các lần thử lại trong `taiMotAnhVoiRetry()` đổi từ cố định 800ms thành **tăng
-  dần** (800ms, rồi 3200ms) — nếu bị chặn tạm thời do gọi quá nhanh, đợi lâu hơn tăng cơ hội "hạ
-  nhiệt" trước lần thử tiếp theo.
+- `DO_SONG_SONG_TAI_ANH` giảm từ 4 xuống 2.
+- Thời gian đợi giữa các lần thử lại trong `taiMotAnhVoiRetry()` đổi từ cố định 800ms thành tăng
+  dần (800ms, rồi 3200ms).
 
-Nếu gặp lại đúng kiểu lỗi này (im lặng 20s, không có mã lỗi HTTP), cách chẩn đoán nhanh: dán thẳng
-URL ảnh đang lỗi vào một tab trình duyệt bình thường (không qua script). Tải được bình thường ở đó
-→ vấn đề nằm ở `GM_xmlhttpRequest`/tiện ích quản lý userscript, không phải mạng thật. Cũng không tải
-được ở đó → vấn đề mạng/CDN thật sự, ngoài tầm kiểm soát của script, chỉ cần đợi rồi thử lại.
+Chẩn đoán ngay sau đó (dán thẳng URL ảnh đang lỗi vào một tab trình duyệt bình thường, không qua
+script) cho kết quả: **ảnh tải được bình thường** — tức là không phải CDN/tiện ích chặn ngầm gì cả,
+mà đơn giản là mạng của người dùng chậm/chập chờn đúng lúc test. Giả thuyết "chặn ngầm do gọi dồn
+dập" bị loại bỏ.
+
+Vì `DO_SONG_SONG_TAI_ANH = 2` không giải quyết được vấn đề gì có thật, mà lại làm **mọi lần upload**
+(kể cả khi mạng hoàn toàn ổn định) chậm hơn khoảng 60–70% so với 4 luồng — số "đợt" tải xấp xỉ
+`⌈N/độ_song_song⌉`, nên giảm một nửa độ song song gần như tăng gấp đôi số đợt — v9.4 **trả lại 4**.
+Phần tăng dần thời gian chờ giữa các lần thử lại (800ms → 3200ms) thì **giữ nguyên**: đoạn code đó
+chỉ chạy khi có lỗi/timeout thật, không đụng tới khi mạng ổn định, nên không có lý do bỏ.
+
+Bài học chung: khi gặp lỗi im lặng 20s (không có mã lỗi HTTP, không phải `onerror`), cách chẩn đoán
+nhanh và đáng tin nhất vẫn là dán thẳng URL vào 1 tab trình duyệt bình thường — tải được ở đó thì
+vấn đề nằm ở extension/script, không tải được thì là mạng/CDN thật, ngoài tầm kiểm soát của script.
 
 **Hệ quả: thư viện ảnh bảng size giờ chỉ chắc chắn tải được ảnh từ `i.etsystatic.com`.** Dán link
 domain khác vào bảng quản lý (nút 📐) vẫn được — chỉ hiện cảnh báo vàng, không chặn — nhưng lúc
