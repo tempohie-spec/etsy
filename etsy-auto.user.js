@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.5
+// @version      9.6
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.5';
+  const PHIEN_BAN = '9.6';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2137,8 +2137,8 @@
             const viTri = daDuocChon ? thuTu.indexOf(i) : -1;
             const nghiBangSize = typeof anh.bang === 'boolean' ? anh.bang : laAnhBangSize(anh.alt);
             return `
-          <div data-i="${i}" style="display:block; border:2px solid ${daDuocChon ? '#F56400' : '#E5E7EB'}; border-radius:8px; overflow:hidden; position:relative; background:#F9FAFB;">
-            <img src="${linhThuNho(anh.url)}" style="width:100%;height:110px;object-fit:cover;display:block;" loading="lazy">
+          <div data-i="${i}" draggable="${daDuocChon ? 'true' : 'false'}" style="display:block; border:2px solid ${daDuocChon ? '#F56400' : '#E5E7EB'}; border-radius:8px; overflow:hidden; position:relative; background:#F9FAFB; cursor:${daDuocChon ? 'grab' : 'default'};">
+            <img src="${linhThuNho(anh.url)}" style="width:100%;height:110px;object-fit:cover;display:block;pointer-events:none;" loading="lazy">
             <div style="padding:4px 4px;font-size:10px;color:#6B7280;line-height:1.3;height:22px;display:flex;align-items:center;justify-content:center;gap:3px;">
               ${
                 daDuocChon
@@ -2189,6 +2189,56 @@
         }
       });
 
+      // Keo-tha de sap xep — day la hop thoai CUA CHINH SCRIPT, nguoi dung that su cam chuot keo
+      // (khong phai su kien gia lap gui vao trang Etsy), nen KHONG dinh gioi han isTrusted da gap
+      // o buoc sap xep luoi anh chinh. Van giu nut ◀▶ song song — keo-tha chi la them lua chon.
+      let dangKeoChiSo = null;
+      luoi.addEventListener('dragstart', (e) => {
+        const the = e.target.closest('[data-i]');
+        const i = the ? Number(the.dataset.i) : NaN;
+        if (!the || !thuTu.includes(i)) {
+          e.preventDefault();
+          return;
+        }
+        dangKeoChiSo = i;
+        the.style.opacity = '.4';
+        try {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', String(i));
+        } catch (err) {
+          /* mot so trinh duyet cu khong ho tro setData voi 'text/plain' — bo qua, van keo duoc */
+        }
+      });
+      luoi.addEventListener('dragover', (e) => {
+        if (dangKeoChiSo === null) return;
+        const the = e.target.closest('[data-i]');
+        const i = the ? Number(the.dataset.i) : NaN;
+        if (!the || !thuTu.includes(i)) return;
+        e.preventDefault(); // bat buoc de trinh duyet cho phep tha
+      });
+      luoi.addEventListener('drop', (e) => {
+        if (dangKeoChiSo === null) return;
+        e.preventDefault();
+        const the = e.target.closest('[data-i]');
+        const iDich = the ? Number(the.dataset.i) : NaN;
+        const iNguon = dangKeoChiSo;
+        dangKeoChiSo = null;
+        if (!the || iDich === iNguon || !thuTu.includes(iDich)) return;
+
+        // Chen iNguon vao NGAY TRUOC vi tri hien tai cua iDich (sau khi da bo iNguon ra) —
+        // de tha "len" mot anh la anh nguon nhay ra dung truoc no.
+        const pNguon = thuTu.indexOf(iNguon);
+        thuTu.splice(pNguon, 1);
+        const pDich = thuTu.indexOf(iDich);
+        thuTu.splice(pDich, 0, iNguon);
+        ve();
+      });
+      luoi.addEventListener('dragend', () => {
+        // Neu tha ra ngoai vung hop le (khong qua 'drop'), ve() lai de xoa hieu ung mo the dang keo
+        dangKeoChiSo = null;
+        ve();
+      });
+
       function capNhatDem() {
         const soChon = thuTu.length;
         const quaNhieu = soChon > conLai;
@@ -2212,13 +2262,6 @@
       });
       nutOk.onclick = () => {
         const hanhDong = hop.querySelector('input[name="ea-up-xong"]:checked').value;
-        // Publish la thao tac dua listing ra ngoai, kho lui lai -> hoi lai them 1 lan cho chac
-        if (
-          hanhDong === 'publish' &&
-          !window.confirm('Chắc chắn ĐĂNG BÁN (Publish copy with changes) listing này ngay sau khi upload xong?')
-        ) {
-          return;
-        }
         const cacAnh = thuTu.map((i) => goi.anh[i]);
         dong({ cacAnh, hanhDong });
       };
@@ -2450,6 +2493,19 @@
     );
   }
 
+  // Doi toi da timeoutMs de MOT hop thoai/overlay MOI xuat hien roi tim nut co dung nhan trong do.
+  // Dung cho chuoi hop thoai xac nhan cua Etsy sau khi bam "Publish copy with changes" — moi hop
+  // thoai can vai tram ms de Etsy ve xong, kiem tra 1 lan duy nhat se hay bo lo.
+  async function doiVaTimNutTheoNhan(nhan, timeoutMs) {
+    const moc = Date.now();
+    while (Date.now() - moc < timeoutMs) {
+      const nut = timNutTheoNhan(nhan);
+      if (nut) return nut;
+      await cho(300);
+    }
+    return null;
+  }
+
   // ---- Luong chinh ----
 
   async function tuUploadAnh() {
@@ -2553,17 +2609,40 @@
         : '';
 
     // Buoc 5: hanh dong ket thuc (chi khi nguoi dung chon "Publish" trong bang chon — lua chon
-    // "Save as draft" rieng da bo, vi hanhDong gio chi con 'khong' hoac 'publish')
+    // "Save as draft" rieng da bo, vi hanhDong gio chi con 'khong' hoac 'publish').
+    //
+    // Bam "Publish copy with changes" CHUA XONG NGAY — Etsy con hien them 1-2 hop thoai xac nhan
+    // truoc khi that su dang ban:
+    //   1) (Tuy chon, chi hien khi Etsy phat hien van de nhu "gia ban chenh lech qua rong") Hop
+    //      thoai "There is 1 factor that may affect this listing's performance" — phai bam
+    //      "Skip and continue" (nut phu, KHONG phai nut chinh "Edit listing" — bam nham no se
+    //      chuyen huong sang sua listing thay vi tiep tuc dang ban).
+    //   2) Hop thoai xac nhan cuoi cung "You are about to publish a new listing" — bam nut chinh
+    //      "Publish" (id="shop-manager--listing-publish" nhung KHONG dung id de tim, vi id nay
+    //      Etsy tai su dung cho ca nut "Edit listing" o hop thoai (1) — chi tin duoc nhan chu).
     let ghiChuKetThuc = '';
     if (hanhDong === 'publish') {
-      const nhan = 'Publish copy with changes';
       await cho(600);
-      const nut = timNutTheoNhan(nhan);
-      if (nut) {
-        nut.click();
-        ghiChuKetThuc = ` → đã bấm "${nhan}"`;
+      const nutBatDau = timNutTheoNhan('Publish copy with changes');
+      if (!nutBatDau) {
+        ghiChuKetThuc = ' — ⚠️ không tìm thấy nút "Publish copy with changes", bạn bấm giúp';
       } else {
-        ghiChuKetThuc = ` — ⚠️ không tìm thấy nút "${nhan}", bạn bấm giúp`;
+        nutBatDau.click();
+
+        // Hop thoai canh bao hieu suat: KHONG PHAI luc nao cung hien, nen cho ngan (3s) roi bo
+        // qua neu khong thay, khong coi la loi.
+        const nutSkip = await doiVaTimNutTheoNhan('Skip and continue', 3000);
+        if (nutSkip) nutSkip.click();
+
+        const nutXacNhan = await doiVaTimNutTheoNhan('Publish', 8000);
+        if (nutXacNhan) {
+          nutXacNhan.click();
+          ghiChuKetThuc = nutSkip
+            ? ' → đã bấm "Publish copy with changes" → "Skip and continue" → "Publish"'
+            : ' → đã bấm "Publish copy with changes" → "Publish"';
+        } else {
+          ghiChuKetThuc = ' — ⚠️ đã bấm "Publish copy with changes" nhưng không thấy hộp thoại xác nhận "Publish", bạn tự kiểm tra và bấm giúp';
+        }
       }
     }
 

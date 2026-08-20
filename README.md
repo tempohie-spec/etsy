@@ -322,11 +322,13 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 3. Ảnh nghi là **bảng size** bị **bỏ tick sẵn** — nhận diện qua `alt`:
    `size chart`, `sizing chart`, `size guide`, `sizing guide`, `measurement`, hoặc từ `chart` đứng
    riêng (`\bchart\b`, nên `Charter` không bị dính). Đây chỉ là gợi ý — tick lại được.
-4. **Sắp xếp thứ tự ngay trong bảng chọn (v9.5):** ảnh đã chọn hiện trước, đánh số `#1, #2...` theo
-   đúng thứ tự sẽ upload, kèm nút `◀`/`▶` để đổi chỗ với ảnh liền kề; ảnh chưa chọn hiện sau, không
-   đánh số. Tick vào 1 ảnh sẽ thêm nó vào **cuối** danh sách đã chọn; bỏ tick thì rút nó ra, các ảnh
-   còn lại giữ nguyên thứ tự tương đối. Vì listing đích lúc này gần như trống, thứ tự chọn ở đây
-   chính là thứ tự cuối cùng trên Etsy — không cần sắp xếp lại sau khi upload.
+4. **Sắp xếp thứ tự ngay trong bảng chọn:** ảnh đã chọn hiện trước, đánh số `#1, #2...` theo đúng
+   thứ tự sẽ upload; ảnh chưa chọn hiện sau, không đánh số. Hai cách đổi thứ tự, dùng song song:
+   nút `◀`/`▶` để đổi chỗ với ảnh liền kề (v9.5), hoặc **kéo-thả trực tiếp** ảnh đã chọn tới vị trí
+   mong muốn (v9.6) — ảnh được thả sẽ chèn vào ngay trước ảnh đích. Tick vào 1 ảnh sẽ thêm nó vào
+   **cuối** danh sách đã chọn; bỏ tick thì rút nó ra, các ảnh còn lại giữ nguyên thứ tự tương đối.
+   Vì listing đích lúc này gần như trống, thứ tự chọn ở đây chính là thứ tự cuối cùng trên Etsy —
+   không cần sắp xếp lại sau khi upload.
 5. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
 6. Script tải bytes ảnh sản phẩm **trước** (song song, xem mục dưới), rồi tới ảnh trong **thư viện
    ảnh bảng size** của bạn nếu có (mục ngay dưới đây) → tạo `File` cho từng ảnh, ghép **đúng thứ tự
@@ -335,24 +337,52 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 7. Chờ Etsy xử lý xong (tối đa 180s). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên đầu
    được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
 8. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu — kể cả
-   ảnh bảng size ở cuối cùng), có thêm tuỳ chọn: bấm hộ **Publish copy with changes** (mặc định) hoặc
-   **dừng lại, tự bấm lưu**. Chọn *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing
-   ra ngoài, khó lùi lại. Khi listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động đăng lúc
-   ảnh còn sai thứ tự không có ý nghĩa gì.
+   ảnh bảng size ở cuối cùng), có thêm tuỳ chọn: bấm hộ **Publish copy with changes** (mặc định,
+   tự bấm xuyên suốt các hộp thoại xác nhận thật của Etsy — xem mục dưới) hoặc **dừng lại, tự bấm
+   lưu**. Khi listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động đăng lúc ảnh còn sai
+   thứ tự không có ý nghĩa gì.
 
-### Mặc định Publish, bỏ Save as draft (v9.5)
+### Sắp xếp bằng kéo-thả trong bảng chọn (v9.6)
+
+Khác hẳn với việc kéo-thả trên **lưới ảnh thật của Etsy** (không làm được — xem mục "KHÔNG tự động
+hoá được từ userscript" phía dưới), kéo-thả **trong chính hộp thoại của script** không hề dính giới
+hạn `isTrusted`: đây là hộp thoại do script tự vẽ, người dùng thật sự cầm chuột kéo, không phải sự
+kiện giả lập gửi vào trang Etsy — nên dùng thẳng HTML5 Drag and Drop API (`dragstart`/`dragover`/
+`drop`) là an toàn.
+
+Chỉ ảnh **đã chọn** mới kéo được (`draggable="true"`). Thả 1 ảnh lên ảnh khác sẽ chèn ảnh đang kéo
+vào **ngay trước** vị trí ảnh đích (sau khi đã rút ảnh đang kéo ra khỏi danh sách) — nên thả lên
+đúng người hàng xóm liền sau nó (theo hướng kéo xuống) sẽ không thấy đổi gì, vì "chèn trước đích"
+lúc đó trùng khớp vị trí cũ; muốn hoán đổi 2 ảnh liền kề thì dùng nút `◀`/`▶` sẽ trực quan hơn. Nút
+`◀`/`▶` vẫn giữ nguyên song song, không bớt đi khi có kéo-thả.
+
+### Publish tự động xuyên suốt, bỏ Save as draft và hộp thoại xác nhận riêng (v9.5 → v9.6)
 
 Bảng chọn giờ chỉ còn **2** lựa chọn sau khi upload (trước là 3): **Bấm hộ Publish copy with changes**
-(mặc định, tick sẵn) và **Dừng lại, tôi tự bấm lưu**. Bỏ hẳn lựa chọn "Save as draft" riêng.
+(mặc định, tick sẵn) và **Dừng lại, tôi tự bấm lưu**. Bỏ hẳn lựa chọn "Save as draft" riêng, và bỏ
+luôn hộp thoại `window.confirm()` riêng của script trước khi bấm Publish (v9.6) — theo yêu cầu của
+người dùng khi đã tin tưởng vào toàn bộ luồng (nguồn ảnh + thư viện bảng size + sắp xếp thứ tự).
 
-Đổi tên nút tìm/bấm từ `'Publish'` thành `'Publish copy with changes'` — khớp **đúng nguyên văn**
-chữ trên nút thật của Etsy (`timNutTheoNhan()` so khớp chính xác toàn bộ `textContent`, không phải
-so khớp một phần), tránh trường hợp tìm nhầm ra "không tìm thấy nút" nếu Etsy không có nút nào tên
-đúng là "Publish".
+Etsy tự có **chuỗi hộp thoại xác nhận thật của riêng nó** sau khi bấm "Publish copy with changes",
+nên bấm 1 nút là chưa đủ:
 
-Vì Publish giờ là **mặc định**, nút Publish thật trên Etsy vẫn được xác nhận qua hộp thoại
-`window.confirm()` trước khi bấm — không đổi cơ chế an toàn này, chỉ đổi việc lựa chọn nào được
-tick sẵn trong hộp thoại của script.
+1. Bấm nút **"Publish copy with changes"** trên trang chỉnh sửa.
+2. **(Tuỳ chọn, không phải lúc nào cũng hiện)** Nếu Etsy phát hiện vấn đề với listing (ví dụ "A wide
+   price range" — giá bán chênh lệch quá rộng), hiện hộp thoại "There is 1 factor that may affect
+   this listing's performance" với 2 nút: nút phụ **"Skip and continue"** (bỏ qua, tiếp tục đăng) và
+   nút chính **"Edit listing"** (quay lại sửa). Script chờ tối đa 3s xem hộp thoại này có xuất hiện
+   không; nếu có, bấm đúng **"Skip and continue"** — bấm nhầm "Edit listing" sẽ đưa bạn ra khỏi luồng
+   đăng bán.
+3. Hộp thoại xác nhận cuối cùng "You are about to publish a new listing" (có nhắc phí $0.20/listing)
+   — script chờ tối đa 8s rồi bấm nút **"Publish"**.
+
+⚠️ **Cả 2 nút ở bước 2 và 3 đều mang chung `id="shop-manager--listing-publish"`** trên trang thật
+(Etsy tái sử dụng id cho nút chính của mỗi hộp thoại, bất kể nhãn) — nên `timNutTheoNhan()` **tuyệt
+đối không được dùng `id` để tìm**, chỉ tìm theo đúng chữ hiển thị (`textContent` khớp chính xác,
+không phải khớp một phần) mới phân biệt được "Edit listing" và "Publish".
+
+Nếu ở bước nào không tìm thấy đúng nút (Etsy đổi giao diện, hộp thoại chưa kịp hiện...), script dừng
+lại và báo rõ trong toast — không đoán bừa hay bấm nhầm nút khác.
 
 ### Thư viện ảnh bảng size của riêng bạn — nút 📐 (v9.0)
 
