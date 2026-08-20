@@ -668,11 +668,16 @@ Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overla
 
 Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
 
-## Ghi chú trong panel
+## Bật/Tắt riêng từng nút Quét đơn
 
-Panel có thêm 1 ô ghi chú nhỏ (ngay dưới dòng "Đã lưu: N dòng") để bạn tự ghi lại, ví dụ
-tài khoản nào cần lấy Earnings, tài khoản nào bỏ qua. Ô này chỉ để tham khảo, không ảnh hưởng
-đến logic quét/lấy Earnings, và được lưu lại qua `GM_setValue` nên vẫn còn khi tải lại trang.
+Đã bỏ ô ghi chú, thay bằng 1 ô tích (checkbox) đứng ngay bên cạnh mỗi nút **"🔍 Quét đơn +
+Earnings"** và **"📦 Quét đơn"**. Bỏ tích ô nào thì nút tương ứng sẽ xám đi và không bấm được
+nữa — dùng để tự chặn bớt nút không muốn dùng trên account/máy đó (mỗi trình duyệt/profile chạy
+script coi như 1 account riêng). Trạng thái được lưu lại qua `GM_setValue` nên vẫn còn khi tải
+lại trang, và không bị bật nhầm lại sau khi quét xong.
+
+Dòng hướng dẫn "Lấy Earnings theo danh sách mã đơn (nhập tay)" phía trên ô nhập mã đơn cũng đã
+được bỏ.
 
 ## Đóng bảng "Order details" sau mỗi đơn
 

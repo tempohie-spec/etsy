@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.15
+// @version      2.16
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -32,14 +32,16 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.15';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.16';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
   const PANEL_STATE_KEY = 'etsy_scraper_panel_state_v1';
-  // Ghi chu rieng cua nguoi dung (vd: acc nao can lay Earnings, acc nao bo qua) - chi de
-  // hien thi/luu lai trong panel, khong anh huong logic quet/lay Earnings.
-  const NOTE_KEY = 'etsy_scraper_note_v1';
+  // Trang thai Bat/Tat rieng cho tung nut Quet don (moi trinh duyet/profile = 1 account rieng),
+  // de nguoi dung tu chan bot nut khong muon dung tren account do - luu lai qua GM_setValue nen
+  // vAn con sau khi tai lai trang.
+  const ENABLE_SCAN_EARNINGS_KEY = 'etsy_scraper_enable_scan_earnings_v1';
+  const ENABLE_SCAN_ONLY_KEY = 'etsy_scraper_enable_scan_only_v1';
 
   // Sinh 1 so dien thoai ao ngau nhien (10 chu so), dung de dien vao cot "phone" cho cac
   // don o ngoai United States khi khong doc duoc so that tren trang - tranh o phone bi
@@ -833,9 +835,17 @@
   let cancelRequested = false;
 
   function setRunningState(isRunning) {
-    [btnScanEarnings, btnScanOnly, btnEarningsOnly].forEach((btn) => {
-      if (btn) btn.disabled = isRunning;
-    });
+    // Khi het chay (isRunning = false), CHI mo lai nut nao dang duoc Bat qua checkbox rieng
+    // cua no - khong duoc tu dong mo lai nut ma nguoi dung da chu dong Tat.
+    if (btnScanEarnings) {
+      btnScanEarnings.disabled = isRunning || !GM_getValue(ENABLE_SCAN_EARNINGS_KEY, true);
+    }
+    if (btnScanOnly) {
+      btnScanOnly.disabled = isRunning || !GM_getValue(ENABLE_SCAN_ONLY_KEY, true);
+    }
+    if (btnEarningsOnly) {
+      btnEarningsOnly.disabled = isRunning;
+    }
     if (btnStop) {
       btnStop.style.display = isRunning ? 'block' : 'none';
       btnStop.disabled = false;
@@ -992,14 +1002,35 @@
     countLabel.style.cssText = 'color:#555; font-size:12px;';
     vungNoiDung.appendChild(countLabel);
 
-    const noteTextarea = document.createElement('textarea');
-    noteTextarea.placeholder = 'Ghi chú (vd: acc nào lấy Earnings, acc nào bỏ qua)...';
-    noteTextarea.value = GM_getValue(NOTE_KEY, '');
-    noteTextarea.style.cssText = 'width:100%; height:44px; box-sizing:border-box; font-size:12px; resize:vertical;';
-    noteTextarea.addEventListener('input', () => {
-      GM_setValue(NOTE_KEY, noteTextarea.value);
-    });
-    vungNoiDung.appendChild(noteTextarea);
+    // Tao 1 dong gom [checkbox Bat/Tat] + [nut bam], de nguoi dung tu chan bot nut khong
+    // muon dung tren account nay - tat thi nut xam di va khong bam duoc, trang thai duoc
+    // luu lai qua GM_setValue nen van con sau khi tai lai trang.
+    function taoDongNutCoTheBatTat(btn, storageKey) {
+      const dong = document.createElement('div');
+      dong.style.cssText = 'display:flex; align-items:center; gap:6px;';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.title = 'Bật/Tắt nút này';
+      checkbox.style.cssText = 'flex:none; width:16px; height:16px; cursor:pointer;';
+      checkbox.checked = GM_getValue(storageKey, true);
+
+      function apDungTrangThai() {
+        btn.disabled = !checkbox.checked;
+        btn.style.opacity = checkbox.checked ? '1' : '.5';
+        btn.style.cursor = checkbox.checked ? 'pointer' : 'not-allowed';
+      }
+      checkbox.addEventListener('change', () => {
+        GM_setValue(storageKey, checkbox.checked);
+        apDungTrangThai();
+      });
+      apDungTrangThai();
+
+      btn.style.flex = '1';
+      dong.appendChild(checkbox);
+      dong.appendChild(btn);
+      return dong;
+    }
 
     btnScanEarnings = document.createElement('button');
     btnScanEarnings.textContent = '🔍 Quét đơn + Earnings & tải Excel';
@@ -1008,7 +1039,7 @@
       border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
     `;
     btnScanEarnings.onclick = () => scanAndExport(true);
-    vungNoiDung.appendChild(btnScanEarnings);
+    vungNoiDung.appendChild(taoDongNutCoTheBatTat(btnScanEarnings, ENABLE_SCAN_EARNINGS_KEY));
 
     btnScanOnly = document.createElement('button');
     btnScanOnly.textContent = '📦 Quét đơn & tải Excel';
@@ -1017,12 +1048,7 @@
       border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
     `;
     btnScanOnly.onclick = () => scanAndExport(false);
-    vungNoiDung.appendChild(btnScanOnly);
-
-    const duongKe = document.createElement('div');
-    duongKe.style.cssText = 'border-top:1px solid #e5e7eb; margin:4px 0; padding-top:6px; font-size:11px; color:#6b7280; font-weight:bold;';
-    duongKe.textContent = 'Lấy Earnings theo danh sách mã đơn (nhập tay)';
-    vungNoiDung.appendChild(duongKe);
+    vungNoiDung.appendChild(taoDongNutCoTheBatTat(btnScanOnly, ENABLE_SCAN_ONLY_KEY));
 
     idsTextarea = document.createElement('textarea');
     idsTextarea.placeholder = 'Mỗi mã đơn 1 dòng, ví dụ:\n4127701646\n4127701647';
