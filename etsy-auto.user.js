@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.2
+// @version      9.3
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.2';
+  const PHIEN_BAN = '9.3';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -626,8 +626,16 @@
       } catch (loi) {
         loiCuoi = loi;
         if (lan < soLanThuLai) {
-          console.warn(`[Etsy Auto] Lỗi/treo khi tải ảnh, thử lại lần ${lan + 1}/${soLanThuLai}:`, url, loi.message);
-          await cho(800);
+          // Doi CANG LUC CANG LAU giua cac lan thu (800ms, 2000ms, ...) thay vi co dinh 800ms —
+          // neu nguyen nhan treo la bi chan ngam do goi qua nhieu request lien tiep toi cung 1
+          // CDN (rat de xay ra khi thu di thu lai cung 1 listing nhieu lan trong thoi gian ngan
+          // luc debug), doi lau hon giup tang co hoi CDN/tien ich da het "nguoi lanh" roi cho qua.
+          const doiMs = 800 * (lan + 1) ** 2;
+          console.warn(
+            `[Etsy Auto] Lỗi/treo khi tải ảnh, thử lại lần ${lan + 1}/${soLanThuLai} (đợi ${doiMs}ms):`,
+            url, loi.message
+          );
+          await cho(doiMs);
         }
       }
     }
@@ -2229,8 +2237,11 @@
   }
 
   // So anh tai CUNG LUC toi da — GM_xmlhttpRequest khong bi gioi han 6 ket noi/goc nhu fetch
-  // thuong cua trang, nhung van chon so vua phai de khong lam CDN/Etsy nghi la spam.
-  const DO_SONG_SONG_TAI_ANH = 4;
+  // thuong cua trang, nhung van chon so vua phai de khong lam CDN/Etsy nghi la spam. Giam tu 4
+  // xuong 2 (v9.3) sau khi gap thuc te: nhieu request cung goc bi treo hoan toan (khong loi, khong
+  // phan hoi) sau mot ngay test lien tuc cung 1 vai listing — nghi ngo bi chan ngam do goi qua
+  // nhieu/qua nhanh, 2 luong ne duoc rui ro do ma van nhanh hon han cach tuan tu cu.
+  const DO_SONG_SONG_TAI_ANH = 2;
 
   // Tai NHIEU anh CUNG LUC (thay vi tung anh mot lan luot) de tang toc buoc lay du lieu truoc
   // khi nhoi vao o upload — day la phan DUY NHAT script kiem soat duoc ve toc do, con buoc Etsy

@@ -373,6 +373,30 @@ Vì lúc đó thư viện ảnh bảng size còn chưa dùng domain nào ngoài 
 (`i.etsystatic.com`, `openapi.etsy.com`) — loại bỏ hoàn toàn nghi vấn thay vì để người dùng tự dò
 trong cài đặt quyền của extension.
 
+**Cập nhật:** sau khi rút `@connect *`, lỗi **vẫn tái diễn y hệt** ở lần thử kế tiếp — nên giả
+thuyết "đổi quyền cần duyệt lại" chỉ là một phần, không phải toàn bộ nguyên nhân. Bằng chứng quan
+trọng: đây không phải lỗi Etsy *từ chối* request (không có mã trạng thái HTTP nào cả — `onload`,
+`onerror` đều không được gọi), mà là **im lặng hoàn toàn** trong đúng 20 giây (`THOI_HAN_MOI_CACH_TAI`),
+nhiều khả năng là bị chặn ngầm ở tầng mạng/tiện ích khi gọi liên tiếp quá nhiều request tới cùng
+1 CDN trong thời gian ngắn — đúng như ghi chú đã có sẵn từ trước ở `taiMotAnhVoiRetry()` (viết cho
+luồng tải xuống, hoá ra áp dụng luôn cho luồng upload). Việc debug dồn dập trong ngày lặp đi lặp lại
+trên cùng vài listing rất có thể là nguyên nhân trực tiếp kích hoạt chặn ngầm này.
+
+### Giảm tải để né bị chặn ngầm (v9.3)
+
+Hai thay đổi phòng vệ, không sửa được nguyên nhân gốc (nếu đúng là chặn ngầm tầng mạng thì chỉ có
+đợi mới hết) nhưng giảm khả năng kích hoạt lại:
+
+- `DO_SONG_SONG_TAI_ANH` giảm từ 4 xuống **2** — bớt dồn dập request cùng lúc tới cùng 1 CDN.
+- Thời gian đợi giữa các lần thử lại trong `taiMotAnhVoiRetry()` đổi từ cố định 800ms thành **tăng
+  dần** (800ms, rồi 3200ms) — nếu bị chặn tạm thời do gọi quá nhanh, đợi lâu hơn tăng cơ hội "hạ
+  nhiệt" trước lần thử tiếp theo.
+
+Nếu gặp lại đúng kiểu lỗi này (im lặng 20s, không có mã lỗi HTTP), cách chẩn đoán nhanh: dán thẳng
+URL ảnh đang lỗi vào một tab trình duyệt bình thường (không qua script). Tải được bình thường ở đó
+→ vấn đề nằm ở `GM_xmlhttpRequest`/tiện ích quản lý userscript, không phải mạng thật. Cũng không tải
+được ở đó → vấn đề mạng/CDN thật sự, ngoài tầm kiểm soát của script, chỉ cần đợi rồi thử lại.
+
 **Hệ quả: thư viện ảnh bảng size giờ chỉ chắc chắn tải được ảnh từ `i.etsystatic.com`.** Dán link
 domain khác vào bảng quản lý (nút 📐) vẫn được — chỉ hiện cảnh báo vàng, không chặn — nhưng lúc
 upload nhiều khả năng sẽ lỗi tải ảnh đó cho tới khi thêm đúng domain đó vào `@connect` trong header
