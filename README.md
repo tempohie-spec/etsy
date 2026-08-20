@@ -668,6 +668,13 @@ Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overla
 
 Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
 
+## Tự động copy dữ liệu vào clipboard
+
+Mỗi lần tải file Excel xuống (cả 2 chức năng "Quét đơn..." và "Lấy Earnings theo mã đơn"), script
+đồng thời copy luôn toàn bộ dữ liệu vào clipboard dưới dạng TSV (các cột cách nhau bằng Tab). Bạn
+có thể mở sẵn sheet đích rồi bấm `Ctrl+V` dán thẳng vào, không cần mở file `.xlsx` vừa tải ra. Dữ
+liệu copy giống hệt dữ liệu trong file (không có dòng header, đúng thứ tự cột).
+
 ## Bật/Tắt riêng từng nút Quét đơn
 
 Đã bỏ ô ghi chú, thay bằng 1 ô tích (checkbox) đứng ngay bên cạnh mỗi nút **"🔍 Quét đơn +

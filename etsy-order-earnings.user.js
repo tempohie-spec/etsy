@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.16
+// @version      2.17
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
+// @grant        GM_setClipboard
 // @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
 // @run-at       document-idle
 // ==/UserScript==
@@ -32,7 +33,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.16';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.17';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -435,6 +436,23 @@
     XLSX.utils.book_append_sheet(wb, ws, 'Orders');
     const filename = `etsy_orders_${getTodayFileDateStr()}.xlsx`;
     XLSX.writeFile(wb, filename);
+
+    // Dong thoi copy toan bo du lieu vao clipboard dang TSV (cach nhau bang Tab, xuong dong
+    // giua cac hang) - dan (Ctrl+V) thang duoc vao Excel/Google Sheets thanh tung o rieng,
+    // khong can mo file .xlsx vua tai ra.
+    copyDataToClipboard(cleanData);
+  }
+
+  // Chuyen du lieu thanh chuoi TSV (tab-separated) roi ghi vao clipboard qua GM_setClipboard.
+  // Thay tab/xuong dong CO SAN trong tung o bang khoang trang, tranh lam le cot khi dan.
+  // headers mac dinh la HEADERS (bang xuat don hang chinh); truyen headers khac de dung cho
+  // cac bang xuat khac (vd ket qua "Lay Earnings theo ma don" chi co 2 cot).
+  function copyDataToClipboard(cleanData, headers = HEADERS) {
+    if (typeof GM_setClipboard === 'undefined') return;
+    const tsv = cleanData
+      .map((row) => headers.map((h) => String(row[h] !== undefined ? row[h] : '').replace(/[\t\r\n]+/g, ' ')).join('\t'))
+      .join('\n');
+    GM_setClipboard(tsv, 'text');
   }
 
   // ====== TIEN ICH DUNG CHUNG CHO CA 2 CACH LAY EARNINGS ======
@@ -727,10 +745,10 @@
       exportToExcelFile(newRows);
 
       if (stopped) {
-        hienThongBao(`⏹ Đã dừng theo yêu cầu. Đã xuất ${newRows.length} dòng (Earnings chưa lấy hết cho tất cả đơn).`, '#F59E0B');
+        hienThongBao(`⏹ Đã dừng theo yêu cầu. Đã xuất ${newRows.length} dòng (Earnings chưa lấy hết cho tất cả đơn). Đã copy vào clipboard, dán (Ctrl+V) thẳng vào sheet cũng được.`, '#F59E0B');
       } else {
         const ghiChu = withEarnings ? ' (kèm Earnings)' : '';
-        hienThongBao(`✅ Đã quét ${newRows.length} dòng${ghiChu} và tải file Excel!`, '#16A34A');
+        hienThongBao(`✅ Đã quét ${newRows.length} dòng${ghiChu} và tải file Excel! Đã copy vào clipboard, dán (Ctrl+V) thẳng vào sheet cũng được.`, '#16A34A');
       }
       console.log('[Etsy Scraper] Scanned rows (đã thay thế toàn bộ dữ liệu cũ):', newRows);
     } catch (err) {
@@ -806,11 +824,12 @@
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Earnings');
       XLSX.writeFile(wb, 'earnings_result.xlsx');
+      copyDataToClipboard(results, ['Mã đơn', 'Earnings']);
 
       if (stopped) {
-        hienThongBao(`⏹ Đã dừng theo yêu cầu. Đã lấy Earnings cho ${results.length}/${ids.length} mã đơn và tải file Excel!`, '#F59E0B');
+        hienThongBao(`⏹ Đã dừng theo yêu cầu. Đã lấy Earnings cho ${results.length}/${ids.length} mã đơn và tải file Excel! Đã copy vào clipboard, dán (Ctrl+V) thẳng vào sheet cũng được.`, '#F59E0B');
       } else {
-        hienThongBao(`✅ Đã lấy Earnings cho ${ids.length} mã đơn và tải file Excel!`, '#16A34A');
+        hienThongBao(`✅ Đã lấy Earnings cho ${ids.length} mã đơn và tải file Excel! Đã copy vào clipboard, dán (Ctrl+V) thẳng vào sheet cũng được.`, '#16A34A');
       }
     } catch (err) {
       console.error('[Etsy Scraper] Lỗi khi lấy Earnings theo danh sách mã đơn:', err);
