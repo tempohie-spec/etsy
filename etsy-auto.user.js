@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.1
+// @version      9.2
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -11,7 +11,6 @@
 // @grant        GM_setValue
 // @connect      i.etsystatic.com
 // @connect      openapi.etsy.com
-// @connect      *
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -19,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.1';
+  const PHIEN_BAN = '9.2';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2007,6 +2006,16 @@
         if (!/^https?:\/\//i.test(url)) {
           hienThongBao('⚠️ Link ảnh phải bắt đầu bằng http:// hoặc https://', '#DC2626');
           return;
+        }
+        // Script chi duoc cap quyen GM_xmlhttpRequest toi i.etsystatic.com va openapi.etsy.com
+        // (xem @connect trong header) — anh o domain khac se tai LOI khi upload. Chi canh bao,
+        // van cho them (nguoi dung co the dang chuan bi danh sach truoc khi xin them quyen).
+        if (!/^https?:\/\/i\.etsystatic\.com\//i.test(url)) {
+          hienThongBao(
+            '⚠️ Đã thêm, nhưng link này không thuộc i.etsystatic.com — script chưa được cấp quyền ' +
+              'tải ảnh từ domain khác nên lúc upload có thể sẽ lỗi. Xem README nếu muốn dùng domain khác.',
+            '#F59E0B'
+          );
         }
         danhSach.push({ url });
         luuThuVienBangSize(danhSach);

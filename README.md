@@ -358,9 +358,25 @@ Khi `Alt+V` có ảnh để upload: nếu thư viện đang có N ảnh, script 
 còn ít hơn số ảnh trong thư viện, script báo lỗi ngay từ đầu thay vì để bạn chọn ảnh sản phẩm rồi
 mới phát hiện không đủ chỗ.
 
-**Ảnh trong thư viện không bị giới hạn phải là link của Etsy** — script tải qua `GM_xmlhttpRequest`
-với `@connect *` trong header (tải được từ mọi domain), khác với ảnh sản phẩm vốn luôn lấy từ CDN
-`i.etsystatic.com` của chính listing nguồn.
+### `@connect *` gây treo TOÀN BỘ request, kể cả tới `i.etsystatic.com` — đã rút lại (v9.2)
+
+Bản v9.0 từng thêm `@connect *` vào header để ảnh trong thư viện không bị giới hạn phải lấy từ
+`i.etsystatic.com`. Ngay lần thử tiếp theo, **toàn bộ** request `GM_xmlhttpRequest` — kể cả tới
+`i.etsystatic.com` vốn đã chạy ổn định qua rất nhiều phiên bản trước — treo đúng 20s rồi báo lỗi
+`GM_xmlhttpRequest không phản hồi sau 20s`, không sót ảnh nào. Đổi `@connect` là thay đổi PHẠM VI
+QUYỀN của script; nhiều khả năng trình quản lý userscript coi đây là thay đổi cần xác nhận lại và
+chặn ngầm mọi request cho tới khi được duyệt — chặn ngầm (không gọi lại `onerror`) khớp chính xác
+với kiểu "treo rồi timeout" quan sát được, thay vì báo lỗi ngay.
+
+Vì lúc đó thư viện ảnh bảng size còn chưa dùng domain nào ngoài Etsy, cách sửa an toàn nhất là
+**rút hẳn `@connect *`**, chỉ giữ lại đúng 2 domain đã dùng ổn định từ đầu
+(`i.etsystatic.com`, `openapi.etsy.com`) — loại bỏ hoàn toàn nghi vấn thay vì để người dùng tự dò
+trong cài đặt quyền của extension.
+
+**Hệ quả: thư viện ảnh bảng size giờ chỉ chắc chắn tải được ảnh từ `i.etsystatic.com`.** Dán link
+domain khác vào bảng quản lý (nút 📐) vẫn được — chỉ hiện cảnh báo vàng, không chặn — nhưng lúc
+upload nhiều khả năng sẽ lỗi tải ảnh đó cho tới khi thêm đúng domain đó vào `@connect` trong header
+script (cách an toàn hơn `@connect *`: liệt kê rõ từng domain cần dùng).
 
 ### Tải ảnh song song để tăng tốc (v8.3)
 
