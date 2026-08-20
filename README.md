@@ -322,18 +322,37 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 3. Ảnh nghi là **bảng size** bị **bỏ tick sẵn** — nhận diện qua `alt`:
    `size chart`, `sizing chart`, `size guide`, `sizing guide`, `measurement`, hoặc từ `chart` đứng
    riêng (`\bchart\b`, nên `Charter` không bị dính). Đây chỉ là gợi ý — tick lại được.
-4. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
-5. Script tải bytes ảnh sản phẩm **trước** (song song, xem mục dưới), rồi tới ảnh trong **thư viện
+4. **Sắp xếp thứ tự ngay trong bảng chọn (v9.5):** ảnh đã chọn hiện trước, đánh số `#1, #2...` theo
+   đúng thứ tự sẽ upload, kèm nút `◀`/`▶` để đổi chỗ với ảnh liền kề; ảnh chưa chọn hiện sau, không
+   đánh số. Tick vào 1 ảnh sẽ thêm nó vào **cuối** danh sách đã chọn; bỏ tick thì rút nó ra, các ảnh
+   còn lại giữ nguyên thứ tự tương đối. Vì listing đích lúc này gần như trống, thứ tự chọn ở đây
+   chính là thứ tự cuối cùng trên Etsy — không cần sắp xếp lại sau khi upload.
+5. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
+6. Script tải bytes ảnh sản phẩm **trước** (song song, xem mục dưới), rồi tới ảnh trong **thư viện
    ảnh bảng size** của bạn nếu có (mục ngay dưới đây) → tạo `File` cho từng ảnh, ghép **đúng thứ tự
    sản phẩm trước – bảng size sau** → nhồi vào `<input type="file">` bằng `DataTransfer` rồi bắn
    `input` + `change`. Trình duyệt coi đây y hệt như vừa chọn file bằng tay.
-6. Chờ Etsy xử lý xong (tối đa 180s). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên đầu
+7. Chờ Etsy xử lý xong (tối đa 180s). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên đầu
    được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
-7. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu — kể cả
-   ảnh bảng size ở cuối cùng), có thêm tuỳ chọn: **dừng lại** (mặc định), bấm hộ **Save as draft**,
-   hoặc bấm hộ **Publish**. Chọn *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing
-   ra ngoài, khó lùi lại. Khi listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động lưu/đăng
-   lúc ảnh còn sai thứ tự không có ý nghĩa gì.
+8. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu — kể cả
+   ảnh bảng size ở cuối cùng), có thêm tuỳ chọn: bấm hộ **Publish copy with changes** (mặc định) hoặc
+   **dừng lại, tự bấm lưu**. Chọn *Publish* phải xác nhận thêm một lần vì đây là thao tác đưa listing
+   ra ngoài, khó lùi lại. Khi listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động đăng lúc
+   ảnh còn sai thứ tự không có ý nghĩa gì.
+
+### Mặc định Publish, bỏ Save as draft (v9.5)
+
+Bảng chọn giờ chỉ còn **2** lựa chọn sau khi upload (trước là 3): **Bấm hộ Publish copy with changes**
+(mặc định, tick sẵn) và **Dừng lại, tôi tự bấm lưu**. Bỏ hẳn lựa chọn "Save as draft" riêng.
+
+Đổi tên nút tìm/bấm từ `'Publish'` thành `'Publish copy with changes'` — khớp **đúng nguyên văn**
+chữ trên nút thật của Etsy (`timNutTheoNhan()` so khớp chính xác toàn bộ `textContent`, không phải
+so khớp một phần), tránh trường hợp tìm nhầm ra "không tìm thấy nút" nếu Etsy không có nút nào tên
+đúng là "Publish".
+
+Vì Publish giờ là **mặc định**, nút Publish thật trên Etsy vẫn được xác nhận qua hộp thoại
+`window.confirm()` trước khi bấm — không đổi cơ chế an toàn này, chỉ đổi việc lựa chọn nào được
+tick sẵn trong hộp thoại của script.
 
 ### Thư viện ảnh bảng size của riêng bạn — nút 📐 (v9.0)
 

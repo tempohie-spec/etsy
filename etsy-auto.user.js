@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.4
+// @version      9.5
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.4';
+  const PHIEN_BAN = '9.5';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2095,9 +2095,8 @@
                  </div>
                  <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked disabled> Dừng lại sau khi upload, tôi tự kéo ảnh + tự lưu</label>`
               : `<div style="margin-bottom:6px;font-weight:bold;">Sau khi upload xong:</div>
-                 <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked> Dừng lại, tôi tự bấm lưu (an toàn nhất)</label>
-                 <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="nhap"> Bấm hộ <b>Save as draft</b></label>
-                 <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="publish"> Bấm hộ <b>Publish</b> — đăng bán công khai ngay, khó lùi lại</label>`
+                 <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="publish" checked> Bấm hộ <b>Publish copy with changes</b> — đăng bán công khai ngay, khó lùi lại</label>
+                 <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong"> Dừng lại, tôi tự bấm lưu</label>`
           }
         </div>
         <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;gap:10px;">
@@ -2116,28 +2115,82 @@
       const oDem = hop.querySelector('#ea-up-dem');
       const nutOk = hop.querySelector('#ea-up-ok');
 
+      // Trang thai thu tu: mang cac CHI SO GOC (trong goi.anh) theo DUNG thu tu se upload.
+      // Mac dinh: chon san moi anh KHONG nghi la bang size, giu nguyen thu tu carousel ban dau.
+      let thuTu = [];
       goi.anh.forEach((anh, i) => {
-        const the = document.createElement('label');
-        the.style.cssText = `
-          display:block; border:2px solid #E5E7EB; border-radius:8px; overflow:hidden;
-          cursor:pointer; position:relative; background:#F9FAFB;
-        `;
         const nghiBangSize = typeof anh.bang === 'boolean' ? anh.bang : laAnhBangSize(anh.alt);
-        the.innerHTML = `
-          <img src="${linhThuNho(anh.url)}" style="width:100%;height:110px;object-fit:cover;display:block;" loading="lazy">
-          <div style="padding:5px 6px;font-size:10px;color:#6B7280;line-height:1.3;height:30px;overflow:hidden;">
-            ${nghiBangSize ? '⚠️ nghi là bảng size' : `#${i + 1}`}
-          </div>
-          <input type="checkbox" data-i="${i}" ${nghiBangSize ? '' : 'checked'}
-            style="position:absolute;top:6px;left:6px;width:18px;height:18px;cursor:pointer;">
-        `;
-        luoi.appendChild(the);
+        if (!nghiBangSize) thuTu.push(i);
       });
 
-      const cacTick = [...luoi.querySelectorAll('input[type="checkbox"]')];
+      // Ve lai toan bo luoi: anh DA CHON hien truoc (theo dung thu tu upload, danh so #1, #2...
+      // kem nut ◀▶ de doi cho), anh CHUA CHON hien sau (giu nguyen thu tu carousel goc).
+      function ve() {
+        const daChon = new Set(thuTu);
+        const chuaChon = goi.anh.map((_, i) => i).filter((i) => !daChon.has(i));
+        const thuTuHienThi = [...thuTu, ...chuaChon];
 
-      const capNhatDem = () => {
-        const soChon = cacTick.filter((t) => t.checked).length;
+        luoi.innerHTML = thuTuHienThi
+          .map((i) => {
+            const anh = goi.anh[i];
+            const daDuocChon = daChon.has(i);
+            const viTri = daDuocChon ? thuTu.indexOf(i) : -1;
+            const nghiBangSize = typeof anh.bang === 'boolean' ? anh.bang : laAnhBangSize(anh.alt);
+            return `
+          <div data-i="${i}" style="display:block; border:2px solid ${daDuocChon ? '#F56400' : '#E5E7EB'}; border-radius:8px; overflow:hidden; position:relative; background:#F9FAFB;">
+            <img src="${linhThuNho(anh.url)}" style="width:100%;height:110px;object-fit:cover;display:block;" loading="lazy">
+            <div style="padding:4px 4px;font-size:10px;color:#6B7280;line-height:1.3;height:22px;display:flex;align-items:center;justify-content:center;gap:3px;">
+              ${
+                daDuocChon
+                  ? `<button data-act="lui" data-i="${i}" ${viTri === 0 ? 'disabled' : ''} title="Đưa lên trước" style="width:20px;height:18px;border:1px solid #D1D5DB;border-radius:3px;background:#fff;cursor:pointer;font-size:10px;padding:0;line-height:1;">◀</button>
+                     <b style="color:#F56400;white-space:nowrap;">#${viTri + 1}</b>
+                     <button data-act="toi" data-i="${i}" ${viTri === thuTu.length - 1 ? 'disabled' : ''} title="Đưa xuống sau" style="width:20px;height:18px;border:1px solid #D1D5DB;border-radius:3px;background:#fff;cursor:pointer;font-size:10px;padding:0;line-height:1;">▶</button>`
+                  : nghiBangSize
+                    ? '⚠️ nghi là bảng size'
+                    : 'chưa chọn'
+              }
+            </div>
+            <label style="position:absolute;top:6px;left:6px;width:18px;height:18px;cursor:pointer;">
+              <input type="checkbox" data-i="${i}" ${daDuocChon ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;margin:0;">
+            </label>
+          </div>`;
+          })
+          .join('');
+
+        capNhatDem();
+      }
+      ve();
+
+      // Uy quyen su kien vao container luoi (thay vi gan tung the), vi luoi duoc VE LAI toan bo
+      // moi lan doi trang thai — gan rieng le se mat het listener sau moi lan render.
+      luoi.addEventListener('change', (e) => {
+        if (e.target.type !== 'checkbox') return;
+        const i = Number(e.target.dataset.i);
+        if (e.target.checked) {
+          if (!thuTu.includes(i)) thuTu.push(i);
+        } else {
+          thuTu = thuTu.filter((x) => x !== i);
+        }
+        ve();
+      });
+
+      luoi.addEventListener('click', (e) => {
+        const nut = e.target.closest('button[data-act]');
+        if (!nut) return;
+        const i = Number(nut.dataset.i);
+        const p = thuTu.indexOf(i);
+        if (p === -1) return;
+        if (nut.dataset.act === 'lui' && p > 0) {
+          [thuTu[p - 1], thuTu[p]] = [thuTu[p], thuTu[p - 1]];
+          ve();
+        } else if (nut.dataset.act === 'toi' && p < thuTu.length - 1) {
+          [thuTu[p + 1], thuTu[p]] = [thuTu[p], thuTu[p + 1]];
+          ve();
+        }
+      });
+
+      function capNhatDem() {
+        const soChon = thuTu.length;
         const quaNhieu = soChon > conLai;
         oDem.textContent = quaNhieu
           ? `⚠️ Đang chọn ${soChon} ảnh nhưng chỉ còn chỗ cho ${conLai}`
@@ -2146,12 +2199,7 @@
         nutOk.disabled = quaNhieu || soChon === 0;
         nutOk.style.opacity = nutOk.disabled ? '.5' : '1';
         nutOk.style.cursor = nutOk.disabled ? 'not-allowed' : 'pointer';
-        cacTick.forEach((t) => {
-          t.closest('label').style.borderColor = t.checked ? '#F56400' : '#E5E7EB';
-        });
-      };
-      cacTick.forEach((t) => t.addEventListener('change', capNhatDem));
-      capNhatDem();
+      }
 
       const dong = (ketQua) => {
         lop.remove();
@@ -2165,10 +2213,13 @@
       nutOk.onclick = () => {
         const hanhDong = hop.querySelector('input[name="ea-up-xong"]:checked').value;
         // Publish la thao tac dua listing ra ngoai, kho lui lai -> hoi lai them 1 lan cho chac
-        if (hanhDong === 'publish' && !window.confirm('Chắc chắn ĐĂNG BÁN (Publish) listing này ngay sau khi upload xong?')) {
+        if (
+          hanhDong === 'publish' &&
+          !window.confirm('Chắc chắn ĐĂNG BÁN (Publish copy with changes) listing này ngay sau khi upload xong?')
+        ) {
           return;
         }
-        const cacAnh = cacTick.filter((t) => t.checked).map((t) => goi.anh[Number(t.dataset.i)]);
+        const cacAnh = thuTu.map((i) => goi.anh[i]);
         dong({ cacAnh, hanhDong });
       };
     });
@@ -2390,7 +2441,7 @@
   // con lam duoc phan UPLOAD (khong dinh gioi han nay vi gan File vao input khong phai su kien ban
   // phim/chuot), con buoc sap xep de nguoi dung tu keo tay — thuong chi mat vai giay.
 
-  // ---- Nut ket thuc (Save as draft / Publish) ----
+  // ---- Nut ket thuc (Publish copy with changes) ----
 
   function timNutTheoNhan(chu) {
     const can = chu.toLowerCase();
@@ -2501,10 +2552,11 @@
         ? ' — ảnh mới nằm ở CUỐI lưới, bạn tự kéo lên đầu (không tự động hoá được, xem README)'
         : '';
 
-    // Buoc 5: hanh dong ket thuc (chi khi nguoi dung da chon trong bang chon)
+    // Buoc 5: hanh dong ket thuc (chi khi nguoi dung chon "Publish" trong bang chon — lua chon
+    // "Save as draft" rieng da bo, vi hanhDong gio chi con 'khong' hoac 'publish')
     let ghiChuKetThuc = '';
-    if (hanhDong !== 'khong') {
-      const nhan = hanhDong === 'publish' ? 'Publish' : 'Save as draft';
+    if (hanhDong === 'publish') {
+      const nhan = 'Publish copy with changes';
       await cho(600);
       const nut = timNutTheoNhan(nhan);
       if (nut) {
