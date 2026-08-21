@@ -4,89 +4,52 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📦 Order Processing')
-    .addItem('▶ Chọn sheet để chạy', 'processSelectedSheets')
+    .addItem('▶ Chạy sheet đang mở', 'processCurrentSheet')
     .addToUi();
 }
 
 // ============================================================
-// CHỌN SHEET - Hiện dialog checkbox để chọn sheet
+// CHẠY SHEET ĐANG MỞ - dùng ui.prompt gốc (không HtmlService) để không
+// bị delay do tải iframe, xử lý xong tự chuyển sang sheet đích
 // ============================================================
-function processSelectedSheets() {
+function processCurrentSheet() {
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const srcSheet = ss.getActiveSheet();
+  const sheetName = srcSheet.getName();
 
-  // Lấy danh sách sheet nguồn (chỉ đọc tên sheet, không đọc dữ liệu -> mở dialog nhanh)
-  const sourceSheets = ss.getSheets()
-    .map(s => s.getName())
-    .filter(name => name.startsWith('ETSY_') || name.startsWith('ETSY -'));
-
-  if (sourceSheets.length === 0) {
-    ui.alert('Không tìm thấy sheet nào bắt đầu bằng "ETSY_" hoặc "ETSY -"');
+  if (!sheetName.startsWith('ETSY_') && !sheetName.startsWith('ETSY -')) {
+    ui.alert('Sheet đang mở ("' + sheetName + '") không phải sheet nguồn.\n' +
+      'Vui lòng mở đúng sheet nguồn (tên bắt đầu bằng "ETSY_" hoặc "ETSY -") rồi thử lại.');
     return;
   }
 
-  // Tạo HTML dialog với checkbox cho từng sheet
-  const checkboxHtml = sourceSheets.map((name, i) =>
-    `<label style="display:block;margin:6px 0;font-size:13px;">
-      <input type="checkbox" name="sheet" value="${name}" id="cb${i}">
-      &nbsp;${name}
-    </label>`
-  ).join('');
-
-  const html = HtmlService.createHtmlOutput(`
-    <style>
-      body { font-family: Arial, sans-serif; padding: 16px; }
-      h3 { margin: 0 0 12px 0; font-size: 14px; color: #333; }
-      .btn-row { margin-top: 16px; display: flex; gap: 8px; }
-      button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
-      .btn-ok  { background: #4CAF50; color: white; }
-      .btn-all { background: #2196F3; color: white; }
-      .btn-cancel { background: #ccc; color: #333; }
-      .sep { border: none; border-top: 1px solid #eee; margin: 10px 0; }
-    </style>
-    <h3>📋 Chọn sheet cần xử lý:</h3>
-    <label style="display:block;margin:6px 0;font-size:13px;font-weight:bold;">
-      <input type="checkbox" id="selectAll" onchange="toggleAll(this)">
-      &nbsp;Chọn tất cả
-    </label>
-    <hr class="sep">
-    ${checkboxHtml}
-    <div class="btn-row">
-      <button class="btn-ok" onclick="submit()">▶ Chạy</button>
-      <button class="btn-cancel" onclick="google.script.host.close()">✕ Huỷ</button>
-    </div>
-    <script>
-      function toggleAll(cb) {
-        document.querySelectorAll('input[name="sheet"]').forEach(el => el.checked = cb.checked);
-      }
-      function submit() {
-        const checked = [...document.querySelectorAll('input[name="sheet"]:checked')]
-          .map(el => el.value);
-        if (checked.length === 0) {
-          alert('Vui lòng chọn ít nhất 1 sheet!');
-          return;
-        }
-        google.script.run
-          .withSuccessHandler(() => google.script.host.close())
-          .withFailureHandler(err => alert('Lỗi: ' + err.message))
-          .runSelectedSheetsWithDate(checked);
-      }
-    </script>
-  `)
-  .setWidth(380)
-  .setHeight(Math.min(80 + sourceSheets.length * 34 + 60, 480));
-
-  ui.showModalDialog(html, '📦 Chọn sheet để xử lý');
-}
-
-// ============================================================
-// Được gọi từ HTML dialog sau khi chọn sheet
-// ============================================================
-function runSelectedSheetsWithDate(selectedSheetNames) {
-  const ui = SpreadsheetApp.getUi();
   const dateInput = promptDate(ui);
   if (!dateInput) return;
-  _runProcessing(dateInput, new Set(selectedSheetNames));
+
+  const merchizeLookup = buildMerchizeLookup(ss);
+  const tebLookup      = buildTebLookup(ss);
+
+  let totalTeb = 0, totalMerchize = 0, targetSheetName;
+
+  if (sheetName === 'ETSY_Turkiye 01') {
+    const result = processTurkiyeSheet(ss, srcSheet, dateInput, tebLookup, merchizeLookup);
+    totalTeb      = result.teb;
+    totalMerchize = result.merchize;
+    // Ưu tiên mở sheet Teb nếu có dữ liệu, không thì mở sheet Merchize
+    targetSheetName = totalTeb > 0 ? 'Teb: ETSY_Turkiye 01' : 'Merchize: ETSY_Turkiye 01';
+  } else {
+    totalMerchize = processMerchizeOnly(ss, srcSheet, dateInput, merchizeLookup);
+    targetSheetName = 'Merchize: ' + sheetName;
+  }
+
+  const msg = '✅ Hoàn tất ngày ' + dateInput +
+    '\n→ Teb: '      + totalTeb      + ' đơn' +
+    '\n→ Merchize: ' + totalMerchize + ' đơn';
+  try { ui.alert(msg); } catch(e) { Logger.log(msg); }
+
+  const targetSheet = ss.getSheetByName(targetSheetName);
+  if (targetSheet) targetSheet.activate();
 }
 
 // ============================================================
