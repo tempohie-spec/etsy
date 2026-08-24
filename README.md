@@ -942,18 +942,69 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
   dùng VPS/RDP đặt ở Mỹ để chạy Etsy — nếu tính theo giờ hệ thống của máy đó, ngày xuất ra có
   thể lệch cả nửa ngày so với ngày thực tế ở Việt Nam.
 
-## Không cần bấm sang tab Earnings
+## Bấm sang tab Earnings trước khi đọc số tiền
 
-Etsy đã render sẵn nội dung của cả 2 tab ("Order details" và "Earnings") ngay trong DOM
-từ lúc mở bảng order details, chỉ ẩn/hiện bằng CSS chứ không tải lại khi đổi tab. Vì vậy
-script chỉ cần mở bảng order details (bấm vào mã đơn) rồi đọc thẳng dòng "You earned $x.xx"
-là đủ, không cần bấm sang tab Earnings nữa — nhanh hơn và ít phụ thuộc vào việc bấm đúng tab.
+Trước đây script bỏ qua bước bấm tab "Earnings" vì cho rằng Etsy render sẵn nội dung cả 2 tab
+("Order details" và "Earnings") ngay khi mở bảng, chỉ ẩn/hiện bằng CSS. Thực tế đúng là cả 2 tab
+đều có sẵn trong DOM, nhưng **tab "Order details" mới là tab mặc định đang hiển thị** — nội dung
+tab "Earnings" vẫn bị ẩn (`display: none`) cho tới khi bấm chọn tab đó. Vì script sau đó có thêm
+bước chỉ chấp nhận span **đang thực sự hiển thị** (để tránh đọc nhầm số tiền cũ còn sót lại, xem
+mục bên dưới), nếu không bấm tab thì sẽ không bao giờ tìm thấy span nào hợp lệ và bị timeout.
 
-## Ghi chú trong panel
+Script đã bấm lại tab "Earnings" (tìm theo đúng chữ "Earnings", khớp tuyệt đối) ngay sau khi mở
+bảng order details, trước khi đọc số tiền — chậm hơn một chút nhưng chắc chắn lấy đúng.
 
-Panel có thêm 1 ô ghi chú nhỏ (ngay dưới dòng "Đã lưu: N dòng") để bạn tự ghi lại, ví dụ
-tài khoản nào cần lấy Earnings, tài khoản nào bỏ qua. Ô này chỉ để tham khảo, không ảnh hưởng
-đến logic quét/lấy Earnings, và được lưu lại qua `GM_setValue` nên vẫn còn khi tải lại trang.
+## Chỉ hiện panel trên đúng trang danh sách đơn hàng
+
+`@match` khớp theo dạng `https://www.etsy.com/your/orders*` (có dấu `*` ở cuối) nên về mặt kỹ
+thuật script cũng chạy trên các trang con khác cùng tiền tố, ví dụ `/your/orders/completed`.
+Script giờ kiểm tra thêm `location.pathname` và chỉ tạo panel khi đang ở trang thuộc
+`/your/orders` (vd `/your/orders/sold` — URL thật của trang đơn hàng mặc định, các tab lọc như
+"Completed" cũng đổi sang `/your/orders/completed`), không hiện ở các trang hoàn toàn khác.
+
+*(Bản đầu yêu cầu khớp tuyệt đối `/your/orders` không có đoạn nào theo sau — bị lỗi ẩn mất
+panel vì URL thật của trang đơn hàng không bao giờ trần trụi như vậy, luôn có thêm `/sold` hay
+tên tab. Đã sửa lại dùng `startsWith` thay vì khớp tuyệt đối.)*
+
+## Hiển thị số phiên bản trên panel
+
+Panel giờ hiện số phiên bản đang chạy (vd `v2.13`) ở cả 2 dạng: dưới biểu tượng 📦 khi thu nhỏ,
+và cạnh tiêu đề "Order Scraper" khi mở rộng — để biết đang chạy đúng bản mới nhất mà không cần
+mở Violentmonkey ra kiểm tra `@version`.
+
+## Tối ưu tốc độ quét/lấy Earnings
+
+Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overlay...) đều có 1 khoảng nghỉ CỐ ĐỊNH
+600ms trước khi kiểm tra kết quả, dù trang có render nhanh hơn hay không — cộng dồn lại làm mỗi
+đơn tốn thêm khoảng 2 giây nghỉ vô ích. Đã tối ưu:
+
+- Bỏ các khoảng nghỉ cố định đứng ngay trước một bước tự chờ (`waitFor`) — bước chờ đó đã tự
+  kiểm tra liên tục cho tới khi phần tử xuất hiện, nên nghỉ thêm trước đó chỉ làm chậm vô ích.
+- Giảm chu kỳ kiểm tra của `waitFor` từ 200ms xuống 100ms, giúp bắt được kết quả sớm hơn.
+- Giảm khoảng nghỉ giữa các đơn (chỉ để tránh gửi yêu cầu dồn dập) từ 400ms xuống 200ms.
+- Riêng bước chờ số tiền Earnings **ổn định** (không bắt trúng số đang chạy hiệu ứng đếm) vẫn
+  giữ đúng độ an toàn — tính theo thời gian thực (300ms không đổi giá trị), không bị ảnh hưởng
+  bởi việc kiểm tra nhanh hơn.
+
+Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
+
+## Tự động copy dữ liệu vào clipboard
+
+Mỗi lần tải file Excel xuống (cả 2 chức năng "Quét đơn..." và "Lấy Earnings theo mã đơn"), script
+đồng thời copy luôn toàn bộ dữ liệu vào clipboard dưới dạng TSV (các cột cách nhau bằng Tab). Bạn
+có thể mở sẵn sheet đích rồi bấm `Ctrl+V` dán thẳng vào, không cần mở file `.xlsx` vừa tải ra. Dữ
+liệu copy giống hệt dữ liệu trong file (không có dòng header, đúng thứ tự cột).
+
+## Bật/Tắt riêng từng nút Quét đơn
+
+Đã bỏ ô ghi chú, thay bằng 1 ô tích (checkbox) đứng ngay bên cạnh mỗi nút **"🔍 Quét đơn +
+Earnings"** và **"📦 Quét đơn"**. Bỏ tích ô nào thì nút tương ứng sẽ xám đi và không bấm được
+nữa — dùng để tự chặn bớt nút không muốn dùng trên account/máy đó (mỗi trình duyệt/profile chạy
+script coi như 1 account riêng). Trạng thái được lưu lại qua `GM_setValue` nên vẫn còn khi tải
+lại trang, và không bị bật nhầm lại sau khi quét xong.
+
+Dòng hướng dẫn "Lấy Earnings theo danh sách mã đơn (nhập tay)" phía trên ô nhập mã đơn cũng đã
+được bỏ.
 
 ## Đóng bảng "Order details" sau mỗi đơn
 
@@ -975,6 +1026,30 @@ Violentmonkey chưa tải được file đó — thường do mạng chặn CDN 
 
 Script đã có kiểm tra trước khi chạy: nếu XLSX chưa sẵn sàng sẽ báo lỗi ngay, không để bạn
 đợi hết cả quá trình quét/lấy Earnings rồi mới báo lỗi lúc xuất file.
+
+## Sửa lỗi Earnings bị dính nhầm giữa các đơn
+
+Trước đây, một số đơn xuất ra Earnings **giống hệt số tiền của đơn ngay trước đó** (đặc biệt
+dễ thấy khi 2 đơn liên tiếp có tổng tiền chênh lệch lớn nhưng Earnings lại bằng nhau). Nguyên
+nhân: khi đóng overlay "Order details", Etsy chỉ **ẩn đi bằng CSS** chứ không xoá khỏi DOM, nên
+dòng "You earned $x.xx" của đơn cũ vẫn còn nằm trong trang. Nếu script đọc Earnings ngay khi vừa
+mở đơn mới mà nội dung mới chưa kịp render, `querySelectorAll` có thể vô tình khớp trúng dòng
+tiền **ẩn** còn sót lại của đơn trước, dẫn tới Earnings bị "dính" sai đơn.
+
+Đã sửa bằng 2 lớp kiểm tra khi đọc Earnings:
+
+1. Chỉ chấp nhận span **đang thực sự hiển thị** trên màn hình (bỏ qua span bị ẩn bởi CSS).
+2. So sánh với số tiền đã đọc được ở đơn ngay trước đó — nếu trong ~2 giây đầu span vẫn đang
+   hiện đúng số tiền cũ, script sẽ đợi thêm cho tới khi nội dung thực sự cập nhật rồi mới đọc,
+   thay vì chấp nhận ngay giá trị có thể vẫn là của đơn trước.
+
+## Sửa lỗi Earnings lệch 1-2 cent
+
+Etsy hiển thị số tiền "You earned $x.xx" bằng hiệu ứng **đếm chạy tăng dần** (count-up), không
+hiện ngay số cuối cùng. Nếu script đọc đúng lúc số đang chạy, nó có thể bắt trúng một bước trung
+gian lệch 1-2 cent so với số tiền thật. Đã sửa: sau khi tìm thấy một giá trị ứng viên, script đợi
+giá trị đó **giữ nguyên ổn định qua 2 lần kiểm tra liên tiếp** (~400ms) rồi mới chấp nhận là số
+tiền cuối cùng, thay vì lấy ngay lần đọc đầu tiên.
 
 ## Nút Dừng
 
