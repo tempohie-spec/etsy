@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.18
+// @version      2.19
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -33,61 +33,92 @@
   // ====== QUY DOI MAU GHEP ("A/B/C") THEO LOAI AO ======
   // Etsy gop nhieu mau THAT SU khac nhau vao chung 1 lua chon "Color" dang "A/B/C" (vi du
   // "Ivory/Natural/Sand") vi cung 1 listing ban nhieu loai ao khac nhau nhung dung chung 1
-  // option mau tren giao dien. Muon biet MAU THAT SU can dien la gi thi phai can cu vao
-  // LOAI AO (doc tu "title" - phan chu lay duoc tu "Style & Size", vi du "Comfort-Adult Tee").
+  // option mau tren giao dien. Muon biet MAU THAT SU can dien la gi thi so tung MANH trong
+  // chuoi "A/B/C" voi BANG MAU CHUAN cua dung loai ao do (doc tu "title" - phan chu lay duoc
+  // tu "Style & Size", vi du "Comfort-Adult Tee") - manh nao la 1 ten mau CO TRONG bang mau
+  // cua loai ao do thi dien manh do.
   //
-  // Logic MAC DINH khi Color co dang "A/B/C" (nhieu mau cach nhau boi dau "/"):
-  //   - Ao Comfort Colors      -> lay mau DAU TIEN  (A)
-  //   - Ao Bella Canvas        -> lay mau THU HAI   (B)
-  //   - Ao Sweatshirt / Hoodie -> lay mau CUOI CUNG (C)
-  // Loai ao khac (khong khop tu khoa nao ben duoi) -> GIU NGUYEN chuoi goc "A/B/C" de tu
-  // kiem tra lai, khong doan bay.
+  // Neu KHONG manh nao khop, hoac co TU 2 MANH TRO LEN cung khop (mo ho, khong biet chon
+  // manh nao) -> GIU NGUYEN chuoi goc "A/B/C", khong doan bua.
   //
-  // Gap TRUONG HOP KHAC voi logic tren (vd 1 mau ghep cu the nao do can dien khac di) thi
-  // KHONG sua ham resolveColorForGarment ben duoi - chi can them 1 dong vao bang ngoai le
-  // COLOR_OVERRIDES nay. Key la chuoi Color GOC y het (sao chep chinh xac tu cot Color trong
-  // file da xuat ra), value la 1 object noi LOAI AO ('comfort' | 'bella' | 'sweatshirt') toi
-  // MAU CAN DIEN cho loai ao do - chi can khai bao loai ao nao khac mac dinh, loai nao khong
-  // khai bao van tu dong dung logic mac dinh o tren cho mau ghep do.
-  //
-  // Vi du: neu gap mau "Ivory/Natural/Sand" nhung ao Bella Canvas thuc te can dien "Ivory"
-  // (khac voi mac dinh la "Natural"), them dong:
-  //   'Ivory/Natural/Sand': { bella: 'Ivory' },
-  const COLOR_OVERRIDES = {
-    // 'Ivory/Natural/Sand': { comfort: 'Ivory', bella: 'Natural', sweatshirt: 'Sand' },
-  };
+  // Cap nhat bang mau: copy dung chinh ta tu anh bang mau cua nha cung cap (khong phan biet
+  // hoa/thuong, khoang trang du khi so khop). Them 1 gia tri vao mang tuong ung la du, khong
+  // can sua ham resolveColorForGarment ben duoi.
+  const BANG_MAU_COMFORT_ADULT = [
+    'White', 'Ivory', 'Banana', 'Butter', 'Mustard', 'Grey', 'Granite', 'Pepper', 'Orange',
+    'Yam', 'Bay', 'Moss', 'Light Green', 'Island Reef', 'Khaki', 'Chambray', 'Espresso',
+    'Blue Jean', 'Lagoon Blue', 'Chalky Mint', 'Flo Blue', 'Navy', 'Black', 'Red', 'Crimson',
+    'Blossom', 'Violet', 'Crunchberry', 'Orchid', 'Berry'
+  ];
+  const BANG_MAU_COMFORT_YOUTH = [
+    'White', 'Melon', 'Terracotta', 'Salmon', 'Orchid', 'Butter', 'Pepper', 'Grey',
+    'Island Reef', 'Blossom', 'Mint', 'Topaz Blue', 'Lagoon Blue', 'Chambray', 'Heliconia',
+    'Washed Denim', 'Flo Blue', 'Blue Jean', 'Granite', 'Watermelon', 'Royal', 'Denim',
+    'Navy', 'Violet', 'Red'
+  ];
+  const BANG_MAU_BELLA_ADULT = [
+    'White', 'Ash', 'Athletic Heather', 'Dark Grey Heather', 'Black', 'Sunset',
+    'Heather Peach', 'Heather Mauve', 'Natural', 'Soft Cream', 'Heather Ice Blue',
+    'Dusty Blue', 'Mint', 'Military Green', 'Forest', 'Baby Blue', 'Heather Columbia Blue',
+    'True Royal', 'Team Purple', 'Navy', 'Yellow', 'Lilac', 'Pink', 'Heather Slate',
+    'Heather Navy', 'Orange', 'Berry', 'Red', 'Teal', 'Maroon'
+  ];
+  const BANG_MAU_BELLA_YOUTH = [
+    'White', 'Ash', 'Athletic Heather', 'Dark Grey Heather', 'Black', 'Natural',
+    'Heather Mauve', 'Deep Heather', 'Black Heather', 'Vintage Black', 'Gold',
+    'Heather Columbia Blue', 'True Royal', 'Heather True Royal', 'Heather Navy', 'Kelly',
+    'Forest', 'Heather Team Purple', 'Team Purple', 'Navy', 'Pink', 'Berry', 'Maroon', 'Red',
+    'Heather Red'
+  ];
+  const BANG_MAU_TODDLER = [
+    'Black', 'Charcoal', 'Cobalt', 'Heather', 'Kelly', 'Lavender', 'Natural', 'Navy',
+    'Orange', 'Pink', 'Red', 'Royal', 'White', 'Mauvelous', 'Caribbean', 'Vintage Burgundy',
+    'Vintage Camo', 'Chill', 'Granite Heather', 'Hot Pink', 'Key Lime', 'Vintage Hot Pink',
+    'Vintage Royal', 'Vintage Smoke', 'Apple', 'Butter', 'Garnet', 'Light Blue', 'Silver'
+  ];
+  const BANG_MAU_SWEATSHIRT_HOODIE = [
+    'Charcoal', 'White', 'Black', 'Ash', 'Sand', 'Sport Grey', 'Navy', 'Gold', 'Orange',
+    'Maroon', 'Dark Chocolate', 'Military Green', 'Forest Green', 'Red', 'Graphite Heather',
+    'Irish Green', 'Dark Heather', 'Light Blue', 'Purple', 'Light Pink'
+  ];
 
   // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
-  // "Bella-Unisex Tee", "Sweatshirt-Adult", "Hoodie-Adult"...). Tra ve null neu khong
-  // nhan ra loai ao nao trong 3 loai tren.
-  function xacDinhLoaiAo(title) {
+  // "Bella-Youth Tee", "Toddler Tee", "Sweatshirt-Adult", "Hoodie-Adult"...) de chon dung
+  // bang mau. Tra ve null neu khong nhan ra loai ao nao ben duoi.
+  function xacDinhBangMauTheoAo(title) {
     const t = (title || '').toLowerCase();
-    if (t.includes('sweatshirt') || t.includes('hoodie')) return 'sweatshirt';
-    if (t.includes('bella')) return 'bella';
-    if (t.includes('comfort')) return 'comfort';
+    if (t.includes('toddler')) return BANG_MAU_TODDLER;
+    if (t.includes('sweatshirt') || t.includes('hoodie')) return BANG_MAU_SWEATSHIRT_HOODIE;
+    if (t.includes('comfort') && t.includes('youth')) return BANG_MAU_COMFORT_YOUTH;
+    if (t.includes('comfort') && t.includes('adult')) return BANG_MAU_COMFORT_ADULT;
+    if (t.includes('bella') && t.includes('youth')) return BANG_MAU_BELLA_YOUTH;
+    if (t.includes('bella') && t.includes('adult')) return BANG_MAU_BELLA_ADULT;
     return null;
   }
 
+  function chuanHoaTenMau(s) {
+    return String(s || '').trim().toLowerCase();
+  }
+
   // Quy doi 1 chuoi Color (co the la mau ghep "A/B/C" hoac mau don) thanh mau THAT SU can
-  // dien, dua vao title (loai ao) cua chinh san pham do. Xem giai thich logic o tren.
+  // dien, bang cach so tung manh voi bang mau chuan cua dung loai ao. Xem giai thich o tren.
   function resolveColorForGarment(colorRaw, title) {
     if (!colorRaw || !colorRaw.includes('/')) return colorRaw;
+    const bangMau = xacDinhBangMauTheoAo(title);
+    if (!bangMau) return colorRaw;
+
+    const boMauHopLe = new Set(bangMau.map(chuanHoaTenMau));
     const parts = colorRaw.split('/').map((s) => s.trim());
-    const loaiAo = xacDinhLoaiAo(title);
+    const khop = parts.filter((p) => boMauHopLe.has(chuanHoaTenMau(p)));
 
-    const ngoaiLe = COLOR_OVERRIDES[colorRaw];
-    if (ngoaiLe && loaiAo && ngoaiLe[loaiAo] !== undefined) return ngoaiLe[loaiAo];
-
-    if (loaiAo === 'comfort') return parts[0];
-    if (loaiAo === 'bella') return parts[1] !== undefined ? parts[1] : parts[0];
-    if (loaiAo === 'sweatshirt') return parts[parts.length - 1];
-    return colorRaw;
+    // Khong manh nao khop, hoac khop nhieu hon 1 manh (mo ho) -> giu nguyen chuoi goc.
+    return khop.length === 1 ? khop[0] : colorRaw;
   }
 
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.18';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.19';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
