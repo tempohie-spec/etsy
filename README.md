@@ -988,6 +988,41 @@ Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overla
 
 Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
 
+## Quy đổi màu ghép ("A/B/C") theo loại áo
+
+Một số listing gộp nhiều màu THẬT SỰ khác nhau vào chung 1 lựa chọn "Color" dạng
+`"Ivory/Natural/Sand"`, vì cùng 1 listing bán nhiều loại áo (Comfort Colors, Bella Canvas,
+Sweatshirt/Hoodie...) nhưng dùng chung 1 option màu trên giao diện Etsy. Script tự tách và điền
+đúng màu thật dựa vào loại áo (đọc từ cột `title`, vd `"Comfort-Adult Tee"`):
+
+| Loại áo (nhận diện qua từ khóa trong `title`) | Lấy màu thứ mấy trong chuỗi `A/B/C` |
+|---|---|
+| Comfort Colors (`comfort`) | Đầu tiên (A) |
+| Bella Canvas (`bella`) | Thứ hai (B) |
+| Sweatshirt / Hoodie (`sweatshirt`, `hoodie`) | Cuối cùng (C) |
+| Loại khác / không nhận diện được | Giữ nguyên chuỗi gốc `A/B/C` (không đoán bừa) |
+
+Màu không có dấu `/` (màu đơn) thì giữ nguyên, không áp dụng logic này.
+
+### Dạy thêm từng trường hợp ngoại lệ
+
+Có những trường hợp KHÁC với bảng mặc định ở trên. Không cần sửa code logic — chỉ cần thêm 1
+dòng vào bảng `COLOR_OVERRIDES` ở đầu file `etsy-order-earnings.user.js` (mục
+"QUY DOI MAU GHEP..."):
+
+```js
+const COLOR_OVERRIDES = {
+  // key = chuoi Color GOC copy chinh xac tu cot Color trong file da xuat,
+  // value = { loai_ao: 'mau can dien' } - chi can khai bao loai ao nao khac mac dinh.
+  'Ivory/Natural/Sand': { bella: 'Ivory' },
+};
+```
+
+Ví dụ trên: riêng với chuỗi màu `"Ivory/Natural/Sand"`, áo Bella Canvas sẽ điền `"Ivory"` thay
+vì mặc định là `"Natural"` (màu thứ 2) — các loại áo khác (Comfort, Sweatshirt/Hoodie) không
+khai báo thì vẫn dùng đúng logic mặc định. Có thể thêm nhiều dòng, mỗi dòng 1 chuỗi Color khác
+nhau, mỗi lần gặp trường hợp mới thì thêm 1 dòng — không cần đụng vào phần code còn lại.
+
 ## Tự động copy dữ liệu vào clipboard
 
 Mỗi lần tải file Excel xuống (cả 2 chức năng "Quét đơn..." và "Lấy Earnings theo mã đơn"), script

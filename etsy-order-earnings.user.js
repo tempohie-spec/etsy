@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.17
+// @version      2.18
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -30,10 +30,64 @@
     'postalCode', 'country', 'phone', 'email', 'Date Fulfil', 'Earnings'
   ];
 
+  // ====== QUY DOI MAU GHEP ("A/B/C") THEO LOAI AO ======
+  // Etsy gop nhieu mau THAT SU khac nhau vao chung 1 lua chon "Color" dang "A/B/C" (vi du
+  // "Ivory/Natural/Sand") vi cung 1 listing ban nhieu loai ao khac nhau nhung dung chung 1
+  // option mau tren giao dien. Muon biet MAU THAT SU can dien la gi thi phai can cu vao
+  // LOAI AO (doc tu "title" - phan chu lay duoc tu "Style & Size", vi du "Comfort-Adult Tee").
+  //
+  // Logic MAC DINH khi Color co dang "A/B/C" (nhieu mau cach nhau boi dau "/"):
+  //   - Ao Comfort Colors      -> lay mau DAU TIEN  (A)
+  //   - Ao Bella Canvas        -> lay mau THU HAI   (B)
+  //   - Ao Sweatshirt / Hoodie -> lay mau CUOI CUNG (C)
+  // Loai ao khac (khong khop tu khoa nao ben duoi) -> GIU NGUYEN chuoi goc "A/B/C" de tu
+  // kiem tra lai, khong doan bay.
+  //
+  // Gap TRUONG HOP KHAC voi logic tren (vd 1 mau ghep cu the nao do can dien khac di) thi
+  // KHONG sua ham resolveColorForGarment ben duoi - chi can them 1 dong vao bang ngoai le
+  // COLOR_OVERRIDES nay. Key la chuoi Color GOC y het (sao chep chinh xac tu cot Color trong
+  // file da xuat ra), value la 1 object noi LOAI AO ('comfort' | 'bella' | 'sweatshirt') toi
+  // MAU CAN DIEN cho loai ao do - chi can khai bao loai ao nao khac mac dinh, loai nao khong
+  // khai bao van tu dong dung logic mac dinh o tren cho mau ghep do.
+  //
+  // Vi du: neu gap mau "Ivory/Natural/Sand" nhung ao Bella Canvas thuc te can dien "Ivory"
+  // (khac voi mac dinh la "Natural"), them dong:
+  //   'Ivory/Natural/Sand': { bella: 'Ivory' },
+  const COLOR_OVERRIDES = {
+    // 'Ivory/Natural/Sand': { comfort: 'Ivory', bella: 'Natural', sweatshirt: 'Sand' },
+  };
+
+  // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
+  // "Bella-Unisex Tee", "Sweatshirt-Adult", "Hoodie-Adult"...). Tra ve null neu khong
+  // nhan ra loai ao nao trong 3 loai tren.
+  function xacDinhLoaiAo(title) {
+    const t = (title || '').toLowerCase();
+    if (t.includes('sweatshirt') || t.includes('hoodie')) return 'sweatshirt';
+    if (t.includes('bella')) return 'bella';
+    if (t.includes('comfort')) return 'comfort';
+    return null;
+  }
+
+  // Quy doi 1 chuoi Color (co the la mau ghep "A/B/C" hoac mau don) thanh mau THAT SU can
+  // dien, dua vao title (loai ao) cua chinh san pham do. Xem giai thich logic o tren.
+  function resolveColorForGarment(colorRaw, title) {
+    if (!colorRaw || !colorRaw.includes('/')) return colorRaw;
+    const parts = colorRaw.split('/').map((s) => s.trim());
+    const loaiAo = xacDinhLoaiAo(title);
+
+    const ngoaiLe = COLOR_OVERRIDES[colorRaw];
+    if (ngoaiLe && loaiAo && ngoaiLe[loaiAo] !== undefined) return ngoaiLe[loaiAo];
+
+    if (loaiAo === 'comfort') return parts[0];
+    if (loaiAo === 'bella') return parts[1] !== undefined ? parts[1] : parts[0];
+    if (loaiAo === 'sweatshirt') return parts[parts.length - 1];
+    return colorRaw;
+  }
+
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.17';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.18';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -279,7 +333,7 @@
         const quantity = getLabelValues(flagEl, 'Quantity')[0] || '';
         const styleSize = getStyleSizeValues(flagEl)[0] || '';
         const { title, size } = splitStyleSize(styleSize);
-        const color = getLabelValues(flagEl, 'Color')[0] || '';
+        const color = resolveColorForGarment(getLabelValues(flagEl, 'Color')[0] || '', title);
         const personalization = getLabelValues(flagEl, 'Personalization')[0] || '';
         // Personalization xuat ra cot rieng ("Personalization"), khong ghep vao title.
 
@@ -331,7 +385,7 @@
         title,
         size,
         quantity: quantities[i] || quantities[0] || '',
-        color: colors[i] || colors[0] || '',
+        color: resolveColorForGarment(colors[i] || colors[0] || '', title),
         personalization
       });
     }
