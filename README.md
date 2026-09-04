@@ -1012,6 +1012,27 @@ Khi bảng màu của xưởng in thay đổi, hoặc thiếu 1 tên màu nào �
 được (giữ nguyên `A/B/C`), chỉ cần thêm/sửa tên màu (đúng chính tả, không phân biệt hoa/thường)
 vào đúng mảng tương ứng — không cần sửa logic so khớp (`resolveColorForGarment`).
 
+### Bí danh khi Etsy ghi tên màu khác với tên chính thức
+
+Có trường hợp Etsy hiển thị 1 mảnh trong chuỗi `A/B/C` KHÁC với tên chính thức trong bảng màu —
+ví dụ áo Bella Canvas, Etsy ghi mảnh là `"Dark Heather"` nhưng tên chính thức của Bella Canvas
+lại là `"Dark Grey Heather"`. Nếu chỉ so khớp tên chính xác thì mảnh này sẽ không khớp được với
+bảng màu, script sẽ giữ nguyên `A/B/C` thay vì điền đúng màu.
+
+Đã thêm 1 bảng "bí danh" cho mỗi loại áo (`BI_DANH_MAU_...`, ngay dưới các bảng màu chính) để
+xử lý đúng trường hợp này: key là tên mà Etsy hiển thị, value là tên CHÍNH THỨC trong bảng màu —
+khớp được bí danh nào thì điền ra đúng tên chính thức đó, không điền nguyên văn tên Etsy ghi.
+Ví dụ đã có sẵn cho Bella Canvas Adult:
+
+```js
+const BI_DANH_MAU_BELLA_ADULT = {
+  'dark heather': 'Dark Grey Heather'
+};
+```
+
+Gặp thêm trường hợp tương tự (tên Etsy ghi khác tên chính thức) thì thêm 1 dòng vào đúng bảng
+bí danh của loại áo đó, không cần sửa bảng màu chính hay logic so khớp.
+
 ## Tự động copy dữ liệu vào clipboard
 
 Mỗi lần tải file Excel xuống (cả 2 chức năng "Quét đơn..." và "Lấy Earnings theo mã đơn"), script
