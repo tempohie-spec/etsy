@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.17
+// @version      2.20
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -30,10 +30,134 @@
     'postalCode', 'country', 'phone', 'email', 'Date Fulfil', 'Earnings'
   ];
 
+  // ====== QUY DOI MAU GHEP ("A/B/C") THEO LOAI AO ======
+  // Etsy gop nhieu mau THAT SU khac nhau vao chung 1 lua chon "Color" dang "A/B/C" (vi du
+  // "Ivory/Natural/Sand") vi cung 1 listing ban nhieu loai ao khac nhau nhung dung chung 1
+  // option mau tren giao dien. Muon biet MAU THAT SU can dien la gi thi so tung MANH trong
+  // chuoi "A/B/C" voi BANG MAU CHUAN cua dung loai ao do (doc tu "title" - phan chu lay duoc
+  // tu "Style & Size", vi du "Comfort-Adult Tee") - manh nao la 1 ten mau CO TRONG bang mau
+  // cua loai ao do thi dien manh do.
+  //
+  // Neu KHONG manh nao khop, hoac co TU 2 MANH TRO LEN cung khop (mo ho, khong biet chon
+  // manh nao) -> GIU NGUYEN chuoi goc "A/B/C", khong doan bua.
+  //
+  // Cap nhat bang mau: copy dung chinh ta tu anh bang mau cua nha cung cap (khong phan biet
+  // hoa/thuong, khoang trang du khi so khop). Them 1 gia tri vao mang tuong ung la du, khong
+  // can sua ham resolveColorForGarment ben duoi. Neu Etsy hien ten mau KHAC voi ten chinh
+  // thuc trong bang mau (vd "Dark Heather" thay vi "Dark Grey Heather"), them vao bang
+  // BI_DANH_MAU_... tuong ung ben duoi thay vi sua bang mau chinh.
+  const BANG_MAU_COMFORT_ADULT = [
+    'White', 'Ivory', 'Banana', 'Butter', 'Mustard', 'Grey', 'Granite', 'Pepper', 'Orange',
+    'Yam', 'Bay', 'Moss', 'Light Green', 'Island Reef', 'Khaki', 'Chambray', 'Espresso',
+    'Blue Jean', 'Lagoon Blue', 'Chalky Mint', 'Flo Blue', 'Navy', 'Black', 'Red', 'Crimson',
+    'Blossom', 'Violet', 'Crunchberry', 'Orchid', 'Berry'
+  ];
+  const BANG_MAU_COMFORT_YOUTH = [
+    'White', 'Melon', 'Terracotta', 'Salmon', 'Orchid', 'Butter', 'Pepper', 'Grey',
+    'Island Reef', 'Blossom', 'Mint', 'Topaz Blue', 'Lagoon Blue', 'Chambray', 'Heliconia',
+    'Washed Denim', 'Flo Blue', 'Blue Jean', 'Granite', 'Watermelon', 'Royal', 'Denim',
+    'Navy', 'Violet', 'Red'
+  ];
+  const BANG_MAU_BELLA_ADULT = [
+    'White', 'Ash', 'Athletic Heather', 'Dark Grey Heather', 'Black', 'Sunset',
+    'Heather Peach', 'Heather Mauve', 'Natural', 'Soft Cream', 'Heather Ice Blue',
+    'Dusty Blue', 'Mint', 'Military Green', 'Forest', 'Baby Blue', 'Heather Columbia Blue',
+    'True Royal', 'Team Purple', 'Navy', 'Yellow', 'Lilac', 'Pink', 'Heather Slate',
+    'Heather Navy', 'Orange', 'Berry', 'Red', 'Teal', 'Maroon'
+  ];
+  const BANG_MAU_BELLA_YOUTH = [
+    'White', 'Ash', 'Athletic Heather', 'Dark Grey Heather', 'Black', 'Natural',
+    'Heather Mauve', 'Deep Heather', 'Black Heather', 'Vintage Black', 'Gold',
+    'Heather Columbia Blue', 'True Royal', 'Heather True Royal', 'Heather Navy', 'Kelly',
+    'Forest', 'Heather Team Purple', 'Team Purple', 'Navy', 'Pink', 'Berry', 'Maroon', 'Red',
+    'Heather Red'
+  ];
+  const BANG_MAU_TODDLER = [
+    'Black', 'Charcoal', 'Cobalt', 'Heather', 'Kelly', 'Lavender', 'Natural', 'Navy',
+    'Orange', 'Pink', 'Red', 'Royal', 'White', 'Mauvelous', 'Caribbean', 'Vintage Burgundy',
+    'Vintage Camo', 'Chill', 'Granite Heather', 'Hot Pink', 'Key Lime', 'Vintage Hot Pink',
+    'Vintage Royal', 'Vintage Smoke', 'Apple', 'Butter', 'Garnet', 'Light Blue', 'Silver'
+  ];
+  const BANG_MAU_SWEATSHIRT_HOODIE = [
+    'Charcoal', 'White', 'Black', 'Ash', 'Sand', 'Sport Grey', 'Navy', 'Gold', 'Orange',
+    'Maroon', 'Dark Chocolate', 'Military Green', 'Forest Green', 'Red', 'Graphite Heather',
+    'Irish Green', 'Dark Heather', 'Light Blue', 'Purple', 'Light Pink'
+  ];
+
+  // Mot so noi Etsy hien ten mau HOI KHAC voi ten CHINH THUC trong bang mau cua nha cung cap
+  // (vd ghi "Dark Heather" nhung ten chinh thuc cua Bella Canvas la "Dark Grey Heather").
+  // Khai bao bi danh (alias) o day: key la ten XUAT HIEN TREN ETSY (khong phan biet hoa/thuong),
+  // value la ten CHINH THUC dung trong bang mau tuong ung ben tren - dien ra se dung ten CHINH
+  // THUC (value), khong dung nguyen van manh doc duoc tren Etsy (key).
+  const BI_DANH_MAU_BELLA_ADULT = {
+    'dark heather': 'Dark Grey Heather'
+  };
+  const BI_DANH_MAU_BELLA_YOUTH = {};
+  const BI_DANH_MAU_COMFORT_ADULT = {};
+  const BI_DANH_MAU_COMFORT_YOUTH = {};
+  const BI_DANH_MAU_TODDLER = {};
+  const BI_DANH_MAU_SWEATSHIRT_HOODIE = {};
+
+  // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
+  // "Bella-Youth Tee", "Toddler Tee", "Sweatshirt-Adult", "Hoodie-Adult"...) de chon dung
+  // bang mau + bang bi danh tuong ung. Tra ve null neu khong nhan ra loai ao nao ben duoi.
+  function xacDinhBangMauTheoAo(title) {
+    const t = (title || '').toLowerCase();
+    if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: BI_DANH_MAU_TODDLER };
+    if (t.includes('sweatshirt') || t.includes('hoodie')) {
+      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU_SWEATSHIRT_HOODIE };
+    }
+    if (t.includes('comfort') && t.includes('youth')) {
+      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU_COMFORT_YOUTH };
+    }
+    if (t.includes('comfort') && t.includes('adult')) {
+      return { mau: BANG_MAU_COMFORT_ADULT, biDanh: BI_DANH_MAU_COMFORT_ADULT };
+    }
+    if (t.includes('bella') && t.includes('youth')) {
+      return { mau: BANG_MAU_BELLA_YOUTH, biDanh: BI_DANH_MAU_BELLA_YOUTH };
+    }
+    if (t.includes('bella') && t.includes('adult')) {
+      return { mau: BANG_MAU_BELLA_ADULT, biDanh: BI_DANH_MAU_BELLA_ADULT };
+    }
+    return null;
+  }
+
+  function chuanHoaTenMau(s) {
+    return String(s || '').trim().toLowerCase();
+  }
+
+  // Quy doi 1 chuoi Color (co the la mau ghep "A/B/C" hoac mau don) thanh mau THAT SU can
+  // dien, bang cach so tung manh voi bang mau chuan (va bang bi danh) cua dung loai ao. Xem
+  // giai thich o tren.
+  function resolveColorForGarment(colorRaw, title) {
+    if (!colorRaw || !colorRaw.includes('/')) return colorRaw;
+    const thongTinAo = xacDinhBangMauTheoAo(title);
+    if (!thongTinAo) return colorRaw;
+    const { mau: bangMau, biDanh } = thongTinAo;
+
+    const boMauHopLe = new Set(bangMau.map(chuanHoaTenMau));
+    const biDanhChuanHoa = {};
+    Object.keys(biDanh).forEach((k) => { biDanhChuanHoa[chuanHoaTenMau(k)] = biDanh[k]; });
+
+    const parts = colorRaw.split('/').map((s) => s.trim());
+    const khop = [];
+    parts.forEach((p) => {
+      const chuan = chuanHoaTenMau(p);
+      if (biDanhChuanHoa[chuan] !== undefined) {
+        khop.push(biDanhChuanHoa[chuan]);
+      } else if (boMauHopLe.has(chuan)) {
+        khop.push(p);
+      }
+    });
+
+    // Khong manh nao khop, hoac khop nhieu hon 1 manh (mo ho) -> giu nguyen chuoi goc.
+    return khop.length === 1 ? khop[0] : colorRaw;
+  }
+
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.17';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.20';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -279,7 +403,7 @@
         const quantity = getLabelValues(flagEl, 'Quantity')[0] || '';
         const styleSize = getStyleSizeValues(flagEl)[0] || '';
         const { title, size } = splitStyleSize(styleSize);
-        const color = getLabelValues(flagEl, 'Color')[0] || '';
+        const color = resolveColorForGarment(getLabelValues(flagEl, 'Color')[0] || '', title);
         const personalization = getLabelValues(flagEl, 'Personalization')[0] || '';
         // Personalization xuat ra cot rieng ("Personalization"), khong ghep vao title.
 
@@ -331,7 +455,7 @@
         title,
         size,
         quantity: quantities[i] || quantities[0] || '',
-        color: colors[i] || colors[0] || '',
+        color: resolveColorForGarment(colors[i] || colors[0] || '', title),
         personalization
       });
     }

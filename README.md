@@ -988,6 +988,51 @@ Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overla
 
 Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
 
+## Quy đổi màu ghép ("A/B/C") theo loại áo
+
+Một số listing gộp nhiều màu THẬT SỰ khác nhau vào chung 1 lựa chọn "Color" dạng
+`"Ivory/Natural/Sand"`, vì cùng 1 listing bán nhiều loại áo (Comfort Colors, Bella Canvas,
+Sweatshirt/Hoodie, Toddler...) nhưng dùng chung 1 option màu trên giao diện Etsy. Script xác
+định loại áo từ cột `title` (vd `"Comfort-Adult Tee"`, `"Bella-Youth Tee"`, `"Toddler Tee"`,
+`"Sweatshirt-Adult"`, `"Hoodie-Adult"`), rồi so từng mảnh trong chuỗi `A/B/C` với **bảng màu
+chuẩn** của đúng loại áo đó (copy từ bảng màu do xưởng in cung cấp) — mảnh nào là 1 tên màu có
+thật trong bảng màu của loại áo đó thì điền mảnh đó.
+
+Các bảng màu hiện có: Comfort Colors Adult, Comfort Colors Youth, Bella Canvas Adult, Bella
+Canvas Youth, Toddler, Sweatshirt/Hoodie (Gildan Adult) — mỗi bảng là 1 mảng tên màu ở đầu file
+`etsy-order-earnings.user.js` (mục "QUY DOI MAU GHEP...").
+
+Nếu **không mảnh nào khớp**, hoặc **từ 2 mảnh trở lên cùng khớp** (mơ hồ, không biết chọn mảnh
+nào) — script **giữ nguyên chuỗi gốc** `A/B/C`, không đoán bừa. Màu không có dấu `/` (màu đơn)
+cũng giữ nguyên, không áp dụng logic này.
+
+### Cập nhật bảng màu
+
+Khi bảng màu của xưởng in thay đổi, hoặc thiếu 1 tên màu nào đó khiến script không nhận diện
+được (giữ nguyên `A/B/C`), chỉ cần thêm/sửa tên màu (đúng chính tả, không phân biệt hoa/thường)
+vào đúng mảng tương ứng — không cần sửa logic so khớp (`resolveColorForGarment`).
+
+### Bí danh khi Etsy ghi tên màu khác với tên chính thức
+
+Có trường hợp Etsy hiển thị 1 mảnh trong chuỗi `A/B/C` KHÁC với tên chính thức trong bảng màu —
+ví dụ áo Bella Canvas, Etsy ghi mảnh là `"Dark Heather"` nhưng tên chính thức của Bella Canvas
+lại là `"Dark Grey Heather"`. Nếu chỉ so khớp tên chính xác thì mảnh này sẽ không khớp được với
+bảng màu, script sẽ giữ nguyên `A/B/C` thay vì điền đúng màu.
+
+Đã thêm 1 bảng "bí danh" cho mỗi loại áo (`BI_DANH_MAU_...`, ngay dưới các bảng màu chính) để
+xử lý đúng trường hợp này: key là tên mà Etsy hiển thị, value là tên CHÍNH THỨC trong bảng màu —
+khớp được bí danh nào thì điền ra đúng tên chính thức đó, không điền nguyên văn tên Etsy ghi.
+Ví dụ đã có sẵn cho Bella Canvas Adult:
+
+```js
+const BI_DANH_MAU_BELLA_ADULT = {
+  'dark heather': 'Dark Grey Heather'
+};
+```
+
+Gặp thêm trường hợp tương tự (tên Etsy ghi khác tên chính thức) thì thêm 1 dòng vào đúng bảng
+bí danh của loại áo đó, không cần sửa bảng màu chính hay logic so khớp.
+
 ## Tự động copy dữ liệu vào clipboard
 
 Mỗi lần tải file Excel xuống (cả 2 chức năng "Quét đơn..." và "Lấy Earnings theo mã đơn"), script
