@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.21
+// @version      2.22
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -180,7 +180,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.21';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.22';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -319,6 +319,132 @@
     // va lap lai voi sai ma don. Neu khong tim thay ".panel-body-row" bao quanh link, BO QUA
     // link do luon (tra ve null) thay vi doan mo ho, de tranh gop nham du lieu.
     return linkEl.closest('.panel-body-row');
+  }
+
+  // ====== TU DONG CHUYEN CHU KHONG PHAI LATIN SANG LATIN (name/address1/address2/city/state) ======
+  // Khong dung thu vien ngoai (CDN) cho phan nay - lich su du an tung gap loi "XLSX is not
+  // defined" khi CDN ngoai bi chan/loi mang, nen tu viet 1 bo chuyen doi gon nhe ngay trong
+  // script, khong phu thuoc mang. Do la PHIEN AM GAN DUNG (unidecode-style), KHONG phai chuan
+  // phien am chinh thuc cua tung ngon ngu (vd khong phai chuan Pinyin co dau thanh).
+  //
+  // Buoc 1: NFD + bo dau to hop -> xu ly duoc HAU HET chu Latin co dau (Viet, Phap, Tay Ban
+  // Nha, Duc, Ba Lan, Sec...): é -> e, ñ -> n, ệ -> e... Day la thao tac AN TOAN, KHONG can
+  // danh dau de kiem tra lai (van la chu Latin, chi mat dau).
+  // Buoc 2: bang rieng cho vai chu Latin DAC BIET khong tach duoc bang NFD (khong o dang to hop).
+  // Buoc 3+: bang chuyen doi cho CAC BO CHU KHONG PHAI LATIN (Cyrillic, Hy Lap, Han Quoc,
+  // A Rap, Do Thai...). Nhung dong nay MOI CAN danh dau de nguoi dung kiem tra lai, vi day la
+  // chuyen doi CO MAT MAT thong tin that su (khac chu viet).
+  const BANG_LATIN_DAC_BIET = {
+    'đ': 'd', 'Đ': 'D', 'ı': 'i', 'İ': 'I', 'ğ': 'g', 'Ğ': 'G', 'ş': 's', 'Ş': 'S',
+    'ß': 'ss', 'œ': 'oe', 'Œ': 'OE', 'æ': 'ae', 'Æ': 'AE', 'ø': 'o', 'Ø': 'O',
+    'ł': 'l', 'Ł': 'L', 'ð': 'd', 'Ð': 'D', 'þ': 'th', 'Þ': 'Th'
+  };
+
+  const BANG_CYRILLIC = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e', 'ж': 'zh',
+    'з': 'z', 'и': 'i', 'й': 'i', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o',
+    'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts',
+    'ч': 'ch', 'ш': 'sh', 'щ': 'shch', 'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'iu',
+    'я': 'ia', 'і': 'i', 'ї': 'i', 'є': 'ie', 'ґ': 'g'
+  };
+
+  const BANG_GREEK = {
+    'α': 'a', 'β': 'v', 'γ': 'g', 'δ': 'd', 'ε': 'e', 'ζ': 'z', 'η': 'i', 'θ': 'th',
+    'ι': 'i', 'κ': 'k', 'λ': 'l', 'μ': 'm', 'ν': 'n', 'ξ': 'x', 'ο': 'o', 'π': 'p',
+    'ρ': 'r', 'σ': 's', 'ς': 's', 'τ': 't', 'υ': 'y', 'φ': 'f', 'χ': 'ch', 'ψ': 'ps',
+    'ω': 'o'
+  };
+
+  // Bang chu cai + nguyen am A Rap (rat gan dung, khong the hien day du dau nguyen am ngan).
+  const BANG_ARABIC = {
+    'ا': 'a', 'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'j', 'ح': 'h', 'خ': 'kh', 'د': 'd',
+    'ذ': 'dh', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd', 'ط': 't',
+    'ظ': 'z', 'ع': 'a', 'غ': 'gh', 'ف': 'f', 'ق': 'q', 'ك': 'k', 'ل': 'l', 'م': 'm',
+    'ن': 'n', 'ه': 'h', 'و': 'w', 'ي': 'y', 'ء': '', 'ة': 'h', 'ى': 'a'
+  };
+
+  const BANG_HEBREW = {
+    'א': 'a', 'ב': 'v', 'ג': 'g', 'ד': 'd', 'ה': 'h', 'ו': 'v', 'ז': 'z', 'ח': 'ch',
+    'ט': 't', 'י': 'y', 'כ': 'k', 'ך': 'k', 'ל': 'l', 'מ': 'm', 'ם': 'm', 'נ': 'n',
+    'ן': 'n', 'ס': 's', 'ע': 'a', 'פ': 'p', 'ף': 'f', 'צ': 'tz', 'ץ': 'tz', 'ק': 'k',
+    'ר': 'r', 'ש': 'sh', 'ת': 't'
+  };
+
+  // Chu cai dau/giua/cuoi cua tieng Han Quoc (Hangul) - dung dung cong thuc giai ma Unicode
+  // chinh thuc (khong can bang du lieu lon: 1 ky tu Hangul = (dau*21 + giua)*28 + cuoi + AC00).
+  const HANGUL_DAU = ['g', 'kk', 'n', 'd', 'tt', 'r', 'm', 'b', 'pp', 's', 'ss', '', 'j', 'jj', 'ch', 'k', 't', 'p', 'h'];
+  const HANGUL_GIUA = ['a', 'ae', 'ya', 'yae', 'eo', 'e', 'yeo', 'ye', 'o', 'wa', 'wae', 'oe', 'yo', 'u', 'wo', 'we', 'wi', 'yu', 'eu', 'yi', 'i'];
+  const HANGUL_CUOI = ['', 'g', 'kk', 'gs', 'n', 'nj', 'nh', 'd', 'l', 'lg', 'lm', 'lb', 'ls', 'lt', 'lp', 'lh', 'm', 'b', 'bs', 's', 'ss', 'ng', 'j', 'ch', 'k', 't', 'p', 'h'];
+
+  function chuyenBangKyTu(str, bang) {
+    let out = '';
+    for (const ch of str) {
+      const thay = bang[ch] !== undefined ? bang[ch] : bang[ch.toLowerCase()];
+      if (thay === undefined) { out += ch; continue; }
+      // Giu hoa/thuong theo ky tu goc khi bang chi co dang chu thuong.
+      out += (ch === ch.toUpperCase() && ch !== ch.toLowerCase() && bang[ch] === undefined)
+        ? thay.charAt(0).toUpperCase() + thay.slice(1)
+        : thay;
+    }
+    return out;
+  }
+
+  function chuyenHangul(str) {
+    let out = '';
+    for (const ch of str) {
+      const code = ch.codePointAt(0);
+      if (code >= 0xac00 && code <= 0xd7a3) {
+        const off = code - 0xac00;
+        const cuoi = off % 28;
+        const giua = ((off - cuoi) / 28) % 21;
+        const dau = (((off - cuoi) / 28) - giua) / 21;
+        out += HANGUL_DAU[dau] + HANGUL_GIUA[giua] + HANGUL_CUOI[cuoi];
+      } else {
+        out += ch;
+      }
+    }
+    return out;
+  }
+
+  // Nhung khoi Unicode KHONG phai chu Latin - co ky tu nao roi vao day thi coi la "can kiem
+  // tra lai" (Hy Lap, Cyrillic, Armenia, Georgia, Do Thai, A Rap, Devanagari, Thai, Hangul
+  // (roi + ghep van), Katakana/Hiragana, chu Han...).
+  const VUNG_KHONG_LATIN = /[\u0370-\u03FF\u0400-\u052F\u0530-\u058F\u0590-\u05FF\u0600-\u06FF\u0700-\u074F\u0900-\u097F\u0E00-\u0E7F\u10A0-\u10FF\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\uAC00-\uD7A3\u3400-\u9FFF\uF900-\uFAFF]/;
+
+  // Chuyen 1 chuoi ve Latin: bo dau chu Latin (an toan, khong danh dau) + doi cac bo chu khac
+  // (Cyrillic/Hy Lap/Han Quoc/A Rap/Do Thai...) sang Latin gan dung (CAN danh dau kiem tra lai).
+  // Tra ve { ketQua, canKiemTra } - canKiemTra = true neu chuoi GOC co chua ky tu khong phai Latin.
+  function chuyenSangLatin(str) {
+    if (!str) return { ketQua: str, canKiemTra: false };
+    const canKiemTra = VUNG_KHONG_LATIN.test(str);
+
+    // Chuyen Hangul TRUOC buoc NFD ben duoi: 1 ky tu Hangul da ghep san se bi NFD TACH
+    // thanh cac chu cai roi (Jamo) - neu lam sau, chuyenHangul() se khong con nhan ra
+    // duoc dang ky tu Hangul da ghep nua (bo qua nham, khong chuyen duoc).
+    let s = chuyenHangul(str);
+    s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    s = s.replace(/[đĐıİğĞşŞßœŒæÆøØłŁðÐþÞ]/g, (c) => BANG_LATIN_DAC_BIET[c] || c);
+    s = chuyenBangKyTu(s, BANG_CYRILLIC);
+    s = chuyenBangKyTu(s, BANG_GREEK);
+    s = chuyenBangKyTu(s, BANG_ARABIC);
+    s = chuyenBangKyTu(s, BANG_HEBREW);
+
+    return { ketQua: s, canKiemTra };
+  }
+
+  // Danh sach cac truong (theo don) da bi chuyen sang Latin va CAN NGUOI DUNG KIEM TRA LAI -
+  // duoc reset moi lan quet, dung de bao cao tong ket sau khi quet xong (xem scanAndExport).
+  let danhSachCanKiemTraLatin = [];
+
+  // Ap dung chuyenSangLatin cho 1 truong dia chi, ghi lai vao danhSachCanKiemTraLatin neu
+  // can kiem tra, roi tra ve gia tri Latin de dien vao o tuong ung.
+  function chuanHoaTruongDiaChi(orderNumber, tenTruong, giaTri) {
+    if (!giaTri) return giaTri;
+    const { ketQua, canKiemTra } = chuyenSangLatin(giaTri);
+    if (canKiemTra) {
+      danhSachCanKiemTraLatin.push({ orderNumber, tenTruong, giaTriGoc: giaTri, giaTriMoi: ketQua });
+    }
+    return ketQua;
   }
 
   function extractAddress(container) {
@@ -486,6 +612,9 @@
   }
 
   function extractOrdersFromPage() {
+    // Reset danh sach can kiem tra lai (chu khong phai Latin) truoc moi lan quet moi.
+    danhSachCanKiemTraLatin = [];
+
     const orderLinks = Array.from(
       document.querySelectorAll('a[href*="/your/orders/sold"]')
     ).filter((a) => {
@@ -504,6 +633,14 @@
 
       const orderNumber = getOrderNumber(link);
       const addr = extractAddress(container);
+      // Chuyen sang Latin cac truong dia chi co the co chu khong phai Latin (ten nguoi mua o
+      // Nga, Hy Lap, Han Quoc, A Rap...) - xem chuyenSangLatin() o tren. Truong nao thuc su
+      // can kiem tra lai duoc ghi vao danhSachCanKiemTraLatin de bao cao sau khi quet xong.
+      addr.name = chuanHoaTruongDiaChi(orderNumber, 'name', addr.name);
+      addr.address1 = chuanHoaTruongDiaChi(orderNumber, 'address1', addr.address1);
+      addr.address2 = chuanHoaTruongDiaChi(orderNumber, 'address2', addr.address2);
+      addr.city = chuanHoaTruongDiaChi(orderNumber, 'city', addr.city);
+      addr.state = chuanHoaTruongDiaChi(orderNumber, 'state', addr.state);
       const items = extractLineItems(container);
 
       // Xac dinh phuong phap in TUNG san pham truoc, roi ep CA DON ve DTG neu co it nhat
@@ -900,11 +1037,21 @@
 
       exportToExcelFile(newRows);
 
+      // Neu co truong dia chi bi chuyen tu chu khong phai Latin sang Latin (Nga, Hy Lap,
+      // Han Quoc, A Rap...), bao cho nguoi dung biet de kiem tra lai (day la phien am GAN
+      // DUNG, khong phai chuan chinh thuc) - chi tiet tung dong nam trong Console (F12).
+      const ghiChuLatin = danhSachCanKiemTraLatin.length > 0
+        ? ` ⚠️ ${danhSachCanKiemTraLatin.length} trường địa chỉ có chữ không phải Latin đã được chuyển đổi, xem chi tiết trong Console (F12).`
+        : '';
+      if (danhSachCanKiemTraLatin.length > 0) {
+        console.log('[Etsy Scraper] Các trường đã chuyển sang Latin (nên kiểm tra lại):', danhSachCanKiemTraLatin);
+      }
+
       if (stopped) {
-        hienThongBao(`⏹ Đã dừng theo yêu cầu. Đã xuất ${newRows.length} dòng (Earnings chưa lấy hết cho tất cả đơn). Đã copy vào clipboard, dán (Ctrl+V) thẳng vào sheet cũng được.`, '#F59E0B');
+        hienThongBao(`⏹ Đã dừng theo yêu cầu. Đã xuất ${newRows.length} dòng (Earnings chưa lấy hết cho tất cả đơn). Đã copy vào clipboard, dán (Ctrl+V) thẳng vào sheet cũng được.${ghiChuLatin}`, '#F59E0B');
       } else {
         const ghiChu = withEarnings ? ' (kèm Earnings)' : '';
-        hienThongBao(`✅ Đã quét ${newRows.length} dòng${ghiChu} và tải file Excel! Đã copy vào clipboard, dán (Ctrl+V) thẳng vào sheet cũng được.`, '#16A34A');
+        hienThongBao(`✅ Đã quét ${newRows.length} dòng${ghiChu} và tải file Excel! Đã copy vào clipboard, dán (Ctrl+V) thẳng vào sheet cũng được.${ghiChuLatin}`, '#16A34A');
       }
       console.log('[Etsy Scraper] Scanned rows (đã thay thế toàn bộ dữ liệu cũ):', newRows);
     } catch (err) {
