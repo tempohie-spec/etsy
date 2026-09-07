@@ -988,6 +988,16 @@ Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overla
 
 Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
 
+## Cột PrintingMethod và Account
+
+Thêm 2 cột ở ĐẦU file Excel xuất ra:
+
+- **PrintingMethod**: mặc định là `DTF` cho mọi sản phẩm. Riêng sản phẩm có `title` chứa
+  **"Comfort Youth"** hoặc **"Bella Adult"** (không phân biệt hoa/thường) thì là `DTG`. Nếu 1
+  đơn có nhiều sản phẩm mà có **ít nhất 1** sản phẩm là `DTG`, thì **toàn bộ sản phẩm còn lại
+  trong CÙNG đơn đó** cũng được điền `DTG` theo (không in lẫn 2 phương pháp trong 1 đơn).
+- **Account**: luôn để trống, bạn tự điền tay.
+
 ## Quy đổi màu ghép ("A/B/C") theo loại áo
 
 Một số listing gộp nhiều màu THẬT SỰ khác nhau vào chung 1 lựa chọn "Color" dạng

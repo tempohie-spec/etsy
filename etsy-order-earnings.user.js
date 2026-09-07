@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.20
+// @version      2.21
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -20,10 +20,12 @@
   // Neu header thuc te khac ten ben duoi, sua lai cho dung.
   // Cot L: "Personalization", dung de chua gia tri personalization cua san pham.
   // Da them 1 cot trong ngay ben phai cot "Personalization" (key: ' ')
-  // Da xoa 2 cot "Printing" va "Account". Da them cot "Earnings" ngay ben phai "Date Fulfil".
+  // Da them lai 2 cot "PrintingMethod" va "Account" o DAU file (xem giai thich o duoi ham
+  // xacDinhPhuongPhapIn). Da them cot "Earnings" ngay ben phai "Date Fulfil".
   // Cot "Date Fulfil" duoc TU DONG dien ngay chay script (dd/mm/yyyy), khong de trong nua.
   // File Excel xuat ra KHONG co dong header.
   const HEADERS = [
+    'PrintingMethod', 'Account',
     'orderNumber', 'mockUpFront', 'Image',
     'designFront', 'designBack', 'title', 'color', 'size', 'quantity',
     'Personalization', ' ', 'name', 'address1', 'address2', 'city', 'state',
@@ -154,10 +156,31 @@
     return khop.length === 1 ? khop[0] : colorRaw;
   }
 
+  // ====== XAC DINH PHUONG PHAP IN (COT "PrintingMethod") ======
+  // Mac dinh moi san pham la DTF. Rieng "Comfort Youth" va "Bella Adult" la DTG (theo
+  // tu khoa trong "title", giong cach nhan dien loai ao o tren - khong phan biet hoa/thuong).
+  // Neu 1 don co NHIEU san pham ma co IT NHAT 1 san pham la DTG, thi TAT CA san pham con
+  // lai trong CUNG DON DO cung phai in DTG (xu ly rieng, xem ham resolvePrintingMethodForOrder
+  // ben duoi, ap dung SAU KHI da xac dinh tung san pham rieng le).
+  function xacDinhPhuongPhapInTheoTitle(title) {
+    const t = (title || '').toLowerCase();
+    if (t.includes('comfort') && t.includes('youth')) return 'DTG';
+    if (t.includes('bella') && t.includes('adult')) return 'DTG';
+    return 'DTF';
+  }
+
+  // Neu bat ky san pham nao trong 1 don la DTG, ep TAT CA san pham cua don do thanh DTG.
+  function apDungPhuongPhapInChungChoDon(items) {
+    const coDTG = items.some((item) => item.printingMethod === 'DTG');
+    if (coDTG) {
+      items.forEach((item) => { item.printingMethod = 'DTG'; });
+    }
+  }
+
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.20';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.21';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -483,8 +506,17 @@
       const addr = extractAddress(container);
       const items = extractLineItems(container);
 
+      // Xac dinh phuong phap in TUNG san pham truoc, roi ep CA DON ve DTG neu co it nhat
+      // 1 san pham la DTG (xem giai thich o ham apDungPhuongPhapInChungChoDon).
+      items.forEach((item) => {
+        item.printingMethod = xacDinhPhuongPhapInTheoTitle(item.title);
+      });
+      apDungPhuongPhapInChungChoDon(items);
+
       items.forEach((item) => {
         results.push({
+          PrintingMethod: item.printingMethod,
+          Account: '',
           orderNumber,
           mockUpFront: item.mockUpFront,
           Image: '',
