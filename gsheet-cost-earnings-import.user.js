@@ -82,6 +82,29 @@
   }
 
   // ============ GOOGLE OAUTH (Google Identity Services token client) ============
+  // docs.google.com bat Trusted Types CSP: gan chuoi thuong vao script.src bi chan voi loi
+  // "This document requires 'TrustedScriptURL' assignment" - phai boc URL qua 1 Trusted
+  // Types policy truoc khi gan. URL o day la hang so co dinh trong code (khong phai du
+  // lieu tu ben ngoai) nen policy chi can tra nguyen URL la an toan.
+  let trustedScriptUrlPolicy = null;
+  function toTrustedScriptURL(url) {
+    if (!(window.trustedTypes && window.trustedTypes.createPolicy)) return url;
+    try {
+      if (!trustedScriptUrlPolicy) {
+        trustedScriptUrlPolicy = window.trustedTypes.createPolicy('gcei-script-url', {
+          createScriptURL: (u) => u
+        });
+      }
+      return trustedScriptUrlPolicy.createScriptURL(url);
+    } catch (e) {
+      // CSP co the gioi han san ten policy duoc phep tao (trusted-types directive)
+      // - neu tao policy that bai, tra ve URL goc va de loi TrustedScriptURL that
+      // (neu co) hien ro trong console thay vi nuot mat.
+      console.error('[Import Cost/Earnings] Không tạo được Trusted Types policy:', e);
+      return url;
+    }
+  }
+
   // Tai script GIS DONG (khong dung @require) de 1 lan tai loi khong lam
   // hong toan bo userscript (nut noi van phai hien du thu vien ngoai co loi).
   let gisLoadPromise = null;
@@ -92,7 +115,7 @@
     if (gisLoadPromise) return gisLoadPromise;
     gisLoadPromise = new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = 'https://accounts.google.com/gsi/client';
+      s.src = toTrustedScriptURL('https://accounts.google.com/gsi/client');
       s.async = true;
       s.onload = () => resolve();
       s.onerror = () => reject(new Error('Không tải được thư viện Google Identity Services (accounts.google.com/gsi/client). Kiểm tra kết nối mạng hoặc trình chặn quảng cáo.'));
