@@ -559,7 +559,7 @@
 
     const desc = document.createElement('div');
     desc.style.cssText = 'font-size:12px;color:#777;margin-bottom:8px;';
-    desc.textContent = 'Chỉ điền dữ liệu vào trang tính đang mở hiện tại. File Cost cần cột "External number" + "Fulfillment cost"/"Total". File Earnings cần cột "Mã đơn" + "Earnings".';
+    desc.textContent = 'Chỉ điền dữ liệu vào trang tính đang mở hiện tại. File Cost cần cột "External number" + "Fulfillment cost"/"Total". File Earnings cần cột "Mã đơn" + "Earnings". Không chọn file nào cũng chạy được, khi đó chỉ dùng dữ liệu có sẵn ở sheet "Cost" (nếu có) để điền Base Cost.';
 
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
@@ -589,10 +589,9 @@
 
     runBtn.addEventListener('click', async () => {
       const files = Array.from(fileInput.files || []);
-      if (files.length === 0) {
-        log(statusEl, '⚠️ Vui lòng chọn ít nhất 1 file!');
-        return;
-      }
+      // Khong bat buoc phai chon file: giong ban Apps Script, du lieu tu sheet "Cost" co san
+      // trong file (neu co) van duoc dung de dien Base Cost ke ca khi khong chon file Excel
+      // nao ca - dung cho truong hop chi muon dien lai tu sheet Cost cu, khong co file moi.
       runBtn.disabled = true;
       try {
         const summary = await processImportedFiles(files, statusEl);
