@@ -57,7 +57,15 @@
     if (val instanceof Date) return '';
     const stripped = String(val).replace(/[^0-9.\-]/g, '').trim();
     if (!/^-?\d{1,9}(\.\d+)?$/.test(stripped)) return '';
-    return stripped;
+    // Cac gia tri tien te doc tu file (dac biet qua SheetJS voi raw:true) co the mang theo
+    // sai so nhi phan (VD "11.690000000000001" thay vi "11.69") do gia tri goc trong file
+    // da la mot so thap phan khong bieu dien tron trong double, chu khong phai do phep tinh
+    // nao trong script nay gay ra. Lam tron ve 2 chu so thap phan (chuan tien te) roi de
+    // JS tu format lai (Math.round(...)/100 luon cho chuoi ngan gon nhat, VD "11.69") de
+    // trieu tieu sai so hien thi nay.
+    const num = parseFloat(stripped);
+    if (!isFinite(num)) return '';
+    return String(Math.round(num * 100) / 100);
   }
 
   function describeRawValue(val) {
@@ -124,32 +132,42 @@
     return gisLoadPromise;
   }
 
-  function ensureAccessToken() {
+  // Xin 1 access token voi 1 gia tri "prompt" cu the. prompt:'' la xin AM THAM - neu ban
+  // da tung dong y cap quyen cho app nay tren tai khoan Google nay (con nho ben phia
+  // Google, KHONG phai luu trong trinh duyet), Google se tra token ngay, khong hien man
+  // hinh dong y nao ca, ke ca sau khi tai lai trang. Chi khi Google thay chua tung cap
+  // quyen (lan dau tien, hoac quyen da bi thu hoi) thi buoc "consent" hien man hinh that
+  // moi can thiet.
+  function requestAccessTokenWithPrompt(promptValue) {
     return new Promise((resolve, reject) => {
-      if (accessToken) { resolve(accessToken); return; }
-      loadGisScript().then(() => {
-        if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-          reject(new Error('Chưa tải được thư viện Google Identity Services (accounts.google.com/gsi/client).'));
-          return;
+      tokenClient.callback = (resp) => {
+        if (resp && resp.access_token) {
+          accessToken = resp.access_token;
+          resolve(accessToken);
+        } else {
+          reject(new Error('Đăng nhập Google thất bại hoặc bạn đã từ chối cấp quyền.'));
         }
-        if (!tokenClient) {
-          tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: OAUTH_CLIENT_ID,
-            scope: OAUTH_SCOPE,
-            callback: () => {}
-          });
-        }
-        tokenClient.callback = (resp) => {
-          if (resp && resp.access_token) {
-            accessToken = resp.access_token;
-            resolve(accessToken);
-          } else {
-            reject(new Error('Đăng nhập Google thất bại hoặc bạn đã từ chối cấp quyền.'));
-          }
-        };
-        tokenClient.error_callback = (err) => reject(new Error('Đăng nhập Google lỗi: ' + (err && err.type ? err.type : 'không rõ')));
-        tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
-      }).catch(reject);
+      };
+      tokenClient.error_callback = (err) => reject(new Error('Đăng nhập Google lỗi: ' + (err && err.type ? err.type : 'không rõ')));
+      tokenClient.requestAccessToken({ prompt: promptValue });
+    });
+  }
+
+  function ensureAccessToken() {
+    if (accessToken) return Promise.resolve(accessToken);
+    return loadGisScript().then(() => {
+      if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+        throw new Error('Chưa tải được thư viện Google Identity Services (accounts.google.com/gsi/client).');
+      }
+      if (!tokenClient) {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: OAUTH_CLIENT_ID,
+          scope: OAUTH_SCOPE,
+          callback: () => {}
+        });
+      }
+      // Thu am tham truoc, chi hien man hinh dong y that neu am tham that bai.
+      return requestAccessTokenWithPrompt('').catch(() => requestAccessTokenWithPrompt('consent'));
     });
   }
 
@@ -286,7 +304,14 @@
     return data;
   }
 
-  // ============ LOGIC XU LY IMPORT (ban lai processImportedCostFiles cua GAS) ============
+  // ============ LOGIC XU LY IMPORT ============
+  // Tach lam 2 nguon rieng biet (2 nut rieng ngoai UI):
+  //  - processImportedFiles(): CHI dung file Excel/CSV da chon (Cost + Earnings)
+  //  - fillBaseCostFromCostSheet(): CHI dung sheet "Cost" co san trong spreadsheet, khong
+  //    can chon file nao, chi dien duoc Base Cost (giong ham fillBaseCostWithSheetName cu
+  //    ben Apps Script, sheet "Cost" khong co du lieu Earnings).
+  // Ca 2 deu dung chung buoc cuoi (applyMapsToActiveSheet) de dien vao trang tinh dang mo.
+
   async function processImportedFiles(files, statusEl) {
     const spreadsheetId = getSpreadsheetIdFromUrl();
     const gid = getActiveGidFromUrl();
@@ -373,36 +398,79 @@
       }
     }
 
-    // ==== GOP THEM DU LIEU TU SHEET "Cost" (NEU CO) ====
-    log(statusEl, '⏳ Đang kiểm tra sheet "Cost" (nếu có)...');
+    return applyMapsToActiveSheet(
+      spreadsheetId, sheetProps, activeSheetTitle, activeSheetId,
+      costPriceMap, earningsMap, costRawMap, earningsRawMap, fileReports, statusEl
+    );
+  }
+
+  // Chi dung sheet "Cost" co san trong spreadsheet, khong can chon file Excel nao. Sheet
+  // "Cost" khong co cot Earnings nen chi dien duoc Base Cost.
+  async function fillBaseCostFromCostSheet(statusEl) {
+    const spreadsheetId = getSpreadsheetIdFromUrl();
+    const gid = getActiveGidFromUrl();
+
+    log(statusEl, '⏳ Đang xác thực với Google...');
+    await ensureAccessToken();
+
+    log(statusEl, '⏳ Đang đọc thông tin spreadsheet...');
+    const sheetProps = await fetchSheetMeta(spreadsheetId);
+    const activeProps = sheetProps.find(p => p.sheetId === gid) || sheetProps[0];
+    if (!activeProps) throw new Error('Không tìm thấy trang tính đang mở trong spreadsheet này.');
+    const activeSheetTitle = activeProps.title;
+    const activeSheetId = activeProps.sheetId;
+
     const costSheetProps = sheetProps.find(p => p.title === COST_SHEET_NAME);
-    let costSheetAdded = 0;
-    if (costSheetProps) {
-      const costSheetData = await fetchSheetValues(spreadsheetId, COST_SHEET_NAME);
-      if (costSheetData.length >= 2) {
-        const headerRow = costSheetData[0].map(normalizeHeader);
-        const fulfillIdx = headerRow.indexOf('fulfillment cost');
-        const totalIdx = headerRow.indexOf('total');
-        const priceColIdx = fulfillIdx !== -1 ? fulfillIdx : totalIdx;
-        if (priceColIdx !== -1) {
-          for (let i = 1; i < costSheetData.length; i++) {
-            const row = costSheetData[i];
-            const orderKey = normalizeKey(row[1]); // Cot B
-            if (!orderKey) continue;
-            const price = normalizeNumericValue(row[priceColIdx]);
-            if (costPriceMap[orderKey] === undefined || (costPriceMap[orderKey] === '' && price !== '')) {
-              costPriceMap[orderKey] = price;
-              costSheetAdded++;
-            }
-          }
-        }
-      }
-    }
-    if (costSheetAdded > 0) {
-      fileReports.push(`✅ Sheet "${COST_SHEET_NAME}": bổ sung thêm ${costSheetAdded} mã đơn vào danh sách tra cứu cost.`);
+    if (!costSheetProps) {
+      throw new Error(`Không tìm thấy sheet "${COST_SHEET_NAME}" trong spreadsheet này.`);
     }
 
-    // ==== AP DUNG VAO TRANG TINH HIEN TAI ====
+    log(statusEl, `⏳ Đang đọc sheet "${COST_SHEET_NAME}"...`);
+    const costSheetData = await fetchSheetValues(spreadsheetId, COST_SHEET_NAME);
+    if (costSheetData.length < 2) {
+      throw new Error(`Sheet "${COST_SHEET_NAME}" không có dữ liệu.`);
+    }
+    const headerRow = costSheetData[0].map(normalizeHeader);
+    const fulfillIdx = headerRow.indexOf('fulfillment cost');
+    const totalIdx = headerRow.indexOf('total');
+    const priceColIdx = fulfillIdx !== -1 ? fulfillIdx : totalIdx;
+    if (priceColIdx === -1) {
+      throw new Error(`Sheet "${COST_SHEET_NAME}" không có cột "Fulfillment cost" hoặc "Total".`);
+    }
+
+    const costPriceMap = {};
+    const costRawMap = {};
+    let addedCount = 0;
+    for (let i = 1; i < costSheetData.length; i++) {
+      const row = costSheetData[i];
+      const orderKey = normalizeKey(row[1]); // Cot B trong sheet Cost
+      if (!orderKey) continue;
+      const rawCell = row[priceColIdx];
+      const price = normalizeNumericValue(rawCell);
+      if (costPriceMap[orderKey] === undefined) {
+        costPriceMap[orderKey] = price;
+        addedCount++;
+      } else if (costPriceMap[orderKey] === '' && price !== '') {
+        costPriceMap[orderKey] = price;
+      }
+      if (price === '' && costRawMap[orderKey] === undefined) {
+        costRawMap[orderKey] = describeRawValue(rawCell);
+      }
+    }
+
+    const fileReports = [`✅ Sheet "${COST_SHEET_NAME}": tìm thấy ${addedCount} mã đơn vào danh sách tra cứu cost.`];
+    return applyMapsToActiveSheet(
+      spreadsheetId, sheetProps, activeSheetTitle, activeSheetId,
+      costPriceMap, {}, costRawMap, {}, fileReports, statusEl
+    );
+  }
+
+  // Buoc chung cho ca 2 nguon: dien Base Cost / Earnings vao trang tinh dang mo, dua tren
+  // cac map orderNumber -> gia tri da xay dung san (tu file, hoac tu sheet Cost).
+  async function applyMapsToActiveSheet(
+    spreadsheetId, sheetProps, activeSheetTitle, activeSheetId,
+    costPriceMap, earningsMap, costRawMap, earningsRawMap, fileReports, statusEl
+  ) {
     log(statusEl, `⏳ Đang đọc trang tính "${activeSheetTitle}"...`);
     const activeData = await fetchSheetValues(spreadsheetId, activeSheetTitle);
     const perSheetReports = [];
@@ -558,26 +626,53 @@
     title.textContent = 'Import Cost / Earnings từ Excel';
 
     const desc = document.createElement('div');
-    desc.style.cssText = 'font-size:12px;color:#777;margin-bottom:8px;';
-    desc.textContent = 'Chỉ điền dữ liệu vào trang tính đang mở hiện tại. File Cost cần cột "External number" + "Fulfillment cost"/"Total". File Earnings cần cột "Mã đơn" + "Earnings". Không chọn file nào cũng chạy được, khi đó chỉ dùng dữ liệu có sẵn ở sheet "Cost" (nếu có) để điền Base Cost.';
+    desc.style.cssText = 'font-size:12px;color:#777;margin-bottom:10px;';
+    desc.textContent = 'Chỉ điền dữ liệu vào trang tính đang mở hiện tại. File Cost cần cột "External number" + "Fulfillment cost"/"Total". File Earnings cần cột "Mã đơn" + "Earnings".';
+
+    // --- Khoi 1: import tu file Excel/CSV da chon ---
+    const fileLabel = document.createElement('div');
+    fileLabel.style.cssText = 'font-weight:bold;font-size:12px;margin-bottom:4px;';
+    fileLabel.textContent = '1. Import từ file Excel/CSV';
 
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.multiple = true;
     fileInput.accept = '.xlsx,.xls,.csv';
-    fileInput.style.cssText = 'width:100%;margin-bottom:10px;';
+    fileInput.style.cssText = 'width:100%;margin-bottom:6px;';
 
-    const runBtn = document.createElement('button');
-    runBtn.textContent = '▶ Import & Điền dữ liệu';
-    runBtn.style.cssText = 'width:100%;padding:8px;background:#4CAF50;color:#fff;border:none;border-radius:4px;cursor:pointer;';
+    const runFileBtn = document.createElement('button');
+    runFileBtn.textContent = '▶ Import & Điền dữ liệu';
+    runFileBtn.style.cssText = 'width:100%;padding:8px;background:#4CAF50;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-bottom:6px;';
+
+    const fileHint = document.createElement('div');
+    fileHint.style.cssText = 'font-size:11px;color:#999;margin-bottom:12px;';
+    fileHint.textContent = 'Cần chọn ít nhất 1 file. Chỉ dùng dữ liệu trong (các) file đã chọn.';
+
+    // --- Khoi 2: dien Base Cost tu sheet "Cost" co san, khong can chon file ---
+    const sheetLabel = document.createElement('div');
+    sheetLabel.style.cssText = 'font-weight:bold;font-size:12px;margin-bottom:4px;border-top:1px solid #eee;padding-top:10px;';
+    sheetLabel.textContent = `2. Điền Base Cost từ sheet "${COST_SHEET_NAME}" có sẵn`;
+
+    const sheetHint = document.createElement('div');
+    sheetHint.style.cssText = 'font-size:11px;color:#999;margin-bottom:6px;';
+    sheetHint.textContent = `Không cần chọn file. Dùng dữ liệu có sẵn ở sheet "${COST_SHEET_NAME}" trong chính spreadsheet này để điền lại cột Base Cost (không đụng đến Earnings).`;
+
+    const runSheetBtn = document.createElement('button');
+    runSheetBtn.textContent = `▶ Điền từ sheet "${COST_SHEET_NAME}"`;
+    runSheetBtn.style.cssText = 'width:100%;padding:8px;background:#2196F3;color:#fff;border:none;border-radius:4px;cursor:pointer;';
 
     const statusEl = document.createElement('pre');
     statusEl.style.cssText = 'white-space:pre-wrap;margin-top:10px;max-height:280px;overflow:auto;font-size:12px;color:#333;';
 
     panel.appendChild(title);
     panel.appendChild(desc);
+    panel.appendChild(fileLabel);
     panel.appendChild(fileInput);
-    panel.appendChild(runBtn);
+    panel.appendChild(runFileBtn);
+    panel.appendChild(fileHint);
+    panel.appendChild(sheetLabel);
+    panel.appendChild(sheetHint);
+    panel.appendChild(runSheetBtn);
     panel.appendChild(statusEl);
 
     document.body.appendChild(btn);
@@ -587,21 +682,32 @@
       panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
     });
 
-    runBtn.addEventListener('click', async () => {
-      const files = Array.from(fileInput.files || []);
-      // Khong bat buoc phai chon file: giong ban Apps Script, du lieu tu sheet "Cost" co san
-      // trong file (neu co) van duoc dung de dien Base Cost ke ca khi khong chon file Excel
-      // nao ca - dung cho truong hop chi muon dien lai tu sheet Cost cu, khong co file moi.
-      runBtn.disabled = true;
+    async function runWithGuard(btnEl, task) {
+      runFileBtn.disabled = true;
+      runSheetBtn.disabled = true;
       try {
-        const summary = await processImportedFiles(files, statusEl);
+        const summary = await task();
         log(statusEl, '✅ Hoàn tất:\n' + summary);
       } catch (e) {
         log(statusEl, '❌ Lỗi: ' + e.message);
         console.error('[Import Cost/Earnings]', e);
       } finally {
-        runBtn.disabled = false;
+        runFileBtn.disabled = false;
+        runSheetBtn.disabled = false;
       }
+    }
+
+    runFileBtn.addEventListener('click', () => {
+      const files = Array.from(fileInput.files || []);
+      if (files.length === 0) {
+        log(statusEl, '⚠️ Vui lòng chọn ít nhất 1 file!');
+        return;
+      }
+      runWithGuard(runFileBtn, () => processImportedFiles(files, statusEl));
+    });
+
+    runSheetBtn.addEventListener('click', () => {
+      runWithGuard(runSheetBtn, () => fillBaseCostFromCostSheet(statusEl));
     });
   }
 
