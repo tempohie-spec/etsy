@@ -6,7 +6,6 @@
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        none
 // @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
-// @require      https://accounts.google.com/gsi/client
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -83,30 +82,51 @@
   }
 
   // ============ GOOGLE OAUTH (Google Identity Services token client) ============
+  // Tai script GIS DONG (khong dung @require) de 1 lan tai loi khong lam
+  // hong toan bo userscript (nut noi van phai hien du thu vien ngoai co loi).
+  let gisLoadPromise = null;
+  function loadGisScript() {
+    if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+      return Promise.resolve();
+    }
+    if (gisLoadPromise) return gisLoadPromise;
+    gisLoadPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://accounts.google.com/gsi/client';
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Không tải được thư viện Google Identity Services (accounts.google.com/gsi/client). Kiểm tra kết nối mạng hoặc trình chặn quảng cáo.'));
+      document.head.appendChild(s);
+    });
+    return gisLoadPromise;
+  }
+
   function ensureAccessToken() {
     return new Promise((resolve, reject) => {
       if (accessToken) { resolve(accessToken); return; }
-      if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-        reject(new Error('Chưa tải được thư viện Google Identity Services (accounts.google.com/gsi/client).'));
-        return;
-      }
-      if (!tokenClient) {
-        tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: OAUTH_CLIENT_ID,
-          scope: OAUTH_SCOPE,
-          callback: () => {}
-        });
-      }
-      tokenClient.callback = (resp) => {
-        if (resp && resp.access_token) {
-          accessToken = resp.access_token;
-          resolve(accessToken);
-        } else {
-          reject(new Error('Đăng nhập Google thất bại hoặc bạn đã từ chối cấp quyền.'));
+      loadGisScript().then(() => {
+        if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+          reject(new Error('Chưa tải được thư viện Google Identity Services (accounts.google.com/gsi/client).'));
+          return;
         }
-      };
-      tokenClient.error_callback = (err) => reject(new Error('Đăng nhập Google lỗi: ' + (err && err.type ? err.type : 'không rõ')));
-      tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+        if (!tokenClient) {
+          tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: OAUTH_CLIENT_ID,
+            scope: OAUTH_SCOPE,
+            callback: () => {}
+          });
+        }
+        tokenClient.callback = (resp) => {
+          if (resp && resp.access_token) {
+            accessToken = resp.access_token;
+            resolve(accessToken);
+          } else {
+            reject(new Error('Đăng nhập Google thất bại hoặc bạn đã từ chối cấp quyền.'));
+          }
+        };
+        tokenClient.error_callback = (err) => reject(new Error('Đăng nhập Google lỗi: ' + (err && err.type ? err.type : 'không rõ')));
+        tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+      }).catch(reject);
     });
   }
 
@@ -490,23 +510,22 @@
     if (el) el.textContent = text;
   }
 
+  const MAX_Z = 2147483647;
+
   function buildUi() {
     const btn = document.createElement('button');
+    btn.id = 'gcei-toggle-btn';
     btn.textContent = '📥 Import Cost/Earnings';
-    Object.assign(btn.style, {
-      position: 'fixed', top: '80px', right: '16px', zIndex: 999999,
-      padding: '8px 14px', background: '#4CAF50', color: '#fff',
-      border: 'none', borderRadius: '6px', cursor: 'pointer',
-      fontSize: '13px', fontFamily: 'Arial, sans-serif', boxShadow: '0 2px 6px rgba(0,0,0,.3)'
-    });
+    btn.style.cssText = `position:fixed!important;bottom:24px!important;right:24px!important;top:auto!important;
+      left:auto!important;z-index:${MAX_Z}!important;padding:10px 16px;background:#4CAF50;color:#fff;
+      border:none;border-radius:6px;cursor:pointer;font-size:13px;font-family:Arial,sans-serif;
+      box-shadow:0 2px 8px rgba(0,0,0,.4);`;
 
     const panel = document.createElement('div');
-    Object.assign(panel.style, {
-      position: 'fixed', top: '120px', right: '16px', zIndex: 999999,
-      width: '360px', padding: '14px', background: '#fff', border: '1px solid #ccc',
-      borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,.3)',
-      fontFamily: 'Arial, sans-serif', fontSize: '13px', display: 'none'
-    });
+    panel.style.cssText = `position:fixed!important;bottom:70px!important;right:24px!important;top:auto!important;
+      left:auto!important;z-index:${MAX_Z}!important;width:360px;padding:14px;background:#fff;
+      border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);
+      font-family:Arial,sans-serif;font-size:13px;display:none;`;
 
     panel.innerHTML = `
       <div style="font-weight:bold;margin-bottom:8px;">Import Cost / Earnings từ Excel</div>
@@ -549,9 +568,18 @@
     });
   }
 
-  if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    buildUi();
+  function safeInit() {
+    try {
+      buildUi();
+      console.log('[Import Cost/Earnings] Đã tạo nút nổi thành công.');
+    } catch (e) {
+      console.error('[Import Cost/Earnings] Lỗi khi tạo giao diện:', e);
+    }
+  }
+
+  if (document.body) {
+    safeInit();
   } else {
-    window.addEventListener('DOMContentLoaded', buildUi);
+    document.addEventListener('DOMContentLoaded', safeInit);
   }
 })();
