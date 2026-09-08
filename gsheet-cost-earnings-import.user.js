@@ -527,16 +527,35 @@
       border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);
       font-family:Arial,sans-serif;font-size:13px;display:none;`;
 
-    panel.innerHTML = `
-      <div style="font-weight:bold;margin-bottom:8px;">Import Cost / Earnings từ Excel</div>
-      <div style="font-size:12px;color:#777;margin-bottom:8px;">
-        Chỉ điền dữ liệu vào <b>trang tính đang mở hiện tại</b>. File Cost cần cột
-        "External number" + "Fulfillment cost"/"Total". File Earnings cần cột "Mã đơn" + "Earnings".
-      </div>
-      <input type="file" id="gcei-file" multiple accept=".xlsx,.xls,.csv" style="width:100%;margin-bottom:10px;" />
-      <button id="gcei-run" style="width:100%;padding:8px;background:#4CAF50;color:#fff;border:none;border-radius:4px;cursor:pointer;">▶ Import & Điền dữ liệu</button>
-      <pre id="gcei-status" style="white-space:pre-wrap;margin-top:10px;max-height:280px;overflow:auto;font-size:12px;color:#333;"></pre>
-    `;
+    // Google Sheets bat Trusted Types CSP nen KHONG duoc gan panel.innerHTML = "..."
+    // (se nem TypeError "This document requires 'TrustedHTML' assignment") - phai dung
+    // createElement/appendChild cho tung phan tu con.
+    const title = document.createElement('div');
+    title.style.cssText = 'font-weight:bold;margin-bottom:8px;';
+    title.textContent = 'Import Cost / Earnings từ Excel';
+
+    const desc = document.createElement('div');
+    desc.style.cssText = 'font-size:12px;color:#777;margin-bottom:8px;';
+    desc.textContent = 'Chỉ điền dữ liệu vào trang tính đang mở hiện tại. File Cost cần cột "External number" + "Fulfillment cost"/"Total". File Earnings cần cột "Mã đơn" + "Earnings".';
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.multiple = true;
+    fileInput.accept = '.xlsx,.xls,.csv';
+    fileInput.style.cssText = 'width:100%;margin-bottom:10px;';
+
+    const runBtn = document.createElement('button');
+    runBtn.textContent = '▶ Import & Điền dữ liệu';
+    runBtn.style.cssText = 'width:100%;padding:8px;background:#4CAF50;color:#fff;border:none;border-radius:4px;cursor:pointer;';
+
+    const statusEl = document.createElement('pre');
+    statusEl.style.cssText = 'white-space:pre-wrap;margin-top:10px;max-height:280px;overflow:auto;font-size:12px;color:#333;';
+
+    panel.appendChild(title);
+    panel.appendChild(desc);
+    panel.appendChild(fileInput);
+    panel.appendChild(runBtn);
+    panel.appendChild(statusEl);
 
     document.body.appendChild(btn);
     document.body.appendChild(panel);
@@ -544,10 +563,6 @@
     btn.addEventListener('click', () => {
       panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
     });
-
-    const fileInput = panel.querySelector('#gcei-file');
-    const runBtn = panel.querySelector('#gcei-run');
-    const statusEl = panel.querySelector('#gcei-status');
 
     runBtn.addEventListener('click', async () => {
       const files = Array.from(fileInput.files || []);
