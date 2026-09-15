@@ -505,8 +505,24 @@ function fillColumnByOrderMap(sheet, orderColIndex, targetColIndex, valueMap, no
     if (filledOrder.has(orderKey)) return [existingValue];
     filledOrder.add(orderKey);
 
-    const newValue = valueMap[orderKey] !== "" ? valueMap[orderKey] : noValueLabel;
-    if (valueMap[orderKey] === "") blankOrderKeys.push(orderKey);
+    const hasRealValue = valueMap[orderKey] !== "";
+    if (!hasRealValue) blankOrderKeys.push(orderKey);
+
+    if (hasRealValue) {
+      // Ghi dưới dạng SỐ THẬT (Number), không phải chuỗi text - nếu không SUM/các hàm tính
+      // toán trên sheet sẽ bỏ qua ô này (Sheets hiển thị dấu ' khi sửa ô để báo đó là text).
+      const newValue = Number(valueMap[orderKey]);
+      const alreadyRealNumber = typeof existingValue === "number" && sameValue(existingValue, newValue);
+      if (alreadyRealNumber) {
+        alreadyCorrect++;
+        return [existingValue];
+      }
+      filled++;
+      touched = true;
+      return [newValue];
+    }
+
+    const newValue = noValueLabel;
     if (sameValue(existingValue, newValue)) {
       alreadyCorrect++;
       return [existingValue];
