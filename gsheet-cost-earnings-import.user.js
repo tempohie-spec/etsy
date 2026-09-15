@@ -226,8 +226,12 @@
     if (values.length === 0) return;
     const colLetter = columnIndexToLetter(colIndex1Based);
     const range = `'${sheetTitle}'!${colLetter}${startRow1Based}:${colLetter}${startRow1Based + values.length - 1}`;
+    // valueInputOption=USER_ENTERED (khong phai RAW): giong het viec ban tu tay go "44.04"
+    // vao o va Enter - Sheets tu nhan dien chuoi so la SO THAT. Dung RAW se ghi chuoi so
+    // dang TEXT (Sheets hien dau nhay ' truoc gia tri de bao la text), khien SUM/cac ham
+    // tinh toan khac bo qua o do.
     await sheetsApiFetch(
-      `${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+      `${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
       { method: 'PUT', body: JSON.stringify({ range, majorDimension: 'COLUMNS', values: [values] }) }
     );
   }
