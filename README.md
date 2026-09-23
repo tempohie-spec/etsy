@@ -373,6 +373,40 @@ Hai thay đổi:
 Nếu 1 lô lỗi giữa chừng, toast cuối cùng báo rõ đã upload được bao nhiêu/tổng số, và bạn tự upload
 nốt phần còn thiếu — không đoán bừa là mọi ảnh đều ổn.
 
+### Tự thử lại khi Etsy báo lỗi 500, mở rộng nhận diện toast (v9.8)
+
+Sau v9.7, log thực tế cho thấy lỗi **vẫn xảy ra** nhưng đổi dạng: lần này là
+`POST .../listings/images 500 (Internal Server Error)` — **lỗi phía server Etsy**, không phải lỗi
+dữ liệu gửi lên sai như 400 trước đó — kèm toast **"Hm, we're having trouble uploading those files.
+Try again..."**. Toast này dùng chữ khác hẳn "File not uploaded" nên lọt qua `timThongBaoLoiUploadEtsy()`
+của v9.7 — script không phát hiện được, cứ đợi hết `THOI_HAN_CHO_ETSY_XU_LY_ANH` (180s) mới báo lỗi.
+
+Bằng chứng quan trọng từ người dùng: **upload ảnh trực tiếp từ máy tính (chọn file qua hộp thoại hệ
+điều hành) thì nhanh, không lỗi** — loại trừ được khả năng do mạng/CDN hay do bản thân file quá
+nặng/sai định dạng. Kết hợp với việc chính Etsy tự nhắn **"Try again"** trong toast lỗi 500 (khác
+hẳn giọng điệu của lỗi 400 "Bad Request" — vốn thường là lỗi cố định, thử lại cũng vô ích), hướng xử
+lý hợp lý nhất là: **coi đây là lỗi tạm thời phía Etsy, tự động thử lại** thay vì cố tìm nguyên nhân
+sâu hơn ở phía dữ liệu gửi lên (vì bằng chứng đã chỉ ra dữ liệu không phải vấn đề).
+
+Hai thay đổi:
+
+1. `timThongBaoLoiUploadEtsy()` nhận thêm mẫu `trouble uploading` (khớp cả câu "we're having
+   trouble uploading those files").
+2. Mỗi lô giờ **tự thử lại tối đa 2 lần** (`SO_LAN_THU_LAI_LO = 2`, tổng 3 lần/lô) nếu gặp lỗi thật
+   hoặc hết giờ — nhồi lại **đúng bộ file của lô đó** vào `<input>` (một `DataTransfer` mới, dispatch
+   lại `input`/`change`, trông y hệt một lần chọn file mới với Etsy), cách nhau 3 giây. Chỉ báo lỗi
+   dừng hẳn khi **cả 3 lần** đều thất bại.
+
+⚠️ **Đánh đổi:** không có cách nào chắc chắn biết liệu lần thử trước đó có ảnh nào đã thật sự lên
+thành công một phần hay không (chỉ biết "lô này bị báo lỗi", không biết chính xác ảnh nào trong lô).
+Nếu có, thử lại nguyên lô có thể khiến ảnh đó **lên trùng 1 bản**. Đây là đánh đổi hợp lý: chấp nhận
+khả năng dư 1-2 ảnh trùng (xoá tay rất nhanh) đổi lấy việc không phải bỏ dở giữa chừng khi Etsy chỉ
+đơn thuần bị lỗi tạm thời.
+
+Cũng thêm log kích thước từng ảnh (`console.log` dạng `Ảnh <tên>: <n> KB`) trong `taiAnhThanhFile()`
+— chưa có bằng chứng cho thấy dung lượng file là nguyên nhân, nhưng nếu lỗi còn tái diễn, log này
+cho dữ liệu cụ thể để kiểm tra thay vì phải đoán lại từ đầu.
+
 
 ### Sắp xếp bằng kéo-thả trong bảng chọn (v9.6)
 

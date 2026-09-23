@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.7
+// @version      9.8
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.7';
+  const PHIEN_BAN = '9.8';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2334,7 +2334,11 @@
   async function taiAnhThanhFile(url, ten) {
     const duLieu = await taiMotAnhVoiRetry(url);
     const duoi = laySoDuoiFile(url);
-    return new File([duLieu], `${lamSachTenFile(ten)}.${duoi}`, { type: laMimeTheoDuoi(duoi) });
+    const file = new File([duLieu], `${lamSachTenFile(ten)}.${duoi}`, { type: laMimeTheoDuoi(duoi) });
+    // Ghi lai dung luong tung anh — bang chung cu the neu sau nay can kiem tra gia thuyet "anh
+    // qua nang lam backend upload cua Etsy tu choi", thay vi phai doan lai tu dau.
+    console.log(`[Etsy Auto] Ảnh ${file.name}: ${(file.size / 1024).toFixed(0)} KB`);
+    return file;
   }
 
   // So anh tai CUNG LUC toi da — GM_xmlhttpRequest khong bi gioi han 6 ket noi/goc nhu fetch
@@ -2451,18 +2455,22 @@
     return (anh && (anh.getAttribute('src') || anh.src)) || el.getAttribute('aria-describedby') || el.textContent.trim();
   }
 
-  // Tim thong bao LOI THAT cua chinh Etsy (vi du toast do "File not uploaded"). Day la tin hieu
+  // Tim thong bao LOI THAT cua chinh Etsy (vi du toast do "File not uploaded", hoac "we're having
+  // trouble uploading those files" khi Etsy tra ve 500 Internal Server Error). Day la tin hieu
   // dang tin cay HON HAN so voi kiem tra <img> xem truoc trong choEtsyXuLyAnh(): anh xem truoc
   // chi la mot Blob URL trinh duyet tu ve NGAY LAP TUC tu chinh File object minh dua vao, hoan
   // toan KHONG can doi Etsy that su nhan duoc file o backend — nen no van hien binh thuong ke ca
-  // khi POST that len /api/v3/ajax/shop/.../listings/images cua Etsy that bai (400 Bad Request,
-  // da gap thuc te). Neu khong kiem tra rieng tin hieu nay, script se tuong nham la upload xong
-  // roi tien luon toi buoc Publish trong khi mot so anh chua he len duoc that su.
+  // khi POST that len /api/v3/ajax/shop/.../listings/images cua Etsy that bai (da gap ca 400 Bad
+  // Request lan 500 Internal Server Error tren thuc te, voi 2 cau toast khac nhau). Neu khong kiem
+  // tra rieng tin hieu nay, script se tuong nham la upload xong roi tien luon toi buoc Publish
+  // trong khi mot so anh chua he len duoc that su.
   function timThongBaoLoiUploadEtsy() {
     const ungVien = [
       ...document.querySelectorAll('[role="alert"], [role="status"], [aria-live], [class*="toast" i], [data-clg-id*="toast" i]'),
     ];
-    return ungVien.find((el) => /not uploaded|upload failed|couldn.?t upload/i.test(el.textContent) && dangHienThi(el));
+    return ungVien.find(
+      (el) => /not uploaded|upload failed|couldn.?t upload|trouble uploading/i.test(el.textContent) && dangHienThi(el)
+    );
   }
 
   // Cho Etsy upload + ve xong cac the anh moi. Tra ve { ok, lyDo, chiTiet }:
@@ -2607,27 +2615,49 @@
 
     // Buoc 2+3: nhoi anh vao o upload theo TUNG LO nho (KICH_THUOC_LO_UPLOAD anh/lo), cho Etsy
     // xu ly xong lo nay roi moi nhoi lo tiep theo — thay vi nhoi TAT CA cung 1 luc (de gap loi
-    // 400 Bad Request tu chinh backend upload cua Etsy khi qua tai, xem ghi chu tai
+    // tu chinh backend upload cua Etsy khi qua tai, xem ghi chu tai
     // choEtsyXuLyAnh()/timThongBaoLoiUploadEtsy()).
+    //
+    // Moi lo THU LAI toi da SO_LAN_THU_LAI_LO lan neu Etsy bao loi that: gap ca 400 Bad Request
+    // lan 500 Internal Server Error tren thuc te, va toast cua chinh Etsy cho truong hop 500 con
+    // ghi thang "Try again" — tuc la chinh Etsy cung coi day la loi tam thoi, dang thu lai chu
+    // khong phai loi co dinh (vi du sai dinh dang file). Danh doi: neu 1 lo BAO LOI nhung THAT RA
+    // mot vai anh trong lo do da len duoc (khong the biet chac tu tin hieu hien co), thu lai co
+    // the lam anh do bi len TRUNG — chi la doi trung 1, 2 anh trong listing, de xoa bang tay hon
+    // nhieu so voi phai tu upload lai tu dau khi script bo cuoc qua som.
+    const SO_LAN_THU_LAI_LO = 2;
     let soAnhDaXuLyXong = 0;
-    let dungGiuaChung = null; // { lyDo, chiTiet } neu 1 lo bi loi that/het gio giua chung
+    let dungGiuaChung = null; // { lyDo, chiTiet } neu 1 lo bi loi that/het gio sau khi da thu lai het
 
     for (let dau = 0; dau < cacFile.length; dau += KICH_THUOC_LO_UPLOAD) {
       const lo = cacFile.slice(dau, dau + KICH_THUOC_LO_UPLOAD);
+      let ketQuaLo = null;
 
-      // Query lai o ngay truoc khi nhoi vi React co the da ve lai <input> khac giua chung
-      const oChonAnh = timOChonAnhSanPham();
-      if (!oChonAnh) {
-        hienThongBao('❌ Ô upload ảnh biến mất giữa chừng. Hãy tải lại trang chỉnh sửa rồi thử lại.', '#DC2626');
-        return;
+      for (let lanThu = 0; lanThu <= SO_LAN_THU_LAI_LO; lanThu++) {
+        // Query lai o ngay truoc khi nhoi vi React co the da ve lai <input> khac giua chung
+        const oChonAnh = timOChonAnhSanPham();
+        if (!oChonAnh) {
+          hienThongBao('❌ Ô upload ảnh biến mất giữa chừng. Hãy tải lại trang chỉnh sửa rồi thử lại.', '#DC2626');
+          return;
+        }
+        nhoiFileVaoO(oChonAnh, lo);
+        hienThongBao(
+          `⏳ Đã đẩy ${soAnhDaXuLyXong + lo.length}/${cacFile.length} ảnh vào Etsy, đang chờ xử lý...` +
+            (lanThu > 0 ? ` (thử lại lần ${lanThu + 1}/${SO_LAN_THU_LAI_LO + 1})` : ''),
+          '#2563EB'
+        );
+
+        ketQuaLo = await choEtsyXuLyAnh(soAnhCu + soAnhDaXuLyXong, lo.length);
+        if (ketQuaLo.ok) break;
+
+        if (lanThu < SO_LAN_THU_LAI_LO) {
+          console.warn(
+            `[Etsy Auto] Lô ảnh lỗi (${ketQuaLo.lyDo}${ketQuaLo.chiTiet ? ': ' + ketQuaLo.chiTiet : ''}), thử lại lần ${lanThu + 2}/${SO_LAN_THU_LAI_LO + 1}...`
+          );
+          await cho(3000);
+        }
       }
-      nhoiFileVaoO(oChonAnh, lo);
-      hienThongBao(
-        `⏳ Đã đẩy ${soAnhDaXuLyXong + lo.length}/${cacFile.length} ảnh vào Etsy, đang chờ xử lý...`,
-        '#2563EB'
-      );
 
-      const ketQuaLo = await choEtsyXuLyAnh(soAnhCu + soAnhDaXuLyXong, lo.length);
       if (!ketQuaLo.ok) {
         dungGiuaChung = ketQuaLo;
         break;
@@ -2641,8 +2671,8 @@
           ? ` — chính Etsy báo lỗi: "${dungGiuaChung.chiTiet}"`
           : ` — Etsy chưa hiện đủ ảnh sau ${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s`;
       hienThongBao(
-        `⚠️ Chỉ upload được ${soAnhDaXuLyXong}/${cacFile.length} ảnh${lyDoChu}. ` +
-          'Hãy kiểm tra lại trên trang rồi tự upload nốt phần còn thiếu.',
+        `⚠️ Đã thử lại ${SO_LAN_THU_LAI_LO + 1} lần nhưng chỉ upload được ${soAnhDaXuLyXong}/${cacFile.length} ảnh${lyDoChu}. ` +
+          'Hãy kiểm tra lại trên trang (có thể có ảnh trùng do đã thử lại) rồi tự upload nốt phần còn thiếu.',
         '#F59E0B'
       );
       return;
