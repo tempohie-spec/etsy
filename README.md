@@ -408,6 +408,21 @@ Cũng thêm log kích thước từng ảnh (`console.log` dạng `Ảnh <tên>:
 cho dữ liệu cụ thể để kiểm tra thay vì phải đoán lại từ đầu.
 
 
+### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
+
+Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
+động tích sẵn **"Bấm hộ Publish..."** làm mặc định — dù HTML vẫn ghi `checked` ở "Dừng lại, tôi tự
+bấm lưu" như v9.11 đã đổi. Nguyên nhân: đây không phải là trang được tải lại thực sự (Etsy là SPA,
+chuyển trang bằng `pushState`), và tính năng "nhớ lại giá trị form" của trình duyệt có thể áp dụng
+theo `name` của input NGAY CẢ KHI các phần tử radio đó được tạo mới hoàn toàn ở lần mở hộp thoại sau
+— thuộc tính `checked` ghi trong chuỗi HTML chỉ set `defaultChecked`, không đảm bảo thắng được giá
+trị trình duyệt tự phục hồi.
+
+Sửa bằng cách **ép lại bằng JavaScript ngay sau khi chèn HTML** (`oRadio.checked = true` trên đúng
+input `value="khong"`), không chỉ dựa vào thuộc tính `checked` trong chuỗi HTML — gán trực tiếp
+thuộc tính `.checked` của phần tử luôn thắng mọi giá trị trình duyệt tự phục hồi. Đồng thời thêm
+`autocomplete="off"` cho cả 2 input để giảm khả năng trình duyệt can thiệp từ đầu.
+
 ### Đổi mặc định về "Dừng lại, tôi tự bấm lưu" (v9.11)
 
 2 lựa chọn sau khi upload (xem mục "Publish tự động xuyên suốt" bên dưới) trước đây mặc định chọn
