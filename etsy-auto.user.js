@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.10
+// @version      9.11
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.10';
+  const PHIEN_BAN = '9.11';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2216,8 +2216,8 @@
                  </div>
                  <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked disabled> Dừng lại sau khi upload, tôi tự kéo ảnh + tự lưu</label>`
               : `<div style="margin-bottom:6px;font-weight:bold;">Sau khi upload xong:</div>
-                 <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="publish" checked> Bấm hộ <b>Publish copy with changes</b> — đăng bán công khai ngay, khó lùi lại</label>
-                 <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong"> Dừng lại, tôi tự bấm lưu</label>`
+                 <label style="display:block;margin-bottom:3px;cursor:pointer;"><input type="radio" name="ea-up-xong" value="publish"> Bấm hộ <b>Publish copy with changes</b> — đăng bán công khai ngay, khó lùi lại</label>
+                 <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked> Dừng lại, tôi tự bấm lưu</label>`
           }
         </div>
         <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;gap:10px;">

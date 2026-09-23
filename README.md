@@ -408,6 +408,14 @@ Cũng thêm log kích thước từng ảnh (`console.log` dạng `Ảnh <tên>:
 cho dữ liệu cụ thể để kiểm tra thay vì phải đoán lại từ đầu.
 
 
+### Đổi mặc định về "Dừng lại, tôi tự bấm lưu" (v9.11)
+
+2 lựa chọn sau khi upload (xem mục "Publish tự động xuyên suốt" bên dưới) trước đây mặc định chọn
+sẵn **"Bấm hộ Publish copy with changes"** — tức nếu không để ý bấm đổi, script sẽ tự đăng bán công
+khai ngay, một hành động khó lùi lại. Đổi mặc định sang **"Dừng lại, tôi tự bấm lưu"** để an toàn
+hơn: sau khi upload xong script luôn dừng lại chờ, người dùng phải **chủ động** tick sang Publish
+nếu thực sự muốn đăng ngay, thay vì phải chủ động tick RA để tránh đăng nhầm.
+
 ### Copy link ảnh bảng size ngay trong bảng chọn, dán thẳng vào thư viện (v9.9)
 
 Trước đây, muốn thêm một ảnh vào **thư viện ảnh bảng size của riêng bạn** (mục "Thư viện ảnh bảng
