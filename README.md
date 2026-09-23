@@ -360,9 +360,9 @@ xong file — nên script tưởng nhầm là xong hết, trong khi một số �
 
 Hai thay đổi:
 
-1. **Nhồi theo lô nhỏ** (`KICH_THUOC_LO_UPLOAD = 3` ảnh/lô) thay vì nhồi hết 1 lần — nghi ngờ nhồi
-   quá nhiều file cùng lúc làm quá tải backend upload của Etsy. Mỗi lô đợi Etsy xử lý xong mới nhồi
-   lô tiếp theo.
+1. **Nhồi theo lô nhỏ** (`KICH_THUOC_LO_UPLOAD` ảnh/lô — ban đầu 3, đổi thành **5** ở v9.13) thay vì
+   nhồi hết 1 lần — nghi ngờ nhồi quá nhiều file cùng lúc làm quá tải backend upload của Etsy. Mỗi lô
+   đợi Etsy xử lý xong mới nhồi lô tiếp theo.
 2. **`timThongBaoLoiUploadEtsy()`** — quét các phần tử `[role="alert"]`, `[role="status"]`,
    `[aria-live]`, hoặc class/`data-clg-id` chứa "toast", tìm chữ khớp `not uploaded` / `upload
    failed` / `couldn't upload`. Đây là tín hiệu **đáng tin hơn hẳn** ảnh xem trước, vì nó là chính
