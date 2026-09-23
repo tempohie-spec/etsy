@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.9
+// @version      9.10
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.9';
+  const PHIEN_BAN = '9.10';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -1934,6 +1934,110 @@
     luuGiaTri(KHOA_THU_VIEN_BANG_SIZE, JSON.stringify(danhSach));
   }
 
+  // Hop thoai lay nhanh link anh bang size TU CHINH TRANG LISTING DANG MO — khong can chay het
+  // luong Alt+G/Alt+V. Quet lai y het duong layDanhSachAnhFullSize() (khoi carousel, co kem alt),
+  // uu tien hien anh nghi la bang size len dau (vien tim), nhung VAN CHO copy/them BAT KY anh nao
+  // trong danh sach — vi viec nhan dien qua alt co the sot (Etsy khong phai luc nao cung dat alt
+  // chuan cho anh bang size).
+  function moLayLinkBangSizeTrangNay() {
+    return new Promise((resolve) => {
+      const { danhSach } = layDanhSachAnhFullSize();
+      if (!danhSach.length) {
+        hienThongBao(
+          '⚠️ Không tìm thấy ảnh nào trên trang này. Hãy mở đúng trang chi tiết 1 listing rồi thử lại.',
+          '#DC2626'
+        );
+        resolve();
+        return;
+      }
+
+      const nghi = danhSach.filter((a) => laAnhBangSize(a.alt));
+      const conLai = danhSach.filter((a) => !laAnhBangSize(a.alt));
+      const danhSachHienThi = [...nghi, ...conLai];
+
+      const lop = document.createElement('div');
+      lop.style.cssText = `
+        position:fixed; inset:0; z-index:1000002; background:rgba(17,24,39,.6);
+        display:flex; align-items:center; justify-content:center; font-family:sans-serif;
+      `;
+
+      const hop = document.createElement('div');
+      hop.style.cssText = `
+        background:#fff; border-radius:12px; width:min(640px,94vw); max-height:88vh;
+        display:flex; flex-direction:column; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.35);
+      `;
+
+      hop.innerHTML = `
+        <div style="background:linear-gradient(135deg,#7C3AED,#A78BFA);color:#fff;padding:12px 16px;font-weight:bold;font-size:15px;">
+          📐 Lấy link ảnh bảng size — trang đang mở
+        </div>
+        <div style="padding:10px 16px;font-size:12px;color:#374151;border-bottom:1px solid #E5E7EB;line-height:1.6;">
+          Tìm thấy <b>${danhSach.length}</b> ảnh trên trang này${
+        nghi.length ? `, trong đó <b>${nghi.length}</b> ảnh nghi là bảng size (viền tím)` : ''
+      }.
+          Bấm <b>📋</b> để copy link ảnh, hoặc <b>＋</b> để thêm thẳng vào thư viện "Ảnh bảng size" của bạn.
+        </div>
+        <div id="ea-lls-luoi" style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;overflow:auto;flex:1;"></div>
+        <div style="padding:12px 16px;border-top:1px solid #E5E7EB;text-align:right;">
+          <button id="ea-lls-dong" style="padding:8px 16px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">Xong</button>
+        </div>
+      `;
+
+      lop.appendChild(hop);
+      document.body.appendChild(lop);
+
+      const luoi = hop.querySelector('#ea-lls-luoi');
+
+      const daCoTrongThuVien = (url) => docThuVienBangSize().some((a) => a.url === url);
+
+      function ve() {
+        luoi.innerHTML = danhSachHienThi
+          .map((a, i) => {
+            const laBangSize = laAnhBangSize(a.alt);
+            const daCo = daCoTrongThuVien(a.url);
+            return `
+          <div style="border:2px solid ${laBangSize ? '#A78BFA' : '#E5E7EB'};border-radius:8px;overflow:hidden;position:relative;background:#F9FAFB;">
+            <img src="${linhThuNho(a.url)}" style="width:100%;height:100px;object-fit:cover;display:block;" loading="lazy">
+            <div style="display:flex;gap:4px;padding:4px;">
+              <button data-act="copy" data-i="${i}" title="Copy link ảnh này" style="flex:1;padding:4px 0;border:1px solid #D1D5DB;border-radius:4px;background:#fff;cursor:pointer;font-size:11px;">📋</button>
+              <button data-act="them" data-i="${i}" title="${daCo ? 'Đã có trong thư viện' : 'Thêm vào thư viện Ảnh bảng size'}" ${daCo ? 'disabled' : ''} style="flex:1;padding:4px 0;border:1px solid ${daCo ? '#A7F3D0' : '#D1D5DB'};border-radius:4px;background:${daCo ? '#ECFDF5' : '#fff'};color:${daCo ? '#059669' : '#374151'};cursor:${daCo ? 'default' : 'pointer'};font-size:11px;">${daCo ? '✓' : '＋'}</button>
+            </div>
+          </div>`;
+          })
+          .join('');
+      }
+      ve();
+
+      luoi.addEventListener('click', async (e) => {
+        const nut = e.target.closest('button[data-act]');
+        if (!nut) return;
+        const i = Number(nut.dataset.i);
+        const anh = danhSachHienThi[i];
+        if (!anh) return;
+        if (nut.dataset.act === 'copy') {
+          const ok = await ghiClipboard(anh.url);
+          hienThongBao(ok ? '📋 Đã copy link ảnh vào Clipboard' : '❌ Không copy được link', ok ? '#059669' : '#DC2626');
+        } else if (nut.dataset.act === 'them') {
+          if (daCoTrongThuVien(anh.url)) return;
+          const ds = docThuVienBangSize();
+          ds.push({ url: anh.url });
+          luuThuVienBangSize(ds);
+          hienThongBao('✅ Đã thêm vào thư viện Ảnh bảng size', '#059669');
+          ve();
+        }
+      });
+
+      const dong = () => {
+        lop.remove();
+        resolve();
+      };
+      hop.querySelector('#ea-lls-dong').onclick = dong;
+      lop.addEventListener('click', (e) => {
+        if (e.target === lop) dong();
+      });
+    });
+  }
+
   // Hop thoai them/xoa/sap xep danh sach anh bang size. Sap xep bang nut Len/Xuong (khong dung
   // keo-tha) vi day la thao tac tay, khong can dnd-kit — tranh moi lien quan toi gioi han
   // isTrusted da gap o buoc sap xep luoi anh chinh.
@@ -3338,6 +3442,7 @@
       <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh (Alt+G)</button>
       <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy dữ liệu (Alt+C)</button>
       <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu + upload ảnh (Alt+V)</button>
+      <button id="ea-btn-lls" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔎 Lấy link bảng size (trang này)</button>
       <button id="ea-btn-bangsize" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">📐 Ảnh bảng size (<span id="ea-bangsize-dem">0</span>)</button>
       <button id="ea-btn-apikey" style="padding:6px 8px;background:#F3F4F6;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:11px;font-weight:bold;cursor:pointer;text-align:center;">🔑 <span id="ea-apikey-label"></span> · <span id="ea-quota-inline">⚡ …</span></button>
       <button id="ea-btn-autostats" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;"></button>
@@ -3395,6 +3500,12 @@
     capNhatSoBangSize();
     document.getElementById('ea-btn-bangsize').onclick = async () => {
       await moQuanLyBangSize();
+      capNhatSoBangSize();
+    };
+
+    // Nut lay nhanh link anh bang size TU CHINH TRANG DANG MO (khong can chay Alt+G/Alt+V)
+    document.getElementById('ea-btn-lls').onclick = async () => {
+      await moLayLinkBangSizeTrangNay();
       capNhatSoBangSize();
     };
 

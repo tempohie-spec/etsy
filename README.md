@@ -495,6 +495,26 @@ Khi `Alt+V` có ảnh để upload: nếu thư viện đang có N ảnh, script 
 còn ít hơn số ảnh trong thư viện, script báo lỗi ngay từ đầu thay vì để bạn chọn ảnh sản phẩm rồi
 mới phát hiện không đủ chỗ.
 
+### Lấy link ảnh bảng size ngay trên trang listing đang mở — nút 🔎 (v9.10)
+
+Cách thêm ảnh vào thư viện ở trên (v9.0) bắt bạn phải có sẵn link ảnh từ trước. Nhưng thường thì
+ảnh bảng size lại nằm ngay trong listing bạn đang xem (ví dụ ảnh bảng size chart trong carousel ảnh
+sản phẩm) — trước v9.10 phải tự mở ảnh to, bấm chuột phải "Copy image address" thủ công.
+
+Nút **🔎 Lấy link bảng size (trang này)** trên panel quét **ngay trang đang mở** (dùng lại đúng
+đường `layDanhSachAnhFullSize()` đã có sẵn — đọc khối `data-carousel-pagination-list`, đổi
+`il_75x75` → `il_fullxfull`), rồi hiện một lưới thumbnail của TẤT CẢ ảnh tìm được:
+
+- Ảnh nào bị nghi là bảng size (theo `alt`, xem `RE_ANH_BANG_SIZE`) được đẩy lên đầu danh sách và
+  viền tím để dễ nhận ra — nhưng vẫn hiện đủ mọi ảnh khác, vì nhận diện qua `alt` có thể sót (Etsy
+  không phải lúc nào cũng đặt `alt` chuẩn).
+- Mỗi ảnh có 2 nút: **📋** copy link ảnh đó vào Clipboard hệ thống, hoặc **＋** thêm thẳng vào thư
+  viện "Ảnh bảng size" (mục v9.0 ở trên) — không cần thoát ra rồi mở lại hộp thoại quản lý và dán
+  bằng tay. Ảnh đã có sẵn trong thư viện thì nút **＋** đổi thành **✓** và khoá lại, tránh thêm trùng.
+
+Nhờ vậy chỉ cần mở đúng trang listing có ảnh bảng size ưng ý, bấm 🔎 → bấm ＋ trên đúng ảnh, xong —
+không phải chạy qua bảng chọn ảnh của luồng Alt+G/Alt+V.
+
 ### `@connect *` gây treo TOÀN BỘ request, kể cả tới `i.etsystatic.com` — đã rút lại (v9.2)
 
 Bản v9.0 từng thêm `@connect *` vào header để ảnh trong thư viện không bị giới hạn phải lấy từ
