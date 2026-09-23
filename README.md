@@ -408,6 +408,28 @@ Cũng thêm log kích thước từng ảnh (`console.log` dạng `Ảnh <tên>:
 cho dữ liệu cụ thể để kiểm tra thay vì phải đoán lại từ đầu.
 
 
+### Copy link ảnh bảng size ngay trong bảng chọn, dán thẳng vào thư viện (v9.9)
+
+Trước đây, muốn thêm một ảnh vào **thư viện ảnh bảng size của riêng bạn** (mục "Thư viện ảnh bảng
+size" phía dưới), phải tự mở ảnh đó ra, copy link bằng tay rồi gõ/dán vào ô nhập của hộp thoại quản
+lý (nút "📐 Ảnh bảng size" trên panel). Với những ảnh script đã tự nhận ra là "nghi là bảng size"
+ngay trong bảng chọn ảnh upload (`moBangChonAnh`), việc đó là thừa vì link đã có sẵn trong tay script.
+
+Hai chỗ được thêm:
+
+1. **Bảng chọn ảnh upload**: mỗi ảnh đang bị bỏ tick vì nghi là bảng size giờ có thêm nút nhỏ 📋 ở
+   góc trên-phải. Bấm vào để copy link ảnh đó (link full size gốc, không phải link thumbnail đang
+   hiển thị) vào Clipboard hệ thống, dùng chung đường `ghiClipboard()` đã có sẵn (thử cả
+   `GM_setClipboard` lẫn `navigator.clipboard.writeText`).
+2. **Hộp thoại "Quản lý ảnh bảng size"**: thêm nút **"📋 Dán"** cạnh ô nhập link. Bấm vào sẽ đọc
+   thẳng Clipboard hệ thống (`docClipboard()`), điền vào ô rồi tự bấm "Thêm" luôn — không cần tự
+   click vào ô và bấm Ctrl+V bằng tay.
+
+Luồng dùng: mở bảng chọn ảnh upload → thấy ảnh nghi là bảng size ưng ý → bấm 📋 trên ảnh đó → mở nút
+"Ảnh bảng size" trên panel → bấm "📋 Dán" → ảnh được thêm ngay vào thư viện, dùng lại cho mọi lần
+upload sau này.
+
+
 ### Sắp xếp bằng kéo-thả trong bảng chọn (v9.6)
 
 Khác hẳn với việc kéo-thả trên **lưới ảnh thật của Etsy** (không làm được — xem mục "KHÔNG tự động

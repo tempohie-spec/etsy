@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.8
+// @version      9.9
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.8';
+  const PHIEN_BAN = '9.9';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -1965,6 +1965,7 @@
         <div id="ea-bs-luoi" style="padding:10px 16px;overflow:auto;flex:1;"></div>
         <div style="padding:10px 16px;border-top:1px solid #E5E7EB;display:flex;gap:8px;">
           <input id="ea-bs-input" type="text" placeholder="Dán link ảnh (https://...)" style="flex:1;padding:8px 10px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;">
+          <button id="ea-bs-dan" title="Dán link vừa copy từ Clipboard hệ thống" style="padding:8px 12px;background:#fff;color:#7C3AED;border:1px solid #7C3AED;border-radius:6px;font-weight:bold;cursor:pointer;white-space:nowrap;">📋 Dán</button>
           <button id="ea-bs-them" style="padding:8px 14px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">Thêm</button>
         </div>
         <div style="padding:12px 16px;border-top:1px solid #E5E7EB;text-align:right;">
@@ -2044,6 +2045,15 @@
           themTuO();
         }
       });
+
+      // Nut "Dan": doc thang tu Clipboard he thong (nut 📋 o bang chon anh da copy san link vao
+      // day) roi them luon, khong bat nguoi dung phai tu bam vao o roi Ctrl+V bang tay.
+      hop.querySelector('#ea-bs-dan').onclick = async () => {
+        const chuoi = (await docClipboard()).trim();
+        if (!chuoi) return;
+        oInput.value = chuoi;
+        themTuO();
+      };
 
       const dong = () => {
         lop.remove();
@@ -2146,6 +2156,11 @@
             return `
           <div data-i="${i}" draggable="${daDuocChon ? 'true' : 'false'}" style="display:block; border:2px solid ${daDuocChon ? '#F56400' : '#E5E7EB'}; border-radius:8px; overflow:hidden; position:relative; background:#F9FAFB; cursor:${daDuocChon ? 'grab' : 'default'};">
             <img src="${linhThuNho(anh.url)}" style="width:100%;height:110px;object-fit:cover;display:block;pointer-events:none;" loading="lazy">
+            ${
+              !daDuocChon && nghiBangSize
+                ? `<button data-act="copy" data-i="${i}" title="Copy link ảnh này (rồi dán vào thư viện Ảnh bảng size)" style="position:absolute;top:6px;right:6px;width:22px;height:22px;border:1px solid #D1D5DB;border-radius:4px;background:#fff;cursor:pointer;font-size:11px;padding:0;line-height:1;z-index:2;">📋</button>`
+                : ''
+            }
             <div style="padding:4px 4px;font-size:10px;color:#6B7280;line-height:1.3;height:22px;display:flex;align-items:center;justify-content:center;gap:3px;">
               ${
                 daDuocChon
@@ -2181,10 +2196,20 @@
         ve();
       });
 
-      luoi.addEventListener('click', (e) => {
+      luoi.addEventListener('click', async (e) => {
         const nut = e.target.closest('button[data-act]');
         if (!nut) return;
         const i = Number(nut.dataset.i);
+        if (nut.dataset.act === 'copy') {
+          const ok = await ghiClipboard(goi.anh[i].url);
+          hienThongBao(
+            ok
+              ? '📋 Đã copy link ảnh bảng size — mở nút "Ảnh bảng size" trên panel rồi bấm "Dán"'
+              : '❌ Không copy được link',
+            ok ? '#059669' : '#DC2626'
+          );
+          return;
+        }
         const p = thuTu.indexOf(i);
         if (p === -1) return;
         if (nut.dataset.act === 'lui' && p > 0) {
