@@ -332,15 +332,47 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 5. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
 6. Script tải bytes ảnh sản phẩm **trước** (song song, xem mục dưới), rồi tới ảnh trong **thư viện
    ảnh bảng size** của bạn nếu có (mục ngay dưới đây) → tạo `File` cho từng ảnh, ghép **đúng thứ tự
-   sản phẩm trước – bảng size sau** → nhồi vào `<input type="file">` bằng `DataTransfer` rồi bắn
-   `input` + `change`. Trình duyệt coi đây y hệt như vừa chọn file bằng tay.
-7. Chờ Etsy xử lý xong (tối đa 180s). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên đầu
-   được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
+   sản phẩm trước – bảng size sau** → nhồi vào `<input type="file">` bằng `DataTransfer` theo
+   **từng lô nhỏ** (xem mục dưới) rồi bắn `input` + `change`. Trình duyệt coi đây y hệt như vừa
+   chọn file bằng tay.
+7. Chờ Etsy xử lý xong (tối đa 180s mỗi lô). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên
+   đầu được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
 8. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu — kể cả
    ảnh bảng size ở cuối cùng), có thêm tuỳ chọn: bấm hộ **Publish copy with changes** (mặc định,
    tự bấm xuyên suốt các hộp thoại xác nhận thật của Etsy — xem mục dưới) hoặc **dừng lại, tự bấm
    lưu**. Khi listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động đăng lúc ảnh còn sai
    thứ tự không có ý nghĩa gì.
+
+### Nhồi ảnh theo từng lô nhỏ + phát hiện lỗi upload THẬT của Etsy (v9.7)
+
+Log thực tế: nhồi 8 ảnh cùng lúc vào ô upload, ảnh xem trước (thumbnail) vẫn hiện bình thường trên
+cả 8 ô, nhưng Console lại có 4 dòng `POST .../api/v3/ajax/shop/{id}/listings/images 400 (Bad
+Request)` và Etsy tự bung toast đỏ **"File not uploaded"**.
+
+Nguyên nhân: ảnh xem trước là một **Blob URL trình duyệt tự vẽ ngay lập tức** từ chính `File` object
+mình đưa vào `<input>` — hoàn toàn không cần đợi Etsy thật sự nhận được file ở backend. `<input>`
+chỉ là nơi *trình duyệt* giữ danh sách file đã chọn; việc thật sự tải file đó lên server là **do
+chính JavaScript của Etsy tự làm**, POST tới API `listings/images` của họ, sau khi đọc thấy sự kiện
+`change`. Vì vậy bước `choEtsyXuLyAnh()` cũ (chỉ kiểm tra `<img>` xem trước đã xuất hiện chưa) đang
+đo nhầm tín hiệu: nó xác nhận trình duyệt đã vẽ preview, chứ không xác nhận Etsy đã thật sự nhận
+xong file — nên script tưởng nhầm là xong hết, trong khi một số ảnh đã bị backend của Etsy từ chối
+(400) mà không hề hay biết.
+
+Hai thay đổi:
+
+1. **Nhồi theo lô nhỏ** (`KICH_THUOC_LO_UPLOAD = 3` ảnh/lô) thay vì nhồi hết 1 lần — nghi ngờ nhồi
+   quá nhiều file cùng lúc làm quá tải backend upload của Etsy. Mỗi lô đợi Etsy xử lý xong mới nhồi
+   lô tiếp theo.
+2. **`timThongBaoLoiUploadEtsy()`** — quét các phần tử `[role="alert"]`, `[role="status"]`,
+   `[aria-live]`, hoặc class/`data-clg-id` chứa "toast", tìm chữ khớp `not uploaded` / `upload
+   failed` / `couldn't upload`. Đây là tín hiệu **đáng tin hơn hẳn** ảnh xem trước, vì nó là chính
+   Etsy tự báo lỗi thật. Thấy tín hiệu này giữa chừng, script **dừng ngay lô đang chạy**, không
+   nhồi tiếp các lô sau, và báo rõ trong toast Etsy nói gì — thay vì lặng lẽ báo "xong" trong khi
+   một phần ảnh chưa thật sự lên được.
+
+Nếu 1 lô lỗi giữa chừng, toast cuối cùng báo rõ đã upload được bao nhiêu/tổng số, và bạn tự upload
+nốt phần còn thiếu — không đoán bừa là mọi ảnh đều ổn.
+
 
 ### Sắp xếp bằng kéo-thả trong bảng chọn (v9.6)
 

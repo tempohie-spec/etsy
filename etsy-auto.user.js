@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.6
+// @version      9.7
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.6';
+  const PHIEN_BAN = '9.7';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -97,6 +97,13 @@
 
   // Thoi han (ms) cho Etsy xu ly xong cac anh vua nhoi vao o upload
   const THOI_HAN_CHO_ETSY_XU_LY_ANH = 180000;
+
+  // So anh nhoi vao o upload MOI LAN — thay vi nhoi TAT CA anh da chon cung 1 luc. Da gap thuc te:
+  // nhoi 8 anh cung luc, backend upload that cua Etsy (POST /api/v3/ajax/shop/.../listings/images)
+  // tra ve 400 Bad Request cho mot vai anh (toast do "File not uploaded" cua chinh Etsy), du anh
+  // xem truoc (blob URL, ve ngay tren trinh duyet, khong can doi server) van hien binh thuong.
+  // Nhoi tung lo nho, cho Etsy xu ly xong lo nay roi moi nhoi lo tiep theo, giam tai cho backend.
+  const KICH_THUOC_LO_UPLOAD = 3;
 
   // Key luu trang thai giao dien (vi tri + thu nho hay khong) vao localStorage cua trang Etsy,
   // de giu nguyen giua cac lan tai lai trang.
@@ -2444,19 +2451,40 @@
     return (anh && (anh.getAttribute('src') || anh.src)) || el.getAttribute('aria-describedby') || el.textContent.trim();
   }
 
-  // Cho Etsy upload + ve xong cac the anh moi
+  // Tim thong bao LOI THAT cua chinh Etsy (vi du toast do "File not uploaded"). Day la tin hieu
+  // dang tin cay HON HAN so voi kiem tra <img> xem truoc trong choEtsyXuLyAnh(): anh xem truoc
+  // chi la mot Blob URL trinh duyet tu ve NGAY LAP TUC tu chinh File object minh dua vao, hoan
+  // toan KHONG can doi Etsy that su nhan duoc file o backend — nen no van hien binh thuong ke ca
+  // khi POST that len /api/v3/ajax/shop/.../listings/images cua Etsy that bai (400 Bad Request,
+  // da gap thuc te). Neu khong kiem tra rieng tin hieu nay, script se tuong nham la upload xong
+  // roi tien luon toi buoc Publish trong khi mot so anh chua he len duoc that su.
+  function timThongBaoLoiUploadEtsy() {
+    const ungVien = [
+      ...document.querySelectorAll('[role="alert"], [role="status"], [aria-live], [class*="toast" i], [data-clg-id*="toast" i]'),
+    ];
+    return ungVien.find((el) => /not uploaded|upload failed|couldn.?t upload/i.test(el.textContent) && dangHienThi(el));
+  }
+
+  // Cho Etsy upload + ve xong cac the anh moi. Tra ve { ok, lyDo, chiTiet }:
+  //   ok=true                      -> du so the, moi the moi deu da co anh xem truoc
+  //   ok=false, lyDo='loi_that'    -> chinh Etsy tu bao loi upload that (dang tin nhat, dung lai ngay)
+  //   ok=false, lyDo='het_gio'     -> qua THOI_HAN_CHO_ETSY_XU_LY_ANH ma van chua du the
   async function choEtsyXuLyAnh(soAnhCu, soAnhThem) {
     const moc = Date.now();
     while (Date.now() - moc < THOI_HAN_CHO_ETSY_XU_LY_ANH) {
+      const loiThat = timThongBaoLoiUploadEtsy();
+      if (loiThat) {
+        return { ok: false, lyDo: 'loi_that', chiTiet: loiThat.textContent.trim().slice(0, 200) };
+      }
       const cacThe = layCacTheAnh();
       // Da du so the VA moi the moi deu da co anh xem truoc -> coi nhu Etsy xu ly xong
       if (cacThe.length >= soAnhCu + soAnhThem) {
         const cacTheMoi = cacThe.slice(soAnhCu, soAnhCu + soAnhThem);
-        if (cacTheMoi.every((t) => t.querySelector('img'))) return true;
+        if (cacTheMoi.every((t) => t.querySelector('img'))) return { ok: true };
       }
       await cho(1000);
     }
-    return false;
+    return { ok: false, lyDo: 'het_gio' };
   }
 
   // ---- Sap xep len dau: KHONG kha thi tu userscript, xem ghi chu duoi day ----
@@ -2577,22 +2605,44 @@
       return;
     }
 
-    // Buoc 2: nhoi vao o upload cua Etsy. Query lai o ngay truoc khi nhoi vi React co the
-    // da ve lai <input> khac trong luc dang tai anh.
-    const oChonAnh = timOChonAnhSanPham();
-    if (!oChonAnh) {
-      hienThongBao('❌ Ô upload ảnh biến mất giữa chừng. Hãy tải lại trang chỉnh sửa rồi thử lại.', '#DC2626');
-      return;
-    }
-    nhoiFileVaoO(oChonAnh, cacFile);
-    hienThongBao(`⏳ Đã đẩy ${cacFile.length} ảnh vào Etsy, đang chờ xử lý...`, '#2563EB');
+    // Buoc 2+3: nhoi anh vao o upload theo TUNG LO nho (KICH_THUOC_LO_UPLOAD anh/lo), cho Etsy
+    // xu ly xong lo nay roi moi nhoi lo tiep theo — thay vi nhoi TAT CA cung 1 luc (de gap loi
+    // 400 Bad Request tu chinh backend upload cua Etsy khi qua tai, xem ghi chu tai
+    // choEtsyXuLyAnh()/timThongBaoLoiUploadEtsy()).
+    let soAnhDaXuLyXong = 0;
+    let dungGiuaChung = null; // { lyDo, chiTiet } neu 1 lo bi loi that/het gio giua chung
 
-    // Buoc 3: cho Etsy upload xong
-    const xuLyXong = await choEtsyXuLyAnh(soAnhCu, cacFile.length);
-    if (!xuLyXong) {
+    for (let dau = 0; dau < cacFile.length; dau += KICH_THUOC_LO_UPLOAD) {
+      const lo = cacFile.slice(dau, dau + KICH_THUOC_LO_UPLOAD);
+
+      // Query lai o ngay truoc khi nhoi vi React co the da ve lai <input> khac giua chung
+      const oChonAnh = timOChonAnhSanPham();
+      if (!oChonAnh) {
+        hienThongBao('❌ Ô upload ảnh biến mất giữa chừng. Hãy tải lại trang chỉnh sửa rồi thử lại.', '#DC2626');
+        return;
+      }
+      nhoiFileVaoO(oChonAnh, lo);
       hienThongBao(
-        `⚠️ Etsy chưa hiện đủ ${cacFile.length} ảnh sau ${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s. ` +
-          'Ảnh có thể vẫn đang lên — hãy kiểm tra rồi tự sắp xếp.',
+        `⏳ Đã đẩy ${soAnhDaXuLyXong + lo.length}/${cacFile.length} ảnh vào Etsy, đang chờ xử lý...`,
+        '#2563EB'
+      );
+
+      const ketQuaLo = await choEtsyXuLyAnh(soAnhCu + soAnhDaXuLyXong, lo.length);
+      if (!ketQuaLo.ok) {
+        dungGiuaChung = ketQuaLo;
+        break;
+      }
+      soAnhDaXuLyXong += lo.length;
+    }
+
+    if (dungGiuaChung) {
+      const lyDoChu =
+        dungGiuaChung.lyDo === 'loi_that'
+          ? ` — chính Etsy báo lỗi: "${dungGiuaChung.chiTiet}"`
+          : ` — Etsy chưa hiện đủ ảnh sau ${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s`;
+      hienThongBao(
+        `⚠️ Chỉ upload được ${soAnhDaXuLyXong}/${cacFile.length} ảnh${lyDoChu}. ` +
+          'Hãy kiểm tra lại trên trang rồi tự upload nốt phần còn thiếu.',
         '#F59E0B'
       );
       return;
