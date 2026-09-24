@@ -824,6 +824,12 @@ Userscript thứ hai trong repo này, độc lập với script phía trên.
 Tự động hoàn tất các đơn Etsy chưa có tracking bằng cách lấy tracking number + shipping carrier
 tương ứng từ 1 trong 2 nguồn — chọn trong panel trên tab Etsy:
 
+**Khớp đơn theo 2 bước**: mỗi đơn Etsy được so khớp trước tiên theo **mã đơn** (order id ↔
+external order number bên Merchize, hoặc cột ORDER CODE bên Sheet). Nếu không tìm thấy mã trùng,
+script tự **thử lại bằng tên khách nhận hàng** (tên trong mục "Ship to" của đơn Etsy, so với tên
+khách trong dữ liệu Merchize/Sheet) trước khi kết luận là không khớp. Log sẽ ghi rõ
+`found (by customer name)` khi khớp qua tên thay vì mã đơn.
+
 - **Merchize (tab)**: lấy trực tiếp từ trang quản lý fulfillment
   [Merchize](https://seller.merchize.com). Cần mở **cả 2 tab cùng lúc**:
   1. Tab Etsy: `Orders → Sold` (`https://www.etsy.com/your/orders/sold*`)

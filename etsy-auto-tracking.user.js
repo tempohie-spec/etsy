@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      3.1
+// @version      3.2
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -35,6 +35,12 @@
   };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Shared by the order-code-first / customer-name-fallback matching used on
+  // both the Merchize side and the Sheet data source.
+  function normalizeName(s) {
+    return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
 
   // Short log lines shown inside the on-page panel (kept separate from the
   // full console log, which stays verbose for debugging).
@@ -165,10 +171,25 @@
     // <a class="TrackingFulfillmentTooltipLink" href="...carrier's tracking URL...">
     // to mount, read it, then un-hover.
 
-    function findMerchizeRow(orderId) {
+    function findMerchizeRow(orderId, customerName) {
       const codeEls = document.querySelectorAll('td.OrderCodeCell code');
       for (const codeEl of codeEls) {
         if (codeEl.textContent.trim() === orderId) return codeEl.closest('tr');
+      }
+      // Fallback: order code didn't match anything on this page — try the
+      // shipping recipient's name instead (td.ShippingAddressOrderColumn
+      // .FullName; the element also nests a .TooltipContent with the email,
+      // so only its direct text nodes are the actual name).
+      if (!customerName) return null;
+      const target = normalizeName(customerName);
+      if (!target) return null;
+      const nameEls = document.querySelectorAll('.ShippingAddressOrderColumn .FullName');
+      for (const nameEl of nameEls) {
+        let text = '';
+        nameEl.childNodes.forEach((n) => {
+          if (n.nodeType === Node.TEXT_NODE) text += n.textContent;
+        });
+        if (normalizeName(text) === target) return nameEl.closest('tr');
       }
       return null;
     }
@@ -222,9 +243,9 @@
       return result;
     }
 
-    async function handleRequest(orderId) {
+    async function handleRequest(orderId, customerName) {
       log('Lookup requested for order', orderId);
-      const row = findMerchizeRow(orderId);
+      const row = findMerchizeRow(orderId, customerName);
       if (!row) {
         log('  -> not found on this page');
         GM_setValue(RES_KEY, { orderId, found: false, ts: Date.now() });
@@ -248,7 +269,7 @@
 
     GM_addValueChangeListener(REQ_KEY, (name, oldVal, newVal) => {
       if (!newVal || !newVal.orderId) return;
-      handleRequest(newVal.orderId); // async, fire-and-forget
+      handleRequest(newVal.orderId, newVal.customerName); // async, fire-and-forget
     });
 
     // Small floating panel so you know the helper is alive on this tab, with
@@ -336,6 +357,18 @@
     } catch (e) {
       return null;
     }
+  }
+
+  // Shipping recipient's name, used as a fallback match key when an order
+  // code doesn't turn up a match on the tracking source (Merchize / Sheet).
+  // Prefers the "Ship to" summary name (the actual shipping recipient, which
+  // is what Merchize/Sheet data keys on) over the buyer's account name shown
+  // at the top of the order (can differ, e.g. "Avery H" vs "Avery Howard").
+  function getOrderCustomerName(row) {
+    const shipToEl = row.querySelector('.text-body-smaller.strong span[data-test-id="unsanitize"]');
+    if (shipToEl) return shipToEl.textContent.trim();
+    const buyerEl = row.querySelector('button span[data-test-id="unsanitize"]');
+    return buyerEl ? buyerEl.textContent.trim() : '';
   }
 
   function findUpdateProgressTrigger(row) {
@@ -504,9 +537,9 @@
     if (cancelBtn) cancelBtn.click();
   }
 
-  async function requestMerchizeLookup(orderId) {
+  async function requestMerchizeLookup(orderId, customerName) {
     GM_deleteValue(RES_KEY);
-    GM_setValue(REQ_KEY, { orderId, ts: Date.now() });
+    GM_setValue(REQ_KEY, { orderId, customerName, ts: Date.now() });
     try {
       return await waitFor(
         () => {
@@ -546,9 +579,11 @@
 
   let dataSource = localStorage.getItem('at_data_source') || 'merchize';
   let sheetMap = null; // orderId -> { tracking, carrier }
+  let sheetMapByName = null; // normalized customer name -> { tracking, carrier } (fallback)
   let sheetOrder = null; // order ids, in the order they appear in the pasted sheet
 
   const ORDER_CODE_COLUMN_INDEX = 1;
+  const FULL_NAME_COLUMN_INDEX = 4;
   const ROW_START_DATE_RE = /^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}$/;
 
   function parseSheetPaste(text) {
@@ -577,6 +612,7 @@
     if (!rows.length) return { ok: false, rowCount: 0 };
 
     const map = {};
+    const mapByName = {}; // normalized FULL NAME -> { tracking, carrier } (fallback)
     const order = []; // unique order ids, first-appearance order
     let count = 0;
     for (const cells of rows) {
@@ -587,20 +623,27 @@
       if (!orderId || !tracking) continue; // order not shipped yet -> skip
       if (!(orderId in map)) order.push(orderId);
       map[orderId] = { tracking, carrier }; // last occurrence wins if duplicated
+      const name = normalizeName(cells[FULL_NAME_COLUMN_INDEX]);
+      if (name) mapByName[name] = { tracking, carrier };
       count++;
     }
-    return { ok: true, map, order, count, rowCount: rows.length };
+    return { ok: true, map, mapByName, order, count, rowCount: rows.length };
   }
 
-  async function lookupTracking(orderId) {
+  async function lookupTracking(orderId, customerName) {
     if (dataSource === 'sheet') {
       if (!sheetMap) return { orderId, found: false };
-      const entry = sheetMap[orderId];
+      let entry = sheetMap[orderId];
+      let byName = false;
+      if (!entry && customerName && sheetMapByName) {
+        entry = sheetMapByName[normalizeName(customerName)];
+        byName = !!entry;
+      }
       return entry
-        ? { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier }
+        ? { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName }
         : { orderId, found: false };
     }
-    return requestMerchizeLookup(orderId);
+    return requestMerchizeLookup(orderId, customerName);
   }
 
   // Returns true if a real "open modal / fill / submit" attempt happened
@@ -609,24 +652,26 @@
   async function processOrder(orderId) {
     const sourceLabel = dataSource === 'sheet' ? 'Sheet' : 'Merchize';
 
+    // Fetch the row first — completing an order re-renders the list (see
+    // findRowByOrderId), and we now also need the customer name off of it
+    // as a fallback match key in case the order code itself doesn't match.
+    const row = await waitForRow(orderId);
+    if (!row) {
+      return false; // order no longer on page -> skip silently
+    }
+    const customerName = getOrderCustomerName(row);
+
     log('Checking order', orderId, 'against', sourceLabel, '...');
 
     // Look up the tracking source FIRST. Only open the "Complete order"
     // modal at all if we actually have tracking data to put into it.
-    const result = await lookupTracking(orderId);
+    const result = await lookupTracking(orderId, customerName);
 
     if (!result.found) {
       log(`  not found in ${sourceLabel} -> skipped (no modal opened)`);
       return false;
     }
-    log('  found:', result.tracking, '/', result.carrier);
-
-    // Fetch the row fresh right before touching it (see findRowByOrderId).
-    const row = await waitForRow(orderId);
-    if (!row) {
-      log('  row no longer on page -> skipped');
-      return false;
-    }
+    log(result.byName ? '  found (by customer name):' : '  found:', result.tracking, '/', result.carrier);
 
     const opened = await openCompleteOrderModal(row, orderId);
     if (!opened) {
@@ -823,6 +868,7 @@
     }
 
     sheetMap = result.map;
+    sheetMapByName = result.mapByName;
     sheetOrder = result.order;
     if (info) info.textContent = `Đã nạp ${result.count} đơn từ Sheet.`;
     log(`Sheet import: loaded ${result.count} order(s).`);
