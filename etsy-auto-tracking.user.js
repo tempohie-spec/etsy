@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      3.5
+// @version      3.6
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '3.5';
+  const SCRIPT_VERSION = '3.6';
 
   // ---------------------------------------------------------------------
   // Shared cross-tab protocol (GM storage is shared per-script regardless
@@ -176,27 +176,53 @@
     // <a class="TrackingFulfillmentTooltipLink" href="...carrier's tracking URL...">
     // to mount, read it, then un-hover.
 
+    function rowHasTracking(row) {
+      const cell = row.querySelector('td.TrackingColumn');
+      return !!(cell && cell.querySelector('i.fa-check.text-success'));
+    }
+
+    // Merchize doesn't allow two orders with the same code, so a cancelled
+    // order that gets redone shows up as a second row with a trailing
+    // letter appended to the same code (e.g. "...342" cancelled/no tracking
+    // -> "...342a" redone/has tracking). An exact-code match alone can pick
+    // the cancelled one and stop there, missing the actual tracking sitting
+    // right next to it — so this gathers every candidate row (exact code,
+    // code+letter-suffix, or matching customer name) and prefers whichever
+    // one actually has tracking, regardless of which candidate matched first.
     function findMerchizeRow(orderId, customerName) {
+      const codeCandidates = [];
       const codeEls = document.querySelectorAll('td.OrderCodeCell code');
       for (const codeEl of codeEls) {
-        if (codeEl.textContent.trim() === orderId) return codeEl.closest('tr');
+        const code = codeEl.textContent.trim();
+        if (code === orderId) {
+          codeCandidates.push(codeEl.closest('tr'));
+        } else if (code.startsWith(orderId) && /^[a-zA-Z]$/.test(code.slice(orderId.length))) {
+          codeCandidates.push(codeEl.closest('tr'));
+        }
       }
-      // Fallback: order code didn't match anything on this page — try the
-      // shipping recipient's name instead (td.ShippingAddressOrderColumn
-      // .FullName; the element also nests a .TooltipContent with the email,
-      // so only its direct text nodes are the actual name).
+      let pick = codeCandidates.find((r) => rowHasTracking(r));
+      if (pick) return pick;
+      if (codeCandidates.length) return codeCandidates[0]; // no tracking anywhere yet, but a real match
+
+      // Fallback: order code (and its lettered variants) didn't match
+      // anything on this page — try the shipping recipient's name instead
+      // (td.ShippingAddressOrderColumn .FullName; the element also nests a
+      // .TooltipContent with the email, so only its direct text nodes are
+      // the actual name).
       if (!customerName) return null;
       const target = normalizeName(customerName);
       if (!target) return null;
+      const nameCandidates = [];
       const nameEls = document.querySelectorAll('.ShippingAddressOrderColumn .FullName');
       for (const nameEl of nameEls) {
         let text = '';
         nameEl.childNodes.forEach((n) => {
           if (n.nodeType === Node.TEXT_NODE) text += n.textContent;
         });
-        if (normalizeName(text) === target) return nameEl.closest('tr');
+        if (normalizeName(text) === target) nameCandidates.push(nameEl.closest('tr'));
       }
-      return null;
+      pick = nameCandidates.find((r) => rowHasTracking(r));
+      return pick || nameCandidates[0] || null;
     }
 
     // Carrier can only be inferred from the tracking URL's domain here (the
