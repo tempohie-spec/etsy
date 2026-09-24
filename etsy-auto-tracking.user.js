@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      3.4
+// @version      3.5
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '3.4';
+  const SCRIPT_VERSION = '3.5';
 
   // ---------------------------------------------------------------------
   // Shared cross-tab protocol (GM storage is shared per-script regardless
@@ -371,10 +371,27 @@
   // is what Merchize/Sheet data keys on) over the buyer's account name shown
   // at the top of the order (can differ, e.g. "Avery H" vs "Avery Howard").
   function getOrderCustomerName(row) {
-    const shipToEl = row.querySelector('.text-body-smaller.strong span[data-test-id="unsanitize"]');
-    if (shipToEl) return shipToEl.textContent.trim();
-    const buyerEl = row.querySelector('button span[data-test-id="unsanitize"]');
-    return buyerEl ? buyerEl.textContent.trim() : '';
+    // Prefer the "Ship to" summary name (the actual shipping recipient) — a
+    // <div class="text-body-smaller strong"> beneath the Ship to accordion.
+    // Whether Etsy wraps the text in an extra
+    // <span data-test-id="unsanitize"> or not varies per order (confirmed:
+    // some orders render it as plain text with no such span at all), so
+    // just read the element's own text instead of depending on that span.
+    const shipToEl = row.querySelector('.text-body-smaller.strong');
+    if (shipToEl && shipToEl.textContent.trim()) return shipToEl.textContent.trim();
+
+    // Fallback: the buyer's account name shown at the top of the order (a
+    // dropdown-button holding the name + a chevron icon). The row has other
+    // dropdown buttons too (e.g. "Update progress"), so explicitly skip any
+    // whose container carries a clg-tooltip — only the action-menu ones do.
+    const dropdownButtons = row.querySelectorAll('[data-dropdown-button="true"]');
+    for (const btn of dropdownButtons) {
+      const container = btn.closest('[data-dropdown-container="true"]');
+      if (container && container.querySelector('clg-tooltip')) continue;
+      const text = btn.textContent.trim();
+      if (text) return text;
+    }
+    return '';
   }
 
   function findUpdateProgressTrigger(row) {
