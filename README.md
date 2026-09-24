@@ -841,26 +841,43 @@ khách trong dữ liệu Merchize/Sheet) trước khi kết luận là không kh
   tracking + nhận diện carrier qua domain của link tracking (USPS, DHL eCommerce, UPS, FedEx,
   Canada Post). Carrier từ domain lạ sẽ để trống và bên Etsy sẽ tự chọn "Other".
 
-- **Dán từ Sheet**: khi dùng 1 sheet riêng (VD Google Sheets) để theo dõi tracking. Bôi đen
-  **chỉ các dòng dữ liệu** (KHÔNG cần dòng header), Ctrl+C, dán (Ctrl+V) vào ô textarea trong
-  panel rồi bấm **Nạp dữ liệu Sheet**. Không cần mở tab Merchize ở chế độ này.
+- **Dán từ Sheet**: khi dùng 1 sheet riêng (VD Google Sheets) để theo dõi tracking. Có 2 cách nạp
+  dữ liệu, chọn 1 trong 2:
 
-  Vì không có header, script quy ước vị trí cột cố định theo đúng layout của sheet gốc (chỉnh
-  hằng số `ORDER_CODE_COLUMN_INDEX` ở đầu file nếu sheet của bạn khác layout):
+  **A. Dán link Google Sheet (khuyên dùng — không cần copy/paste thủ công mỗi lần):**
+  1. Trên Google Sheet: **Share** → đổi chế độ chia sẻ thành **"Anyone with the link"** — quyền
+     **Viewer**. (Không cần cấp quyền Editor, chỉ cần xem được.)
+  2. Copy link của sheet (bất kỳ dạng link Share/Address bar nào có `/spreadsheets/d/<id>/` là
+     dùng được — link kèm `#gid=...` sẽ tự chọn đúng tab/sheet con).
+  3. Dán vào ô "Link Google Sheet" trong panel. Từ lần **Start** đầu tiên trở đi, script tự tải
+     lại dữ liệu mới nhất từ link đó mỗi khi chạy — không cần copy/paste lại nữa, kể cả sau khi
+     tracking trong sheet được cập nhật thêm. Nút **"Tải từ link Sheet"** dùng để kiểm tra trước
+     (xem đọc được bao nhiêu đơn) mà chưa cần chạy ngay.
+  4. Cách này tải trực tiếp bản CSV của sheet (có đủ header thật), nên script tự dò cột theo
+     **tên cột** (`ORDER CODE`, `FULL NAME`, `TRACKING`, `DVVC`) thay vì đoán vị trí cố định —
+     không phụ thuộc thứ tự cột.
+
+  **B. Dán trực tiếp dữ liệu (không cần share sheet ra ngoài):** Bôi đen **chỉ các dòng dữ liệu**
+  (KHÔNG cần dòng header), Ctrl+C, dán (Ctrl+V) vào ô textarea trong panel rồi bấm **Nạp dữ liệu
+  đã dán**.
+
+  Vì không có header ở cách B, script quy ước vị trí cột cố định theo đúng layout của sheet gốc
+  (chỉnh hằng số `ORDER_CODE_COLUMN_INDEX` / `FULL_NAME_COLUMN_INDEX` ở đầu file nếu sheet của
+  bạn khác layout):
   - Cột đầu tiên (`ORDER DATE`) — dùng để nhận diện điểm bắt đầu 1 đơn (dạng ngày/tháng/năm,
     VD `5/8/26`), không lấy dữ liệu.
   - Cột thứ 2 = **ORDER CODE**, phải khớp với order id của Etsy.
+  - Cột thứ 5 = **FULL NAME**, dùng làm dữ liệu khớp dự phòng theo tên khách (xem mục "Khớp đơn
+    theo 2 bước" ở trên).
   - Cột **cuối cùng** của mỗi dòng = **carrier (DVVC)**.
   - Cột **áp chót** = **TRACKING**.
 
   Nếu 1 ô trong sheet có xuống dòng thủ công (Alt+Enter) — VD tên/địa chỉ bị wrap — khi copy nó
   sẽ tràn xuống nhiều dòng vật lý; script tự nhận biết dòng nào thực sự là "đơn mới" (bắt đầu
   bằng ngày tháng) và tự ghép các dòng còn lại vào đúng đơn đó, không cần bạn chỉnh sửa gì thêm.
+  (Cách A không gặp vấn đề này vì Google tự đóng gói CSV đúng chuẩn.)
 
-  Vì tracking trong sheet cập nhật liên tục, mỗi lần muốn chạy lại chỉ cần copy vùng dữ liệu mới
-  nhất rồi dán đè vào ô — **không bắt buộc phải bấm "Nạp dữ liệu Sheet"** nữa: cứ bấm **Start**
-  là script tự đọc dữ liệu mới nhất đang có trong ô trước khi chạy. Nút "Nạp dữ liệu Sheet" vẫn
-  còn để bạn kiểm tra trước (xem đọc được bao nhiêu đơn) mà chưa cần chạy ngay.
+  Không cần mở tab Merchize ở chế độ Sheet (cả 2 cách).
 
   Ở chế độ này, vòng lặp chạy theo **thứ tự đơn trên trang Etsy** (giống hệt chế độ Merchize):
   quét toàn bộ đơn đang hiển thị trên trang Etsy trước, sau đó với mỗi đơn mới kiểm tra xem có
@@ -868,7 +885,7 @@ khách trong dữ liệu Merchize/Sheet) trước khi kết luận là không kh
   lấy tracking + DVVC (đã lấy sẵn khi nạp dữ liệu) để điền và Complete order.
 
 Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**. Bấm **Stop** cũng sẽ
-xoá nội dung ô dán Sheet và log trong panel.
+xoá nội dung ô dán Sheet và log trong panel (link Sheet đã lưu thì vẫn được giữ nguyên).
 
 Panel có thể **thu gọn / xổ ra**: bấm vào dòng tiêu đề (chữ "Etsy Auto Tracking" hoặc "Merchize
 AutoTrack") để đóng panel lại chỉ còn thanh tiêu đề, bấm lại để mở ra như cũ. Trạng thái thu gọn
