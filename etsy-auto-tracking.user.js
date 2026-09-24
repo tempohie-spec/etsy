@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      3.2
+// @version      3.3
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -10,11 +10,16 @@
 // @grant        GM_deleteValue
 // @grant        GM_addValueChangeListener
 // @grant        GM_addStyle
+// @grant        GM_xmlhttpRequest
+// @connect      docs.google.com
+// @connect      accounts.google.com
 // @run-at       document-idle
 // ==/UserScript==
 
 (function () {
   'use strict';
+
+  const SCRIPT_VERSION = '3.3';
 
   // ---------------------------------------------------------------------
   // Shared cross-tab protocol (GM storage is shared per-script regardless
@@ -284,6 +289,7 @@
       #at-panel.at-collapsed .at-drag-handle{padding-bottom:0;margin-bottom:0;border-bottom:none}
       #at-panel.at-collapsed > *:not(.at-drag-handle){display:none}
       #at-toggle-icon-merchize{opacity:.6;font-size:10px;margin-left:8px}
+      .at-version{opacity:.5;font-weight:400;font-size:10px}
       #at-status{font:12px monospace;opacity:.8}
       .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
         border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
@@ -295,7 +301,7 @@
     const panel = document.createElement('div');
     panel.id = 'at-panel';
     panel.innerHTML = `
-      <div class="at-drag-handle"><strong>Merchize AutoTrack</strong><span id="at-toggle-icon-merchize">▾</span></div>
+      <div class="at-drag-handle"><strong>Merchize AutoTrack <span class="at-version">v${SCRIPT_VERSION}</span></strong><span id="at-toggle-icon-merchize">▾</span></div>
       <div id="at-status">Listening...</div>
       <div id="at-log" class="at-log"></div>
     `;
@@ -630,6 +636,119 @@
     return { ok: true, map, mapByName, order, count, rowCount: rows.length };
   }
 
+  // ---------------------------------------------------------------------
+  // Load sheet data straight from a Google Sheets link (no copy/paste),
+  // via the CSV export endpoint. Requires the sheet's sharing set to
+  // "Anyone with the link" (Viewer) — otherwise Google serves an HTML
+  // sign-in page instead of CSV, which is detected and reported.
+  // Unlike the header-less paste flow, this always includes the real
+  // header row, so columns are matched by name instead of fixed position.
+  // ---------------------------------------------------------------------
+
+  function extractSheetIdAndGid(url) {
+    const idMatch = (url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (!idMatch) return null;
+    const gidMatch = url.match(/[?&#]gid=(\d+)/);
+    return { sheetId: idMatch[1], gid: gidMatch ? gidMatch[1] : '0' };
+  }
+
+  function gmFetchText(url) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url,
+        timeout: 15000,
+        onload: (res) => {
+          if (res.status >= 200 && res.status < 300) resolve(res.responseText);
+          else reject(new Error('HTTP ' + res.status));
+        },
+        onerror: () => reject(new Error('network error')),
+        ontimeout: () => reject(new Error('timeout')),
+      });
+    });
+  }
+
+  // Minimal RFC4180-ish CSV parser: handles quoted fields with embedded
+  // commas, real newlines, and escaped "" quotes — which is exactly how
+  // Google's CSV export represents a wrapped multi-line cell (properly
+  // quoted, unlike the raw-paste case parseSheetPaste has to work around).
+  function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let field = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') {
+            field += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          field += c;
+        }
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ',') {
+        row.push(field);
+        field = '';
+      } else if (c === '\r') {
+        // ignore; \n (below) is what ends the row
+      } else if (c === '\n') {
+        row.push(field);
+        field = '';
+        rows.push(row);
+        row = [];
+      } else {
+        field += c;
+      }
+    }
+    if (field.length || row.length) {
+      row.push(field);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function parseSheetCsv(text) {
+    const rows = parseCsv(text).filter((r) => r.some((c) => c.trim() !== ''));
+    if (!rows.length) return { ok: false, rowCount: 0 };
+
+    const header = rows[0].map((h) => h.trim().toUpperCase());
+    const findCol = (...keywords) => header.findIndex((h) => keywords.some((k) => h.includes(k)));
+    const colOrder = findCol('ORDER CODE', 'ORDER ID', 'MA DON', 'MÃ ĐƠN', 'ORDER');
+    const colName = findCol('FULL NAME', 'NAME', 'CUSTOMER');
+    const colTracking = findCol('TRACKING');
+    const colCarrier = findCol('DVVC', 'CARRIER', 'VAN CHUYEN', 'VẬN CHUYỂN');
+
+    if (colOrder === -1 || colTracking === -1) {
+      return { ok: false, header, colOrder, colTracking };
+    }
+
+    const map = {};
+    const mapByName = {};
+    const order = [];
+    let count = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const cells = rows[i];
+      const orderId = (cells[colOrder] || '').trim();
+      const tracking = (cells[colTracking] || '').trim();
+      const carrier = colCarrier !== -1 ? (cells[colCarrier] || '').trim() : '';
+      if (!orderId || !tracking) continue; // order not shipped yet -> skip
+      if (!(orderId in map)) order.push(orderId);
+      map[orderId] = { tracking, carrier };
+      if (colName !== -1) {
+        const name = normalizeName(cells[colName]);
+        if (name) mapByName[name] = { tracking, carrier };
+      }
+      count++;
+    }
+    return { ok: true, map, mapByName, order, count, rowCount: rows.length - 1 };
+  }
+
   async function lookupTracking(orderId, customerName) {
     if (dataSource === 'sheet') {
       if (!sheetMap) return { orderId, found: false };
@@ -756,6 +875,7 @@
     #at-panel.at-collapsed .at-drag-handle{padding-bottom:0;margin-bottom:0;border-bottom:none}
     #at-panel.at-collapsed > *:not(.at-drag-handle){display:none}
     #at-toggle-icon-etsy{opacity:.6;font-size:10px;margin-left:8px}
+    .at-version{opacity:.5;font-weight:400;font-size:10px}
     #at-panel button{width:100%;margin-top:6px;padding:6px 0;border:0;border-radius:6px;
       cursor:pointer;font:13px sans-serif;font-weight:600}
     #at-panel .start{background:#16a34a;color:#fff}
@@ -767,6 +887,11 @@
     #at-sheet-import textarea{width:100%;box-sizing:border-box;margin-top:6px;
       font:10px monospace;resize:vertical;background:#1a1a1a;color:#e5e7eb;
       border:1px solid #333;border-radius:4px;padding:4px}
+    #at-sheet-import input[type="text"]{width:100%;box-sizing:border-box;margin-top:4px;
+      font:11px monospace;background:#1a1a1a;color:#e5e7eb;
+      border:1px solid #333;border-radius:4px;padding:5px}
+    .at-sheet-url-label{font-size:11px;opacity:.8;margin-top:8px;display:block}
+    .at-sheet-or{text-align:center;font-size:10px;opacity:.5;margin:6px 0}
     #at-sheet-info{font:11px monospace;opacity:.75;margin-top:4px;white-space:pre-wrap}
     .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
       border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
@@ -778,7 +903,7 @@
   const panel = document.createElement('div');
   panel.id = 'at-panel';
   panel.innerHTML = `
-    <div class="at-drag-handle"><strong>Etsy Auto Tracking</strong><span id="at-toggle-icon-etsy">▾</span></div>
+    <div class="at-drag-handle"><strong>Etsy Auto Tracking <span class="at-version">v${SCRIPT_VERSION}</span></strong><span id="at-toggle-icon-etsy">▾</span></div>
     <div id="at-status">Idle</div>
     <button class="start" id="at-start">Start</button>
     <button class="pause" id="at-pause">Pause</button>
@@ -788,8 +913,12 @@
       <label><input type="radio" name="at-source" value="sheet"> Nguồn: dán từ Sheet</label>
     </div>
     <div id="at-sheet-import">
+      <label class="at-sheet-url-label">Link Google Sheet (Share: Anyone with the link — Viewer)</label>
+      <input type="text" id="at-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/..." />
+      <button class="start" id="at-sheet-url-load">Tải từ link Sheet</button>
+      <div class="at-sheet-or">— hoặc dán trực tiếp —</div>
       <textarea id="at-sheet-paste" rows="3" placeholder="Bôi đen các dòng dữ liệu trong Sheet (KHÔNG cần dòng header), Ctrl+C, rồi dán (Ctrl+V) vào đây"></textarea>
-      <button class="start" id="at-sheet-load">Nạp dữ liệu Sheet</button>
+      <button class="start" id="at-sheet-load">Nạp dữ liệu đã dán</button>
       <div id="at-sheet-info"></div>
     </div>
     <div id="at-log" class="at-log"></div>
@@ -879,6 +1008,84 @@
     loadSheetFromTextarea();
   });
 
+  // Loads sheet data straight from a Google Sheets link (see parseSheetCsv
+  // above for the "Anyone with the link" requirement). Returns true/false
+  // like loadSheetFromTextarea. Remembers the URL in localStorage so Start
+  // can quietly re-fetch the latest data on every run without needing it
+  // re-pasted.
+  async function loadSheetFromUrl(url) {
+    const info = document.getElementById('at-sheet-info');
+    const parsed = extractSheetIdAndGid(url);
+    if (!parsed) {
+      if (info) info.textContent = 'Link Google Sheet không hợp lệ — cần dạng .../spreadsheets/d/<id>/...';
+      log('Sheet URL load failed: could not parse sheet id.');
+      return false;
+    }
+
+    const exportUrl = `https://docs.google.com/spreadsheets/d/${parsed.sheetId}/export?format=csv&gid=${parsed.gid}`;
+    if (info) info.textContent = 'Đang tải dữ liệu từ Google Sheet...';
+    log('Fetching Sheet from URL...');
+
+    let text;
+    try {
+      text = await gmFetchText(exportUrl);
+    } catch (e) {
+      if (info) info.textContent = `Không tải được Sheet: ${e.message}`;
+      log('Sheet URL fetch failed:', e.message);
+      return false;
+    }
+
+    if (/^\s*<(!DOCTYPE|html)/i.test(text)) {
+      if (info)
+        info.textContent =
+          'Google trả về trang đăng nhập thay vì dữ liệu — Sheet chưa được share công khai.\n' +
+          '-> Vào Share trên Google Sheet, đổi thành "Anyone with the link" (Viewer), rồi thử lại.';
+      log('Sheet URL fetch failed: got HTML back (sheet likely not public).');
+      return false;
+    }
+
+    const result = parseSheetCsv(text);
+    if (!result.ok) {
+      const header = result.header || [];
+      const missing = [];
+      if (result.colOrder === -1) missing.push('ORDER CODE');
+      if (result.colTracking === -1) missing.push('TRACKING');
+      if (info)
+        info.textContent =
+          `Thiếu cột: ${missing.join(', ')}.\n` +
+          `Dòng đầu đọc được ${header.length} cột: ${header.join(' | ') || '(rỗng)'}`;
+      log('Sheet URL parse failed, missing column(s):', missing.join(', '));
+      return false;
+    }
+    if (result.count === 0) {
+      if (info)
+        info.textContent = `Đọc được ${result.rowCount} dòng nhưng không đơn nào có TRACKING để nạp.`;
+      log(`Sheet URL: ${result.rowCount} row(s) read, 0 with tracking.`);
+      return false;
+    }
+
+    sheetMap = result.map;
+    sheetMapByName = result.mapByName;
+    sheetOrder = result.order;
+    localStorage.setItem('at_sheet_url', url);
+    if (info) info.textContent = `Đã tải ${result.count} đơn từ link Sheet.`;
+    log(`Sheet URL: loaded ${result.count} order(s).`);
+    return true;
+  }
+
+  const sheetUrlInput = document.getElementById('at-sheet-url');
+  if (sheetUrlInput) sheetUrlInput.value = localStorage.getItem('at_sheet_url') || '';
+
+  document.getElementById('at-sheet-url-load').addEventListener('click', () => {
+    const url = sheetUrlInput ? sheetUrlInput.value.trim() : '';
+    if (!url) {
+      const info = document.getElementById('at-sheet-info');
+      if (info) info.textContent = 'Dán link Google Sheet vào ô trước.';
+      return;
+    }
+    loadSheetFromUrl(url);
+  });
+
   function setPauseButtonLabel() {
     const btn = document.getElementById('at-pause');
     if (btn) btn.textContent = GM_getValue(PAUSE_KEY) ? 'Resume' : 'Pause';
@@ -888,7 +1095,7 @@
   // idle, or resumes if currently paused. Pause: temporarily halts the loop
   // in place — same in-progress list, same position, nothing re-scanned.
   // Stop: cancels the run entirely; the next Start rescans from the top.
-  document.getElementById('at-start').addEventListener('click', () => {
+  document.getElementById('at-start').addEventListener('click', async () => {
     if (GM_getValue(RUN_KEY)) {
       if (GM_getValue(PAUSE_KEY)) {
         GM_setValue(PAUSE_KEY, false);
@@ -897,9 +1104,15 @@
       }
       return;
     }
-    if (dataSource === 'sheet' && !loadSheetFromTextarea()) {
-      log('Không có dữ liệu Sheet hợp lệ để chạy — dán dữ liệu vào ô rồi bấm Start lại.');
-      return;
+    if (dataSource === 'sheet') {
+      const url = sheetUrlInput ? sheetUrlInput.value.trim() : '';
+      // A Sheet link takes priority (auto re-fetches the latest data on
+      // every run); falls back to whatever's pasted in the textarea.
+      const ok = url ? await loadSheetFromUrl(url) : loadSheetFromTextarea();
+      if (!ok) {
+        log('Không có dữ liệu Sheet hợp lệ để chạy — dán link hoặc dữ liệu vào ô rồi bấm Start lại.');
+        return;
+      }
     }
     runAll();
   });
