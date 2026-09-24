@@ -1011,6 +1011,37 @@ Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overla
 
 Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
 
+## Tự động chuyển chữ không phải Latin sang Latin
+
+Các trường `name`, `address1`, `address2`, `city`, `state` được tự động kiểm tra và chuyển sang
+chữ Latin nếu chứa chữ không phải Latin (tên người mua ở Nga, Hy Lạp, Hàn Quốc, Ả Rập, Do Thái,
+Trung Quốc...), để phiếu in vận đơn không bị lỗi font/không đọc được. Không dùng thư viện CDN
+ngoài cho phần này (tránh rủi ro CDN lỗi mạng như từng gặp với XLSX) — toàn bộ bảng chuyển đổi
+nằm ngay trong file script.
+
+Xử lý theo 2 mức, tuỳ mức độ "mất thông tin" của việc chuyển đổi:
+
+- **Chữ Latin có dấu** (tiếng Việt, Pháp, Tây Ban Nha, Đức, Ba Lan, Thổ Nhĩ Kỳ...) — vd
+  `"Nguyễn Văn Đệ"` → `"Nguyen Van De"`, `"İstanbul Şişli"` → `"Istanbul Sisli"`: chuyển **âm
+  thầm**, không cần xem lại, vì đây vẫn là đúng chữ đó chỉ bỏ dấu.
+- **Chữ không phải hệ Latin** (Cyrillic - Nga, Hy Lạp, Hàn Quốc, Ả Rập, Do Thái...) — vd
+  `"Владимир Путин"` → `"Vladimir Putin"`: đây là **phiên âm gần đúng** (kiểu unidecode), không
+  phải chuẩn phiên âm chính thức của từng ngôn ngữ, nên các dòng này được **đánh dấu để bạn kiểm
+  tra lại** — sau khi quét xong, panel sẽ báo số trường đã chuyển, và Console (F12) có bảng chi
+  tiết từng dòng (mã đơn, tên trường, giá trị gốc, giá trị mới).
+- Chữ Hán/Nhật Kanji không có bảng chuyển đổi riêng (không khả thi khi không dùng thư viện lớn)
+  nên được **giữ nguyên** nhưng vẫn nằm trong danh sách cần kiểm tra lại.
+
+## Cột PrintingMethod và Account
+
+Thêm 2 cột ở ĐẦU file Excel xuất ra:
+
+- **PrintingMethod**: mặc định là `DTF` cho mọi sản phẩm. Riêng sản phẩm có `title` chứa
+  **"Comfort Youth"** hoặc **"Bella Adult"** (không phân biệt hoa/thường) thì là `DTG`. Nếu 1
+  đơn có nhiều sản phẩm mà có **ít nhất 1** sản phẩm là `DTG`, thì **toàn bộ sản phẩm còn lại
+  trong CÙNG đơn đó** cũng được điền `DTG` theo (không in lẫn 2 phương pháp trong 1 đơn).
+- **Account**: luôn để trống, bạn tự điền tay.
+
 ## Quy đổi màu ghép ("A/B/C") theo loại áo
 
 Một số listing gộp nhiều màu THẬT SỰ khác nhau vào chung 1 lựa chọn "Color" dạng
