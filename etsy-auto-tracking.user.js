@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Merchize)
 // @namespace    etsy-auto-tracking
-// @version      3.3
+// @version      3.4
 // @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
 // @match        https://www.etsy.com/your/orders/sold*
 // @match        https://seller.merchize.com/a/orders*
@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '3.3';
+  const SCRIPT_VERSION = '3.4';
 
   // ---------------------------------------------------------------------
   // Shared cross-tab protocol (GM storage is shared per-script regardless
@@ -249,10 +249,10 @@
     }
 
     async function handleRequest(orderId, customerName) {
-      log('Lookup requested for order', orderId);
+      log('Lookup requested for order', orderId, customerName ? `(name: "${customerName}")` : '(no name sent)');
       const row = findMerchizeRow(orderId, customerName);
       if (!row) {
-        log('  -> not found on this page');
+        log('  -> not found on this page (tried order code + name)');
         GM_setValue(RES_KEY, { orderId, found: false, ts: Date.now() });
         return;
       }
@@ -780,7 +780,14 @@
     }
     const customerName = getOrderCustomerName(row);
 
-    log('Checking order', orderId, 'against', sourceLabel, '...');
+    log(
+      'Checking order',
+      orderId,
+      customerName ? `(name: "${customerName}")` : '(no name found)',
+      'against',
+      sourceLabel,
+      '...'
+    );
 
     // Look up the tracking source FIRST. Only open the "Complete order"
     // modal at all if we actually have tracking data to put into it.
