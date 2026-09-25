@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Import Cost/Earnings tu dong theo noi dung
 // @namespace    gsheet-cost-earnings-import
-// @version      1.0
+// @version      1.1
 // @description  Ban lai logic cua Apps Script processImportedCostFiles() thanh userscript chay ngay tren trang Google Sheets, dung Sheets API v4 de doc/ghi thay vi chay trong Apps Script.
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        none
@@ -606,19 +606,46 @@
   }
 
   const MAX_Z = 2147483647;
+  const SCRIPT_VERSION = '1.1';
+  const POS_STORAGE_KEY = 'gcei_btn_pos';
+  const PANEL_WIDTH = 360;
+
+  function loadSavedBtnPos() {
+    try {
+      const raw = localStorage.getItem(POS_STORAGE_KEY);
+      if (!raw) return null;
+      const pos = JSON.parse(raw);
+      if (typeof pos.left === 'number' && typeof pos.top === 'number') return pos;
+    } catch (e) { /* localStorage co the bi chan (private mode...) - bo qua, dung vi tri mac dinh */ }
+    return null;
+  }
+
+  function saveBtnPos(left, top) {
+    try { localStorage.setItem(POS_STORAGE_KEY, JSON.stringify({ left, top })); } catch (e) { /* bo qua */ }
+  }
 
   function buildUi() {
     const btn = document.createElement('button');
     btn.id = 'gcei-toggle-btn';
-    btn.textContent = '📥 Import Cost/Earnings';
+    btn.textContent = `📥 Import Cost/Earnings v${SCRIPT_VERSION}`;
     btn.style.cssText = `position:fixed!important;bottom:24px!important;right:24px!important;top:auto!important;
       left:auto!important;z-index:${MAX_Z}!important;padding:10px 16px;background:#4CAF50;color:#fff;
-      border:none;border-radius:6px;cursor:pointer;font-size:13px;font-family:Arial,sans-serif;
-      box-shadow:0 2px 8px rgba(0,0,0,.4);`;
+      border:none;border-radius:6px;cursor:grab;font-size:13px;font-family:Arial,sans-serif;
+      box-shadow:0 2px 8px rgba(0,0,0,.4);user-select:none;`;
+
+    // Vi tri nut duoc keo tha tu do va nho lai qua localStorage (giong etsy-auto.user.js),
+    // nen ap dung ngay vi tri da luu (neu co) truoc khi gan vao DOM.
+    const savedPos = loadSavedBtnPos();
+    if (savedPos) {
+      btn.style.left = savedPos.left + 'px';
+      btn.style.top = savedPos.top + 'px';
+      btn.style.right = 'auto';
+      btn.style.bottom = 'auto';
+    }
 
     const panel = document.createElement('div');
     panel.style.cssText = `position:fixed!important;bottom:70px!important;right:24px!important;top:auto!important;
-      left:auto!important;z-index:${MAX_Z}!important;width:360px;padding:14px;background:#fff;
+      left:auto!important;z-index:${MAX_Z}!important;width:${PANEL_WIDTH}px;padding:14px;background:#fff;
       border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);
       font-family:Arial,sans-serif;font-size:13px;display:none;`;
 
@@ -682,8 +709,95 @@
     document.body.appendChild(btn);
     document.body.appendChild(panel);
 
+    // Dat panel ke ben nut, tu chon hien phia tren/duoi va trai/phai tuy cho trong con lai
+    // cua man hinh quanh vi tri hien tai cua nut (nut co the da bi keo di bat ky dau).
+    function repositionPanel() {
+      const rect = btn.getBoundingClientRect();
+      const gap = 8;
+
+      let left = rect.left;
+      if (left + PANEL_WIDTH > window.innerWidth - 8) left = window.innerWidth - PANEL_WIDTH - 8;
+      if (left < 8) left = 8;
+      panel.style.left = left + 'px';
+      panel.style.right = 'auto';
+
+      const spaceBelow = window.innerHeight - rect.bottom;
+      if (spaceBelow >= 320 || rect.top < 320) {
+        panel.style.top = (rect.bottom + gap) + 'px';
+        panel.style.bottom = 'auto';
+      } else {
+        panel.style.bottom = (window.innerHeight - rect.top + gap) + 'px';
+        panel.style.top = 'auto';
+      }
+    }
+
+    // ===== Keo tha nut de doi vi tri =====
+    let dragMoved = false;
+    let dragStartX = 0, dragStartY = 0, dragStartLeft = 0, dragStartTop = 0;
+
+    function pointOf(e) {
+      return e.touches && e.touches.length > 0 ? e.touches[0] : e;
+    }
+
+    function onDragMove(e) {
+      const p = pointOf(e);
+      const dx = p.clientX - dragStartX;
+      const dy = p.clientY - dragStartY;
+      if (!dragMoved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) dragMoved = true;
+      if (!dragMoved) return;
+      if (e.cancelable) e.preventDefault();
+
+      const maxLeft = window.innerWidth - btn.offsetWidth;
+      const maxTop = window.innerHeight - btn.offsetHeight;
+      const newLeft = Math.min(Math.max(0, dragStartLeft + dx), Math.max(0, maxLeft));
+      const newTop = Math.min(Math.max(0, dragStartTop + dy), Math.max(0, maxTop));
+
+      btn.style.left = newLeft + 'px';
+      btn.style.top = newTop + 'px';
+      btn.style.right = 'auto';
+      btn.style.bottom = 'auto';
+
+      if (panel.style.display !== 'none') repositionPanel();
+    }
+
+    function onDragEnd() {
+      btn.style.cursor = 'grab';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onDragMove);
+      document.removeEventListener('mouseup', onDragEnd);
+      document.removeEventListener('touchmove', onDragMove);
+      document.removeEventListener('touchend', onDragEnd);
+      if (dragMoved) {
+        const rect = btn.getBoundingClientRect();
+        saveBtnPos(rect.left, rect.top);
+      }
+    }
+
+    function onDragStart(e) {
+      dragMoved = false;
+      const p = pointOf(e);
+      dragStartX = p.clientX;
+      dragStartY = p.clientY;
+      const rect = btn.getBoundingClientRect();
+      dragStartLeft = rect.left;
+      dragStartTop = rect.top;
+      btn.style.cursor = 'grabbing';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onDragMove);
+      document.addEventListener('mouseup', onDragEnd);
+      document.addEventListener('touchmove', onDragMove, { passive: false });
+      document.addEventListener('touchend', onDragEnd);
+    }
+
+    btn.addEventListener('mousedown', onDragStart);
+    btn.addEventListener('touchstart', onDragStart, { passive: true });
+
     btn.addEventListener('click', () => {
-      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+      // Vua keo xong thi khong coi la 1 cai bam - tranh mo/dong panel ngoai y muon sau khi keo.
+      if (dragMoved) { dragMoved = false; return; }
+      const willShow = panel.style.display === 'none';
+      panel.style.display = willShow ? 'block' : 'none';
+      if (willShow) repositionPanel();
     });
 
     async function runWithGuard(btnEl, task) {
