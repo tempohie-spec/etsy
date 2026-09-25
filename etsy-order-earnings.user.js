@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.23
+// @version      2.24
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -180,7 +180,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.23';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.24';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -749,15 +749,19 @@
     copyDataToClipboard(cleanData);
   }
 
-  // Dan (Ctrl+V) van ban thuan (TSV) vao Excel/Google Sheets KHONG mang theo kieu o (khac
-  // voi file .xlsx, noi gia tri da duoc luu dung la chuoi "s") - Excel/Sheets se tu doan kieu
-  // dua vao HINH THUC gia tri, nen 1 zipcode dang "01234" se bi hieu nham la SO va mat so 0
-  // dau ngay khi dan (con "1234"). Them dau nhay don "'" o dau de EP Excel/Sheets hieu day la
-  // VAN BAN (day la quy uoc pho bien, dau nhay se KHONG hien ra sau khi dan).
-  function baoVeSoKhongDauKhiDanTSV(header, text) {
-    if (header === 'postalCode' && /^0\d+$/.test(text)) return `'${text}`;
-    return text;
-  }
+  // GHI CHU VE ZIPCODE MAT SO 0 DAU KHI DAN (Ctrl+V) VAO GOOGLE SHEETS:
+  // Da THU them dau nhay don "'" truoc zipcode de ep hieu la van ban (meo pho bien voi Excel),
+  // nhung Google Sheets KHONG an dau nhay nay khi dan van ban thuan tu ngoai vao (chi an duoc
+  // khi tu tay go truc tiep vao o) - dau nhay lai HIEN RA truoc so, gay roi hon. Da BO meo nay.
+  //
+  // Day la gioi han cua Google Sheets (khong doc duoc kieu o tu clipboard van ban thuan/HTML
+  // ben ngoai, luon tu doan kieu theo hinh thuc gia tri), khong the sua tu phia script. Cach
+  // xu ly dung: dat SAN cot postalCode trong Google Sheet ve dinh dang "Van ban thuan" (chon
+  // cot -> Format > Number > Plain text) MOT LAN - sau do moi lan dan (kieu gi cung duoc,
+  // khong rieng tu script nay) Sheets se giu nguyen chuoi, khong tu doi thanh so nua.
+  //
+  // Rieng file .xlsx tai ve VAN duoc giu dung nguyen so 0 dau (xem exportToExcelFile), vi gia
+  // tri da luu dung la chuoi "s" va cot postalCode da duoc dat san dinh dang Text trong file.
 
   // Chuyen du lieu thanh chuoi TSV (tab-separated) roi ghi vao clipboard qua GM_setClipboard.
   // Thay tab/xuong dong CO SAN trong tung o bang khoang trang, tranh lam le cot khi dan.
@@ -766,10 +770,7 @@
   function copyDataToClipboard(cleanData, headers = HEADERS) {
     if (typeof GM_setClipboard === 'undefined') return;
     const tsv = cleanData
-      .map((row) => headers.map((h) => {
-        const text = String(row[h] !== undefined ? row[h] : '').replace(/[\t\r\n]+/g, ' ');
-        return baoVeSoKhongDauKhiDanTSV(h, text);
-      }).join('\t'))
+      .map((row) => headers.map((h) => String(row[h] !== undefined ? row[h] : '').replace(/[\t\r\n]+/g, ' ')).join('\t'))
       .join('\n');
     GM_setClipboard(tsv, 'text');
   }

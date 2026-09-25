@@ -1021,12 +1021,17 @@ số 0 đầu có thể bị mất khi:
 2. **Sửa tay lại ô đó** trong file `.xlsx` sau khi đã tải về — nếu cột không được đặt sẵn định
    dạng Text, gõ lại số sẽ bị Excel tự chuyển về dạng số và mất số 0 đầu ngay lập tức.
 
-Đã sửa cả 2 trường hợp:
+**File `.xlsx` tải về**: đã sửa triệt để — cột `postalCode` được đặt sẵn định dạng **Text**
+trong file, nên số 0 đầu luôn được giữ, kể cả khi bạn sửa tay lại sau này.
 
-- Khi dán TSV, giá trị zipcode toàn số bắt đầu bằng `0` được tự thêm dấu nháy đơn `'` ở đầu để
-  ép Excel/Sheets hiểu đây là văn bản (dấu nháy sẽ không hiển thị ra sau khi dán).
-- Cột `postalCode` trong file `.xlsx` xuất ra được đặt sẵn định dạng **Text**, nên kể cả khi bạn
-  sửa tay lại sau này, số 0 đầu vẫn được giữ nguyên.
+**Dán (Ctrl+V) trực tiếp vào Google Sheets**: đây là giới hạn của Google Sheets, không sửa được
+từ phía script. Bản đầu có thử thêm dấu nháy đơn `'` trước zipcode (mẹo hay dùng với Excel), nhưng
+Google Sheets **không ẩn dấu nháy khi dán văn bản từ nguồn ngoài vào** (chỉ ẩn khi tự gõ trực
+tiếp) — dấu nháy lại hiện ra trước số, rối hơn, nên đã **bỏ mẹo này**.
+
+Cách xử lý đúng cho Google Sheets: chọn cột `postalCode` trong sheet của bạn → **Format → Number
+→ Plain text** (chỉ cần làm 1 lần cho cột đó). Sau đó mọi lần dán (không riêng gì từ script này)
+Sheets sẽ giữ nguyên chuỗi dán vào, không tự chuyển thành số nữa.
 
 ## Tự động chuyển chữ không phải Latin sang Latin
 
