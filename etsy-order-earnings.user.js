@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.26
+// @version      2.27
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -157,13 +157,15 @@
   }
 
   // ====== XAC DINH PHUONG PHAP IN (COT "PrintingMethod") ======
-  // Mac dinh moi san pham la DTF. Rieng "Comfort Youth" va "Bella Adult" la DTG (theo
-  // tu khoa trong "title", giong cach nhan dien loai ao o tren - khong phan biet hoa/thuong).
+  // Mac dinh moi san pham la DTF. La DTG neu roi vao 1 trong 2 truong hop:
+  //   - Title la "Comfort Youth" hoac "Bella Adult" (theo tu khoa, khong phan biet hoa/thuong).
+  //   - Don KHONG giao o United States (dia chi "country" khac "United States").
   // Neu 1 don co NHIEU san pham ma co IT NHAT 1 san pham la DTG, thi TAT CA san pham con
-  // lai trong CUNG DON DO cung phai in DTG (xu ly rieng, xem ham resolvePrintingMethodForOrder
+  // lai trong CUNG DON DO cung phai in DTG (xu ly rieng, xem ham apDungPhuongPhapInChungChoDon
   // ben duoi, ap dung SAU KHI da xac dinh tung san pham rieng le).
-  function xacDinhPhuongPhapInTheoTitle(title) {
+  function xacDinhPhuongPhapInTheoTitle(title, country) {
     const t = (title || '').toLowerCase();
+    if (country && country.trim().toLowerCase() !== 'united states') return 'DTG';
     if (t.includes('comfort') && t.includes('youth')) return 'DTG';
     if (t.includes('bella') && t.includes('adult')) return 'DTG';
     return 'DTF';
@@ -180,7 +182,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.26';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.27';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -646,7 +648,7 @@
       // Xac dinh phuong phap in TUNG san pham truoc, roi ep CA DON ve DTG neu co it nhat
       // 1 san pham la DTG (xem giai thich o ham apDungPhuongPhapInChungChoDon).
       items.forEach((item) => {
-        item.printingMethod = xacDinhPhuongPhapInTheoTitle(item.title);
+        item.printingMethod = xacDinhPhuongPhapInTheoTitle(item.title, addr.country);
       });
       apDungPhuongPhapInChungChoDon(items);
 
