@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Import Cost/Earnings tu dong theo noi dung
 // @namespace    gsheet-cost-earnings-import
-// @version      1.1
+// @version      1.2
 // @description  Ban lai logic cua Apps Script processImportedCostFiles() thanh userscript chay ngay tren trang Google Sheets, dung Sheets API v4 de doc/ghi thay vi chay trong Apps Script.
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        none
@@ -77,6 +77,51 @@
   function buildBlankDebugLines(blankOrderKeys, rawMap, label) {
     const uniqueKeys = Array.from(new Set(blankOrderKeys)).slice(0, 8);
     return uniqueKeys.map(k => `   • ${label} - mã đơn ${k}: giá trị gốc đọc được = ${rawMap[k] || '(không xác định)'}`);
+  }
+
+  // Merchize khong cho upload trung "External number" nen khi 1 don bi cancel (cost = 0 vi
+  // fulfillment khong thuc su chay) roi duoc len lai, don moi mang mot ma gan giong het ma cu
+  // nhung co them hau to chu o cuoi (VD "4181764944" -> "4181764944a") de tranh trung. Ham nay
+  // bo hau to chu do de lay lai "ma don goc" dung chung cho ca 2 don.
+  function baseOrderKey(key) {
+    const stripped = key.replace(/[^0-9]+$/, '');
+    return stripped || key;
+  }
+
+  function isZeroOrBlankPrice(price) {
+    return price === '' || price === '0' || Number(price) === 0;
+  }
+
+  // Voi cac ma don co cost = 0 (thuong la don bi cancel), tim trong CHINH costPriceMap 1 ma
+  // don khac cung "ma don goc" (baseOrderKey) nhung co cost khac 0 (chinh la don da duoc len
+  // lai) roi dung cost do thay the - dung theo yeu cau "lay cost cua don len lai, bo qua cost
+  // = 0". Sua truc tiep tren costPriceMap/costRawMap truyen vao.
+  function resolveCanceledOrderCosts(costPriceMap, costRawMap, fileReports) {
+    const bestNonZeroByBase = {};
+    for (const key of Object.keys(costPriceMap)) {
+      const price = costPriceMap[key];
+      if (isZeroOrBlankPrice(price)) continue;
+      const base = baseOrderKey(key);
+      if (bestNonZeroByBase[base] === undefined) bestNonZeroByBase[base] = price;
+    }
+
+    let resolvedCount = 0;
+    for (const key of Object.keys(costPriceMap)) {
+      const price = costPriceMap[key];
+      if (!isZeroOrBlankPrice(price)) continue;
+      const base = baseOrderKey(key);
+      const betterPrice = bestNonZeroByBase[base];
+      if (betterPrice !== undefined) {
+        costPriceMap[key] = betterPrice;
+        delete costRawMap[key];
+        resolvedCount++;
+      }
+    }
+
+    if (resolvedCount > 0 && fileReports) {
+      fileReports.push(`✅ Phát hiện ${resolvedCount} mã đơn có cost = 0 (đơn bị cancel) có đơn lên lại cùng mã gốc, đã lấy cost từ đơn lên lại thay vì dùng 0.`);
+    }
+    return resolvedCount;
   }
 
   function sameValue(existingValue, newValue) {
@@ -475,6 +520,10 @@
     spreadsheetId, sheetProps, activeSheetTitle, activeSheetId,
     costPriceMap, earningsMap, costRawMap, earningsRawMap, fileReports, statusEl
   ) {
+    // Truoc khi ap dung: don bi cancel co cost = 0, don len lai (cung ma goc, them hau to
+    // chu) moi co cost that - uu tien lay cost tu don len lai thay vi dung 0.
+    resolveCanceledOrderCosts(costPriceMap, costRawMap, fileReports);
+
     log(statusEl, `⏳ Đang đọc trang tính "${activeSheetTitle}"...`);
     const activeData = await fetchSheetValues(spreadsheetId, activeSheetTitle);
     const perSheetReports = [];
@@ -606,7 +655,7 @@
   }
 
   const MAX_Z = 2147483647;
-  const SCRIPT_VERSION = '1.1';
+  const SCRIPT_VERSION = '1.2';
   const POS_STORAGE_KEY = 'gcei_btn_pos';
   const PANEL_WIDTH = 360;
 
