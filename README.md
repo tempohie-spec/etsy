@@ -965,17 +965,18 @@ So với bản gốc (chỉ quét đơn, không có Earnings):
   dùng VPS/RDP đặt ở Mỹ để chạy Etsy — nếu tính theo giờ hệ thống của máy đó, ngày xuất ra có
   thể lệch cả nửa ngày so với ngày thực tế ở Việt Nam.
 
-## Bấm sang tab Earnings trước khi đọc số tiền
+## Bấm vào tiêu đề sản phẩm thay vì bấm vào mã đơn để lấy Earnings
 
-Trước đây script bỏ qua bước bấm tab "Earnings" vì cho rằng Etsy render sẵn nội dung cả 2 tab
-("Order details" và "Earnings") ngay khi mở bảng, chỉ ẩn/hiện bằng CSS. Thực tế đúng là cả 2 tab
-đều có sẵn trong DOM, nhưng **tab "Order details" mới là tab mặc định đang hiển thị** — nội dung
-tab "Earnings" vẫn bị ẩn (`display: none`) cho tới khi bấm chọn tab đó. Vì script sau đó có thêm
-bước chỉ chấp nhận span **đang thực sự hiển thị** (để tránh đọc nhầm số tiền cũ còn sót lại, xem
-mục bên dưới), nếu không bấm tab thì sẽ không bao giờ tìm thấy span nào hợp lệ và bị timeout.
+Trước đây script bấm vào **mã đơn** để mở bảng "Order details" — cách này luôn mở ra ở tab
+"Order details" trước, nội dung tab "Earnings" bị ẩn cho tới khi bấm chọn tab đó, nên phải thêm
+1 bước bấm sang tab "Earnings" mới đọc được số tiền.
 
-Script đã bấm lại tab "Earnings" (tìm theo đúng chữ "Earnings", khớp tuyệt đối) ngay sau khi mở
-bảng order details, trước khi đọc số tiền — chậm hơn một chút nhưng chắc chắn lấy đúng.
+Đã xác nhận thực tế: nếu bấm vào **tiêu đề sản phẩm** (link tên sản phẩm, dạng
+`/transaction/<id>`) thay vì bấm vào mã đơn, bảng "Order details" mở ra sẽ có sẵn **tab
+"Earnings" đang được chọn**, hiện thẳng dòng "You earned $x.xx" mà không cần bấm thêm tab nào
+nữa. Script đã đổi sang cách này (tìm mã đơn trước để xác định đúng khối đơn hàng, rồi tìm link
+tiêu đề sản phẩm bên trong khối đó và bấm vào link đó) — nhanh hơn 1 bước và không còn phụ thuộc
+vào việc tìm/bấm đúng tab.
 
 ## Chỉ hiện panel trên đúng trang danh sách đơn hàng
 
