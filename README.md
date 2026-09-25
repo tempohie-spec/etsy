@@ -1011,6 +1011,23 @@ Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overla
 
 Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
 
+## Sửa lỗi mất số 0 đầu ở postalCode
+
+Một số zipcode của Mỹ (và vài nước khác) có số 0 ở đầu, ví dụ `"01234"`. Nếu chỉ để nguyên,
+số 0 đầu có thể bị mất khi:
+
+1. **Dán (Ctrl+V) trực tiếp** dữ liệu TSV vào Excel/Google Sheets — dán văn bản thuần không
+   mang theo kiểu ô, nên Excel/Sheets tự đoán đây là SỐ và bỏ số 0 đầu (`"01234"` → `1234`).
+2. **Sửa tay lại ô đó** trong file `.xlsx` sau khi đã tải về — nếu cột không được đặt sẵn định
+   dạng Text, gõ lại số sẽ bị Excel tự chuyển về dạng số và mất số 0 đầu ngay lập tức.
+
+Đã sửa cả 2 trường hợp:
+
+- Khi dán TSV, giá trị zipcode toàn số bắt đầu bằng `0` được tự thêm dấu nháy đơn `'` ở đầu để
+  ép Excel/Sheets hiểu đây là văn bản (dấu nháy sẽ không hiển thị ra sau khi dán).
+- Cột `postalCode` trong file `.xlsx` xuất ra được đặt sẵn định dạng **Text**, nên kể cả khi bạn
+  sửa tay lại sau này, số 0 đầu vẫn được giữ nguyên.
+
 ## Tự động chuyển chữ không phải Latin sang Latin
 
 Các trường `name`, `address1`, `address2`, `city`, `state` được tự động kiểm tra và chuyển sang

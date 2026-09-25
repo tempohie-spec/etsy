@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.22
+// @version      2.23
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -180,7 +180,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.22';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.23';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -725,6 +725,19 @@
     });
     // skipHeader: true -> khong ghi dong header vao file Excel
     const ws = XLSX.utils.json_to_sheet(cleanData, { header: HEADERS, skipHeader: true });
+    // Ep dinh dang cot "postalCode" thanh Text ('@') - zipcode cua US doi khi co so 0 o dau
+    // (vd "01234"). Ban than gia tri da la chuoi ("s") nen Excel se hien dung "01234" ngay tu
+    // dau, nhung neu KHONG dat dinh dang Text san, sau nay nguoi dung SUA lai o do (go tay) se
+    // bi Excel tu doi ve dang so va mat so 0 dau ngay lap tuc. Dat san dinh dang Text de tranh
+    // rui ro nay ve sau, khong chi luc moi xuat file.
+    const postalCodeCol = HEADERS.indexOf('postalCode');
+    if (postalCodeCol !== -1 && ws['!ref']) {
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        const addr = XLSX.utils.encode_cell({ r, c: postalCodeCol });
+        if (ws[addr]) ws[addr].z = '@';
+      }
+    }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Orders');
     const filename = `etsy_orders_${getTodayFileDateStr()}.xlsx`;
@@ -736,6 +749,16 @@
     copyDataToClipboard(cleanData);
   }
 
+  // Dan (Ctrl+V) van ban thuan (TSV) vao Excel/Google Sheets KHONG mang theo kieu o (khac
+  // voi file .xlsx, noi gia tri da duoc luu dung la chuoi "s") - Excel/Sheets se tu doan kieu
+  // dua vao HINH THUC gia tri, nen 1 zipcode dang "01234" se bi hieu nham la SO va mat so 0
+  // dau ngay khi dan (con "1234"). Them dau nhay don "'" o dau de EP Excel/Sheets hieu day la
+  // VAN BAN (day la quy uoc pho bien, dau nhay se KHONG hien ra sau khi dan).
+  function baoVeSoKhongDauKhiDanTSV(header, text) {
+    if (header === 'postalCode' && /^0\d+$/.test(text)) return `'${text}`;
+    return text;
+  }
+
   // Chuyen du lieu thanh chuoi TSV (tab-separated) roi ghi vao clipboard qua GM_setClipboard.
   // Thay tab/xuong dong CO SAN trong tung o bang khoang trang, tranh lam le cot khi dan.
   // headers mac dinh la HEADERS (bang xuat don hang chinh); truyen headers khac de dung cho
@@ -743,7 +766,10 @@
   function copyDataToClipboard(cleanData, headers = HEADERS) {
     if (typeof GM_setClipboard === 'undefined') return;
     const tsv = cleanData
-      .map((row) => headers.map((h) => String(row[h] !== undefined ? row[h] : '').replace(/[\t\r\n]+/g, ' ')).join('\t'))
+      .map((row) => headers.map((h) => {
+        const text = String(row[h] !== undefined ? row[h] : '').replace(/[\t\r\n]+/g, ' ');
+        return baoVeSoKhongDauKhiDanTSV(h, text);
+      }).join('\t'))
       .join('\n');
     GM_setClipboard(tsv, 'text');
   }
