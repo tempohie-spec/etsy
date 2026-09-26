@@ -333,15 +333,126 @@ không đụng tới hạn mức 5 QPS / 5.000 request mỗi ngày. Chỉ tốn 
 5. Bảng chọn tự chặn khi tổng số ảnh vượt chỗ trống còn lại (nút *Bắt đầu upload* mờ đi).
 6. Script tải bytes ảnh sản phẩm **trước** (song song, xem mục dưới), rồi tới ảnh trong **thư viện
    ảnh bảng size** của bạn nếu có (mục ngay dưới đây) → tạo `File` cho từng ảnh, ghép **đúng thứ tự
-   sản phẩm trước – bảng size sau** → nhồi vào `<input type="file">` bằng `DataTransfer` rồi bắn
-   `input` + `change`. Trình duyệt coi đây y hệt như vừa chọn file bằng tay.
-7. Chờ Etsy xử lý xong (tối đa 180s). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên đầu
-   được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
+   sản phẩm trước – bảng size sau** → nhồi vào `<input type="file">` bằng `DataTransfer` theo
+   **từng lô nhỏ** (xem mục dưới) rồi bắn `input` + `change`. Trình duyệt coi đây y hệt như vừa
+   chọn file bằng tay.
+7. Chờ Etsy xử lý xong (tối đa 180s mỗi lô). Ảnh mới nằm ở **cuối** lưới — script **không tự đưa lên
+   đầu được** (xem mục dưới), nên nếu listing đã có sẵn ảnh, bạn cần tự kéo tay trước khi lưu.
 8. Nếu listing đang **trống ảnh** (`soAnhCu = 0`, ảnh mới nghiễm nhiên đã ở đúng vị trí đầu — kể cả
    ảnh bảng size ở cuối cùng), có thêm tuỳ chọn: bấm hộ **Publish copy with changes** (mặc định,
    tự bấm xuyên suốt các hộp thoại xác nhận thật của Etsy — xem mục dưới) hoặc **dừng lại, tự bấm
    lưu**. Khi listing đã có ảnh sẵn, bảng chọn chỉ cho *dừng lại* — tự động đăng lúc ảnh còn sai
    thứ tự không có ý nghĩa gì.
+
+### Nhồi ảnh theo từng lô nhỏ + phát hiện lỗi upload THẬT của Etsy (v9.7)
+
+Log thực tế: nhồi 8 ảnh cùng lúc vào ô upload, ảnh xem trước (thumbnail) vẫn hiện bình thường trên
+cả 8 ô, nhưng Console lại có 4 dòng `POST .../api/v3/ajax/shop/{id}/listings/images 400 (Bad
+Request)` và Etsy tự bung toast đỏ **"File not uploaded"**.
+
+Nguyên nhân: ảnh xem trước là một **Blob URL trình duyệt tự vẽ ngay lập tức** từ chính `File` object
+mình đưa vào `<input>` — hoàn toàn không cần đợi Etsy thật sự nhận được file ở backend. `<input>`
+chỉ là nơi *trình duyệt* giữ danh sách file đã chọn; việc thật sự tải file đó lên server là **do
+chính JavaScript của Etsy tự làm**, POST tới API `listings/images` của họ, sau khi đọc thấy sự kiện
+`change`. Vì vậy bước `choEtsyXuLyAnh()` cũ (chỉ kiểm tra `<img>` xem trước đã xuất hiện chưa) đang
+đo nhầm tín hiệu: nó xác nhận trình duyệt đã vẽ preview, chứ không xác nhận Etsy đã thật sự nhận
+xong file — nên script tưởng nhầm là xong hết, trong khi một số ảnh đã bị backend của Etsy từ chối
+(400) mà không hề hay biết.
+
+Hai thay đổi:
+
+1. **Nhồi theo lô nhỏ** (`KICH_THUOC_LO_UPLOAD` ảnh/lô — ban đầu 3, đổi thành **5** ở v9.13) thay vì
+   nhồi hết 1 lần — nghi ngờ nhồi quá nhiều file cùng lúc làm quá tải backend upload của Etsy. Mỗi lô
+   đợi Etsy xử lý xong mới nhồi lô tiếp theo.
+2. **`timThongBaoLoiUploadEtsy()`** — quét các phần tử `[role="alert"]`, `[role="status"]`,
+   `[aria-live]`, hoặc class/`data-clg-id` chứa "toast", tìm chữ khớp `not uploaded` / `upload
+   failed` / `couldn't upload`. Đây là tín hiệu **đáng tin hơn hẳn** ảnh xem trước, vì nó là chính
+   Etsy tự báo lỗi thật. Thấy tín hiệu này giữa chừng, script **dừng ngay lô đang chạy**, không
+   nhồi tiếp các lô sau, và báo rõ trong toast Etsy nói gì — thay vì lặng lẽ báo "xong" trong khi
+   một phần ảnh chưa thật sự lên được.
+
+Nếu 1 lô lỗi giữa chừng, toast cuối cùng báo rõ đã upload được bao nhiêu/tổng số, và bạn tự upload
+nốt phần còn thiếu — không đoán bừa là mọi ảnh đều ổn.
+
+### Tự thử lại khi Etsy báo lỗi 500, mở rộng nhận diện toast (v9.8)
+
+Sau v9.7, log thực tế cho thấy lỗi **vẫn xảy ra** nhưng đổi dạng: lần này là
+`POST .../listings/images 500 (Internal Server Error)` — **lỗi phía server Etsy**, không phải lỗi
+dữ liệu gửi lên sai như 400 trước đó — kèm toast **"Hm, we're having trouble uploading those files.
+Try again..."**. Toast này dùng chữ khác hẳn "File not uploaded" nên lọt qua `timThongBaoLoiUploadEtsy()`
+của v9.7 — script không phát hiện được, cứ đợi hết `THOI_HAN_CHO_ETSY_XU_LY_ANH` (180s) mới báo lỗi.
+
+Bằng chứng quan trọng từ người dùng: **upload ảnh trực tiếp từ máy tính (chọn file qua hộp thoại hệ
+điều hành) thì nhanh, không lỗi** — loại trừ được khả năng do mạng/CDN hay do bản thân file quá
+nặng/sai định dạng. Kết hợp với việc chính Etsy tự nhắn **"Try again"** trong toast lỗi 500 (khác
+hẳn giọng điệu của lỗi 400 "Bad Request" — vốn thường là lỗi cố định, thử lại cũng vô ích), hướng xử
+lý hợp lý nhất là: **coi đây là lỗi tạm thời phía Etsy, tự động thử lại** thay vì cố tìm nguyên nhân
+sâu hơn ở phía dữ liệu gửi lên (vì bằng chứng đã chỉ ra dữ liệu không phải vấn đề).
+
+Hai thay đổi:
+
+1. `timThongBaoLoiUploadEtsy()` nhận thêm mẫu `trouble uploading` (khớp cả câu "we're having
+   trouble uploading those files").
+2. Mỗi lô giờ **tự thử lại tối đa 2 lần** (`SO_LAN_THU_LAI_LO = 2`, tổng 3 lần/lô) nếu gặp lỗi thật
+   hoặc hết giờ — nhồi lại **đúng bộ file của lô đó** vào `<input>` (một `DataTransfer` mới, dispatch
+   lại `input`/`change`, trông y hệt một lần chọn file mới với Etsy), cách nhau 3 giây. Chỉ báo lỗi
+   dừng hẳn khi **cả 3 lần** đều thất bại.
+
+⚠️ **Đánh đổi:** không có cách nào chắc chắn biết liệu lần thử trước đó có ảnh nào đã thật sự lên
+thành công một phần hay không (chỉ biết "lô này bị báo lỗi", không biết chính xác ảnh nào trong lô).
+Nếu có, thử lại nguyên lô có thể khiến ảnh đó **lên trùng 1 bản**. Đây là đánh đổi hợp lý: chấp nhận
+khả năng dư 1-2 ảnh trùng (xoá tay rất nhanh) đổi lấy việc không phải bỏ dở giữa chừng khi Etsy chỉ
+đơn thuần bị lỗi tạm thời.
+
+Cũng thêm log kích thước từng ảnh (`console.log` dạng `Ảnh <tên>: <n> KB`) trong `taiAnhThanhFile()`
+— chưa có bằng chứng cho thấy dung lượng file là nguyên nhân, nhưng nếu lỗi còn tái diễn, log này
+cho dữ liệu cụ thể để kiểm tra thay vì phải đoán lại từ đầu.
+
+
+### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
+
+Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
+động tích sẵn **"Bấm hộ Publish..."** làm mặc định — dù HTML vẫn ghi `checked` ở "Dừng lại, tôi tự
+bấm lưu" như v9.11 đã đổi. Nguyên nhân: đây không phải là trang được tải lại thực sự (Etsy là SPA,
+chuyển trang bằng `pushState`), và tính năng "nhớ lại giá trị form" của trình duyệt có thể áp dụng
+theo `name` của input NGAY CẢ KHI các phần tử radio đó được tạo mới hoàn toàn ở lần mở hộp thoại sau
+— thuộc tính `checked` ghi trong chuỗi HTML chỉ set `defaultChecked`, không đảm bảo thắng được giá
+trị trình duyệt tự phục hồi.
+
+Sửa bằng cách **ép lại bằng JavaScript ngay sau khi chèn HTML** (`oRadio.checked = true` trên đúng
+input `value="khong"`), không chỉ dựa vào thuộc tính `checked` trong chuỗi HTML — gán trực tiếp
+thuộc tính `.checked` của phần tử luôn thắng mọi giá trị trình duyệt tự phục hồi. Đồng thời thêm
+`autocomplete="off"` cho cả 2 input để giảm khả năng trình duyệt can thiệp từ đầu.
+
+### Đổi mặc định về "Dừng lại, tôi tự bấm lưu" (v9.11)
+
+2 lựa chọn sau khi upload (xem mục "Publish tự động xuyên suốt" bên dưới) trước đây mặc định chọn
+sẵn **"Bấm hộ Publish copy with changes"** — tức nếu không để ý bấm đổi, script sẽ tự đăng bán công
+khai ngay, một hành động khó lùi lại. Đổi mặc định sang **"Dừng lại, tôi tự bấm lưu"** để an toàn
+hơn: sau khi upload xong script luôn dừng lại chờ, người dùng phải **chủ động** tick sang Publish
+nếu thực sự muốn đăng ngay, thay vì phải chủ động tick RA để tránh đăng nhầm.
+
+### Copy link ảnh bảng size ngay trong bảng chọn, dán thẳng vào thư viện (v9.9)
+
+Trước đây, muốn thêm một ảnh vào **thư viện ảnh bảng size của riêng bạn** (mục "Thư viện ảnh bảng
+size" phía dưới), phải tự mở ảnh đó ra, copy link bằng tay rồi gõ/dán vào ô nhập của hộp thoại quản
+lý (nút "📐 Ảnh bảng size" trên panel). Với những ảnh script đã tự nhận ra là "nghi là bảng size"
+ngay trong bảng chọn ảnh upload (`moBangChonAnh`), việc đó là thừa vì link đã có sẵn trong tay script.
+
+Hai chỗ được thêm:
+
+1. **Bảng chọn ảnh upload**: mỗi ảnh đang bị bỏ tick vì nghi là bảng size giờ có thêm nút nhỏ 📋 ở
+   góc trên-phải. Bấm vào để copy link ảnh đó (link full size gốc, không phải link thumbnail đang
+   hiển thị) vào Clipboard hệ thống, dùng chung đường `ghiClipboard()` đã có sẵn (thử cả
+   `GM_setClipboard` lẫn `navigator.clipboard.writeText`).
+2. **Hộp thoại "Quản lý ảnh bảng size"**: thêm nút **"📋 Dán"** cạnh ô nhập link. Bấm vào sẽ đọc
+   thẳng Clipboard hệ thống (`docClipboard()`), điền vào ô rồi tự bấm "Thêm" luôn — không cần tự
+   click vào ô và bấm Ctrl+V bằng tay.
+
+Luồng dùng: mở bảng chọn ảnh upload → thấy ảnh nghi là bảng size ưng ý → bấm 📋 trên ảnh đó → mở nút
+"Ảnh bảng size" trên panel → bấm "📋 Dán" → ảnh được thêm ngay vào thư viện, dùng lại cho mọi lần
+upload sau này.
+
 
 ### Sắp xếp bằng kéo-thả trong bảng chọn (v9.6)
 
@@ -407,6 +518,26 @@ Khi `Alt+V` có ảnh để upload: nếu thư viện đang có N ảnh, script 
 **sau cùng** ảnh sản phẩm bạn chọn, đúng thứ tự đã sắp trong thư viện. Nếu chỗ trống trên listing
 còn ít hơn số ảnh trong thư viện, script báo lỗi ngay từ đầu thay vì để bạn chọn ảnh sản phẩm rồi
 mới phát hiện không đủ chỗ.
+
+### Lấy link ảnh bảng size ngay trên trang listing đang mở — nút 🔎 (v9.10)
+
+Cách thêm ảnh vào thư viện ở trên (v9.0) bắt bạn phải có sẵn link ảnh từ trước. Nhưng thường thì
+ảnh bảng size lại nằm ngay trong listing bạn đang xem (ví dụ ảnh bảng size chart trong carousel ảnh
+sản phẩm) — trước v9.10 phải tự mở ảnh to, bấm chuột phải "Copy image address" thủ công.
+
+Nút **🔎 Lấy link bảng size (trang này)** trên panel quét **ngay trang đang mở** (dùng lại đúng
+đường `layDanhSachAnhFullSize()` đã có sẵn — đọc khối `data-carousel-pagination-list`, đổi
+`il_75x75` → `il_fullxfull`), rồi hiện một lưới thumbnail của TẤT CẢ ảnh tìm được:
+
+- Ảnh nào bị nghi là bảng size (theo `alt`, xem `RE_ANH_BANG_SIZE`) được đẩy lên đầu danh sách và
+  viền tím để dễ nhận ra — nhưng vẫn hiện đủ mọi ảnh khác, vì nhận diện qua `alt` có thể sót (Etsy
+  không phải lúc nào cũng đặt `alt` chuẩn).
+- Mỗi ảnh có 2 nút: **📋** copy link ảnh đó vào Clipboard hệ thống, hoặc **＋** thêm thẳng vào thư
+  viện "Ảnh bảng size" (mục v9.0 ở trên) — không cần thoát ra rồi mở lại hộp thoại quản lý và dán
+  bằng tay. Ảnh đã có sẵn trong thư viện thì nút **＋** đổi thành **✓** và khoá lại, tránh thêm trùng.
+
+Nhờ vậy chỉ cần mở đúng trang listing có ảnh bảng size ưng ý, bấm 🔎 → bấm ＋ trên đúng ảnh, xong —
+không phải chạy qua bảng chọn ảnh của luồng Alt+G/Alt+V.
 
 ### `@connect *` gây treo TOÀN BỘ request, kể cả tới `i.etsystatic.com` — đã rút lại (v9.2)
 
@@ -813,7 +944,7 @@ và cách tải nào đã dùng cho từng file (`gm_download_url`, `gm_download
 
 ---
 
-## Variations: Copy / Dán / Chỉ điền giá (v9.7)
+## Variations: Copy / Dán / Chỉ điền giá (v9.14)
 
 Gộp từ script riêng "Etsy Variations Copy/Paste" (đã bỏ). 3 nút chỉ hiện trong panel Listing Tools khi đang ở
 trang tạo/sửa listing (`/your/shops/me/listing-editor/...`). Nếu trước đó đã cài script riêng, hãy xoá hoặc tắt nó
