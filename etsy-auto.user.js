@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.15
+// @version      9.16
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.15';
+  const PHIEN_BAN = '9.16';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -66,7 +66,7 @@
   // Violentmonkey/Tampermonkey... Option "timeout" cua GM_download KHONG cuu duoc vi no chi tinh gio
   // SAU KHI request da bat dau. Phai tu dat 1 dong ho rieng o tang code de chac chan khong bao gio
   // treo qua thoi han nay, bat ke ly do treo la gi.
-  const THOI_HAN_MOI_CACH_TAI = 20000;
+  const THOI_HAN_MOI_CACH_TAI = 12000;
 
   // Khi KHONG tim thay khoi carousel va phai quet ca trang (che do du phong),
   // bo bot 1 anh cuoi cung tim thay (thuong la anh khong thuoc listing).
@@ -621,7 +621,10 @@
   // truoc khi request thuc su bat dau (vi du: bi trinh duyet/tien ich chan ngam khi goi lien
   // tiep nhieu request cheo goc toi cung 1 CDN). Khong co dong ho rieng nay thi ca vong lap tai
   // anh se dung hinh vinh vien tu ngay o BUOC LAY DU LIEU, truoc ca khi cham toi GM_download.
-  async function taiMotAnhVoiRetry(url, soLanThuLai = 2) {
+  // "baoDangThuLai" (tuy chon): goi moi khi PHAI thu lai (mang cham/CDN treo), de noi goi hien
+  // popup cho nguoi dung biet — truoc day chi co console.warn (F12), nen luc mang cham nguoi dung
+  // chi thay toast tien do dung im khong nhuc nhich, tuong nhu script bi treo that.
+  async function taiMotAnhVoiRetry(url, soLanThuLai = 2, baoDangThuLai) {
     let loiCuoi;
     for (let lan = 0; lan <= soLanThuLai; lan++) {
       try {
@@ -642,6 +645,7 @@
             `[Etsy Auto] Lỗi/treo khi tải ảnh, thử lại lần ${lan + 1}/${soLanThuLai} (đợi ${doiMs}ms):`,
             url, loi.message
           );
+          if (typeof baoDangThuLai === 'function') baoDangThuLai(lan + 1, soLanThuLai);
           await cho(doiMs);
         }
       }
@@ -713,7 +717,7 @@
 
     // Buoc 1: lay du lieu anh + luu tu blob (uu tien, giong cach ban goc 4.8 da chay on dinh)
     try {
-      const duLieu = await taiMotAnhVoiRetry(url);
+      const duLieu = await taiMotAnhVoiRetry(url, 2, baoTreo);
       const duoi = laySoDuoiFile(url);
       blob = new Blob([duLieu], { type: laMimeTheoDuoi(duoi) });
 
@@ -2468,8 +2472,8 @@
 
   // ---- Tai anh ve thanh File de nhoi vao o upload ----
 
-  async function taiAnhThanhFile(url, ten) {
-    const duLieu = await taiMotAnhVoiRetry(url);
+  async function taiAnhThanhFile(url, ten, baoDangThuLai) {
+    const duLieu = await taiMotAnhVoiRetry(url, 2, baoDangThuLai);
     const duoi = laySoDuoiFile(url);
     const file = new File([duLieu], `${lamSachTenFile(ten)}.${duoi}`, { type: laMimeTheoDuoi(duoi) });
     // Ghi lai dung luong tung anh — bang chung cu the neu sau nay can kiem tra gia thuyet "anh
@@ -2501,11 +2505,27 @@
     let chiSoTiepTheo = 0;
     let daXong = 0;
 
+    // Chi hien popup canh bao "mang dang cham" DUNG 1 LAN cho ca lo — tranh spam toast khi nhieu
+    // luong tai song song cung gap cham gan nhu cung luc (DO_SONG_SONG_TAI_ANH luong chay chung).
+    let daCanhBaoCham = false;
+    const baoDangThuLai = (lanThu, tongSoLan) => {
+      if (daCanhBaoCham) return;
+      daCanhBaoCham = true;
+      hienThongBao(
+        `⚠️ Mạng đang chậm, một số ảnh cần thử lại (lần ${lanThu}/${tongSoLan})... vẫn đang tiếp tục, chờ thêm chút.`,
+        '#F59E0B'
+      );
+    };
+
     async function motLuongTai() {
       while (chiSoTiepTheo < cacAnh.length) {
         const i = chiSoTiepTheo++;
         try {
-          ketQua[i] = await taiAnhThanhFile(cacAnh[i].url, `${tenGoc} - ${String(i + 1).padStart(2, '0')}`);
+          ketQua[i] = await taiAnhThanhFile(
+            cacAnh[i].url,
+            `${tenGoc} - ${String(i + 1).padStart(2, '0')}`,
+            baoDangThuLai
+          );
         } catch (loi) {
           console.error('[Etsy Auto] Không lấy được ảnh để upload:', cacAnh[i].url, loi);
         }

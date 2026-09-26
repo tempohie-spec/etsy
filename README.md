@@ -613,6 +613,32 @@ chạy tuần tự (xấp xỉ 4 lần với `DO_SONG_SONG_TAI_ANH = 4`).
 trước** — đây là tốc độ phía server Etsy, script chỉ đứng chờ (`choEtsyXuLyAnh()` kiểm tra mỗi
 giây), không có cách nào làm nhanh hơn từ userscript.
 
+### Giảm thời hạn chờ mỗi lượt tải + báo popup khi mạng chậm cần thử lại (v9.16)
+
+Log thực tế: nhiều dòng `GM_xmlhttpRequest không phản hồi sau 20s`, thử lại 2/2 lần — mỗi ảnh gặp
+tình huống này có thể tốn tới `20s × 3 lần thử + (800ms + 3200ms) đợi giữa các lần` ≈ hơn 1 phút,
+trong khi suốt thời gian đó toast tiến độ `⏳ Đã lấy 1/6 ảnh...` chỉ đứng yên — nhìn như script bị
+treo thật, vì việc thử lại trước đây chỉ ghi vào Console (`console.warn`, phải mở F12 mới thấy).
+
+Hai thay đổi:
+
+1. **`THOI_HAN_MOI_CACH_TAI`** (thời hạn chờ mỗi lượt gọi `GM_xmlhttpRequest`/`GM_download`) giảm từ
+   **20 giây xuống 12 giây** — phát hiện treo và chuyển sang thử lại nhanh hơn 40%, thay vì cứ đợi
+   đủ 20s cho một request rất có thể đã treo hẳn ngay từ đầu.
+2. **`taiMotAnhVoiRetry()`** nhận thêm tham số `baoDangThuLai` (tuỳ chọn): gọi mỗi khi phải thử lại,
+   để nơi gọi tự hiện popup cho người dùng biết — thay vì im lặng chỉ log Console. Áp dụng cho cả
+   2 luồng tải ảnh:
+   - **`taiCacAnhSongSong()`** (dùng khi Alt+G lấy ảnh và Alt+V upload): hiện đúng **1 lần**
+     `⚠️ Mạng đang chậm, một số ảnh cần thử lại...` cho cả lô — dù `DO_SONG_SONG_TAI_ANH = 4` luồng
+     chạy song song có thể cùng gặp chậm gần như đồng thời, tránh spam nhiều toast chồng nhau.
+   - **`luuAnhXuongMay()`** (dùng khi tải từng ảnh riêng lẻ xuống máy — nút "Chỉ lấy dữ liệu" không
+     kèm ảnh, hoặc tải ảnh listing gốc): dùng lại đúng cờ `baoTreo` đã có sẵn (vốn chỉ báo khi bước
+     `GM_download` treo), giờ báo thêm cả khi bước tải dữ liệu ảnh (fetch bytes) phải thử lại.
+
+Không đổi số lần thử lại (`soLanThuLai = 2`, tức tối đa 3 lần/ảnh) hay công thức đợi giữa các lần
+(800ms, 3200ms) — chỉ giảm phần chiếm nhiều thời gian nhất (20s → 12s mỗi lượt) và thêm phản hồi
+trực quan, để người dùng luôn biết script vẫn đang chạy chứ không phải bị treo.
+
 ### Ảnh đi đường Clipboard, không đi `GM_setValue` (v7.5)
 
 Bản 7.4 lưu danh sách ảnh vào `GM_setValue`. **Sai** khi trang nguồn và trang chỉnh sửa nằm ở
