@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Variations Copy/Paste
 // @namespace    etsy-variations
-// @version      1.2
+// @version      1.3
 // @description  Copy khoi Variations (ten variation, ten tung option, gia, trang thai Visible) tu 1 listing Etsy va tu tao lai + dien gia sang listing moi. Copy ghi ca vao Clipboard he thong nen dan duoc sang trinh duyet khac tren cung may (va luu GM_setValue de dung giua cac tab).
 // @match        https://www.etsy.com/your/shops/*
 // @grant        GM_getValue
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const PHIEN_BAN = '1.2';
+  const PHIEN_BAN = '1.3';
   const KHOA_LUU = 'etsy_variations_data_v1';
   const log = (...a) => console.log('[Etsy Variations]', ...a);
   const canhBao = (...a) => console.warn('[Etsy Variations]', ...a);
@@ -65,19 +65,29 @@
     el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
   }
 
-  // Bam bang chuoi su kien day du (mot so nut Etsy nghe pointerdown/mousedown)
+  // Bam bang chuoi su kien day du (mot so nut Etsy nghe pointerdown/mousedown).
+  // KHONG truyen "view: window": trong sandbox Violentmonkey, window la doi tuong boc chu khong
+  // phai Window that cua trang -> new PointerEvent/MouseEvent nem TypeError. Moi su kien boc
+  // try/catch rieng de 1 loai loi khong chan ca chuoi, va luon ket thuc bang el.click().
   function bam(el) {
     try {
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
     } catch (e) {
       /* noop */
     }
-    const chung = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 };
-    if (typeof PointerEvent === 'function') el.dispatchEvent(new PointerEvent('pointerdown', chung));
-    el.dispatchEvent(new MouseEvent('mousedown', chung));
+    const chung = { bubbles: true, cancelable: true, button: 0, buttons: 1 };
+    const ban = (Loai, ten, them = {}) => {
+      try {
+        if (typeof Loai === 'function') el.dispatchEvent(new Loai(ten, { ...chung, ...them }));
+      } catch (e) {
+        canhBao(`Khong ban duoc ${ten}:`, e);
+      }
+    };
+    ban(window.PointerEvent, 'pointerdown');
+    ban(MouseEvent, 'mousedown');
     if (typeof el.focus === 'function') el.focus();
-    if (typeof PointerEvent === 'function') el.dispatchEvent(new PointerEvent('pointerup', { ...chung, buttons: 0 }));
-    el.dispatchEvent(new MouseEvent('mouseup', { ...chung, buttons: 0 }));
+    ban(window.PointerEvent, 'pointerup', { buttons: 0 });
+    ban(MouseEvent, 'mouseup', { buttons: 0 });
     el.click();
   }
 
