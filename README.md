@@ -12,6 +12,7 @@ Userscript (Violentmonkey / Tampermonkey) cho trang Etsy.
 | `Alt + G` | Lấy tiêu đề + tag + ô cá nhân hoá vào Clipboard **và** tải toàn bộ ảnh full size của listing |
 | `Alt + C` | Chỉ lấy tiêu đề + tag + ô cá nhân hoá (không tải ảnh) |
 | `Alt + V` | Dán tiêu đề + tag, tạo ô cá nhân hoá, bấm tab **Photo & Video**, rồi **tự upload luôn ảnh** của listing nguồn (xem mục dưới) — không còn nút/phím tắt upload riêng |
+| 🎨 Copy / Dán variations, 💲 Chỉ điền giá | Chép khối Variations (tên, option, giá, Visible) sang listing mới (xem mục Variations bên dưới) |
 | 📐 Ảnh bảng size | Quản lý danh sách ảnh bảng size của riêng bạn, tự thêm vào **sau cùng** mỗi lần upload (xem mục dưới) |
 
 Giao diện nổi có thể thu nhỏ thành biểu tượng tròn "Listing" và kéo thả tự do; vị trí được nhớ lại
@@ -942,6 +943,27 @@ Mở Console (F12) khi chạy để xem log `[Etsy Auto]`: số ảnh tìm đư�
 và cách tải nào đã dùng cho từng file (`gm_download_url`, `gm_download_blob`, hay `a_tag`).
 
 ---
+
+## Variations: Copy / Dán / Chỉ điền giá (v9.14)
+
+Gộp từ script riêng "Etsy Variations Copy/Paste" (đã bỏ). 3 nút chỉ hiện trong panel Listing Tools khi đang ở
+trang tạo/sửa listing (`/your/shops/me/listing-editor/...`). Nếu trước đó đã cài script riêng, hãy xoá hoặc tắt nó
+trong Violentmonkey.
+
+| Nút | Việc làm |
+|---|---|
+| Copy variations | Đọc các bảng Variations (tên variation, tên option, giá, Visible) ở listing nguồn, ghi vào **Clipboard hệ thống** và lưu GM_setValue |
+| Dán variations | Ở listing mới: bấm "Add variation" → "Create your own" → điền Name, thêm từng option bằng nút "Add" → "Done"; lặp lại qua "Add a variation" cho variation tiếp theo; bật "Prices vary for each" + chọn variation có giá → "Apply"; sau đó điền giá rồi mới bật/tắt Visible (switch Visible bị khoá khi giá chưa hợp lệ) |
+| Chỉ điền giá | Khi variations đã có sẵn (tạo tay hoặc bước tự tạo bị dừng): chỉ điền giá + Visible, khớp theo tên option |
+
+Script dùng đúng id của Etsy: `#le-unstructured-variation-name-input`, `#le-unstructured-variation-option-input`,
+`#variations-select-controlsPrice`. Nếu một bước bị dừng, toast báo bước lỗi: làm tay phần còn lại, bấm Apply rồi bấm "Chỉ điền giá".
+
+### Copy sang trình duyệt khác qua Clipboard
+
+GM_setValue là kho riêng của từng trình duyệt, nên Copy ở Chrome thì Firefox/Edge không thấy. "Copy variations" ghi thêm dữ liệu vào Clipboard hệ thống (dòng đầu `ETSY_VARIATIONS_V1`), còn "Dán variations"
+và "Chỉ điền giá" ưu tiên đọc Clipboard, không có mới dùng dữ liệu đã lưu trong trình duyệt. Lần đầu trình duyệt
+có thể hỏi quyền đọc Clipboard: bấm Cho phép. Không Copy thứ khác vào Clipboard giữa lúc Copy và Dán.
 
 # Etsy Auto Tracking — Tự động điền tracking từ Merchize
 
