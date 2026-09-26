@@ -1164,10 +1164,9 @@ lý xong đơn hiện tại, rồi vẫn xuất file Excel với dữ liệu đ�
 | Nút | Việc làm |
 |---|---|
 | Copy variations | Đọc các bảng Variations (tên variation, tên option, giá, Visible) ở listing nguồn và lưu lại (GM_setValue, dùng chung giữa các tab) |
-| Dán variations | Ở listing mới: mở "Manage variations", tạo từng variation "Create your own" + các option, bật "Prices vary" cho variation có giá, bấm Apply, rồi điền giá và bật/tắt Visible |
+| Dán variations | Ở listing mới: bấm "Add variation" → "Create your own" → điền Name, thêm từng option bằng nút "Add" → "Done"; lặp lại qua "Add a variation" cho variation tiếp theo; bật "Prices vary for each" + chọn variation có giá → "Apply"; sau đó điền giá rồi mới bật/tắt Visible (switch Visible bị khoá khi giá chưa hợp lệ) |
 | Chỉ điền giá | Khi variations đã có sẵn (tạo tay hoặc bước tự tạo bị dừng): chỉ điền giá + Visible, khớp theo tên option |
 | Xuất / Nhập JSON | Mang dữ liệu sang trình duyệt khác hoặc sửa tay |
 
-Phần đọc bảng và điền giá dựa trên đúng HTML bảng Variations của Etsy. Phần tự tạo variations trong hộp thoại
-"Manage variations" tìm nút/ô theo chữ hiển thị ("Add a variation", "Create your own", ô "Option", "Apply"...);
-nếu Etsy đổi giao diện và bước này dừng, toast báo bước lỗi: tạo tay rồi bấm "Chỉ điền giá".
+Script dùng đúng id của Etsy: `#le-unstructured-variation-name-input`, `#le-unstructured-variation-option-input`,
+`#variations-select-controlsPrice`. Nếu một bước bị dừng, toast báo bước lỗi: làm tay phần còn lại, bấm Apply rồi bấm "Chỉ điền giá".

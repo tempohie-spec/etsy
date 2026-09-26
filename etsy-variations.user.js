@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Variations Copy/Paste
 // @namespace    etsy-variations
-// @version      1.0
+// @version      1.1
 // @description  Copy khoi Variations (ten variation, ten tung option, gia, trang thai Visible) tu 1 listing Etsy va tu tao lai + dien gia sang listing moi. Du lieu luu bang GM_setValue nen dung duoc giua 2 tab; co them Xuat/Nhap JSON de mang sang trinh duyet khac.
 // @match        https://www.etsy.com/your/shops/*
 // @grant        GM_getValue
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const PHIEN_BAN = '1.0';
+  const PHIEN_BAN = '1.1';
   const KHOA_LUU = 'etsy_variations_data_v1';
   const log = (...a) => console.log('[Etsy Variations]', ...a);
   const canhBao = (...a) => console.warn('[Etsy Variations]', ...a);
@@ -186,244 +186,198 @@
   }
 
   // ================== BUOC 2: TAO VARIATIONS TREN TRANG DICH ==================
+  // Luong that cua Etsy:
+  //   "Add variation" -> hop thoai chon (Size, Primary color...) -> "Create your own"
+  //   -> hop thoai "Custom variation": o Name (#le-unstructured-variation-name-input),
+  //      o option (#le-unstructured-variation-option-input) + nut "Add" cho TUNG option -> "Done"
+  //   -> man hinh tong: "Add a variation" de them variation tiep theo (lai qua "Create your own")
+  //   -> bat switch "Prices vary", chon variation trong #variations-select-controlsPrice -> "Apply"
 
-  // Hop thoai dang mo tren cung (Manage variations). Khong co thi dung ca trang.
+  const ID_O_TEN = 'le-unstructured-variation-name-input';
+  const ID_O_OPTION = 'le-unstructured-variation-option-input';
+  const ID_SELECT_GIA = 'variations-select-controlsPrice';
+
+  // Hop thoai dang mo tren cung. Khong co thi dung ca trang.
   function vungHopThoai() {
     const ds = [
       ...document.querySelectorAll(
-        '[role="dialog"], [aria-modal="true"], [data-clg-id="WtDialog"], [data-clg-id="WtOverlay"], .wt-overlay--will-animate, .wt-overlay'
+        '.wt-overlay__modal, [role="dialog"], [aria-modal="true"], [data-clg-id="WtDialog"], [data-clg-id="WtOverlay"]'
       ),
     ].filter((el) => dangHienThi(el) && !el.closest('#etsy-var-panel'));
     return ds[ds.length - 1] || document.body;
   }
 
   function cacNutHienThi(goc) {
-    return [...goc.querySelectorAll('button, [role="button"], [role="menuitem"], [role="option"], a')].filter(
+    return [...goc.querySelectorAll('button, [role="button"], [role="menuitem"], [role="option"]')].filter(
       (b) => dangHienThi(b) && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && !b.closest('#etsy-var-panel')
     );
   }
 
+  // Uu tien <button> that (vd "Add variation" nam trong 1 <span role="button"> boc ngoai)
   function timNut(goc, regex) {
-    return cacNutHienThi(goc).find((b) => {
+    const khop = cacNutHienThi(goc).filter((b) => {
       const t = chuan(b.textContent || b.getAttribute('aria-label'));
       return t.length < 60 && regex.test(t);
     });
+    return khop.find((b) => b.tagName === 'BUTTON') || khop[0] || null;
+  }
+
+  function oHienThi(id) {
+    const o = document.getElementById(id);
+    return dangHienThi(o) ? o : null;
+  }
+
+  function soOptionDaThem() {
+    const badge = oHienThi(ID_O_TEN)?.closest('.wt-overlay__modal')?.querySelector('h2 .wt-badge');
+    return badge ? parseInt(badge.textContent, 10) || 0 : -1;
+  }
+
+  async function themMotOption(ten) {
+    const o = await doi(() => oHienThi(ID_O_OPTION), 4000);
+    if (!o) return false;
+    const truoc = soOptionDaThem();
+    o.focus();
+    setNativeValue(o, ten);
+
+    // Nut "Add" chi het disabled sau khi React nhan gia tri
+    const nutAdd = await doi(() => {
+      const n = o.closest('.le-variation-options-input, .wt-form--group')?.querySelector('button');
+      return n && !n.disabled && n.getAttribute('aria-disabled') !== 'true' ? n : null;
+    }, 2500);
+    if (nutAdd) bam(nutAdd);
+    else guiEnter(o);
+
+    const xong = await doi(() => {
+      const oMoi = oHienThi(ID_O_OPTION);
+      if (!oMoi || oMoi.value !== '') return null;
+      return truoc < 0 || soOptionDaThem() > truoc ? true : null;
+    }, 3000);
+    return !!xong;
+  }
+
+  async function taoMotVariation(v, laDauTien, loi) {
+    // Variation thu 2 tro di: bam "Add a variation" o man hinh tong
+    if (!laDauTien) {
+      const nut = await doi(() => timNut(vungHopThoai(), /^\+?\s*add (a |another )?variation$/), 6000);
+      if (!nut) {
+        loi.push(`Không thấy nút "Add a variation" (${v.ten})`);
+        return false;
+      }
+      bam(nut);
+    }
+
+    const nutTaoMoi = await doi(() => timNut(document.body, /^\+?\s*create your own$/), 6000);
+    if (!nutTaoMoi) {
+      loi.push(`Không thấy nút "Create your own" (${v.ten})`);
+      return false;
+    }
+    bam(nutTaoMoi);
+
+    const oTen = await doi(() => oHienThi(ID_O_TEN), 5000);
+    if (!oTen) {
+      loi.push(`Không thấy ô Name của Custom variation (${v.ten})`);
+      return false;
+    }
+    oTen.focus();
+    setNativeValue(oTen, v.ten);
+    roiKhoiO(oTen);
+    await cho(150);
+
+    let soLoi = 0;
+    for (let i = 0; i < v.luaChon.length; i++) {
+      const op = v.luaChon[i];
+      hienThongBao(`Đang tạo "${v.ten}" (${i + 1}/${v.luaChon.length}): ${op.ten}`, '#1F2937', 0);
+      if (!(await themMotOption(op.ten))) {
+        soLoi++;
+        canhBao('Khong them duoc option:', op.ten);
+      }
+    }
+    if (soLoi) loi.push(`${soLoi} option của "${v.ten}" không thêm được`);
+
+    const nutDone = await doi(() => {
+      const modal = oHienThi(ID_O_TEN)?.closest('.wt-overlay__modal') || vungHopThoai();
+      return timNut(modal, /^done$/);
+    }, 4000);
+    if (!nutDone) {
+      loi.push(`Nút "Done" của "${v.ten}" vẫn bị khoá`);
+      return false;
+    }
+    bam(nutDone);
+    if (!(await doi(() => (oHienThi(ID_O_TEN) ? null : true), 5000))) {
+      loi.push(`Bấm "Done" nhưng hộp thoại "${v.ten}" chưa đóng`);
+      return false;
+    }
+    await cho(400);
+    return true;
+  }
+
+  // Bat "Prices vary" va chon dung variation co gia rieng
+  async function batGiaRieng(ds) {
+    const coGia = ds.filter((v) => v.coGia);
+    if (!coGia.length) return true;
+
+    const sw = [...document.querySelectorAll('input.wt-switch[type="checkbox"]')].find(
+      (o) => dangHienThi(o.closest('.wt-switch__wrapper')) && /^prices vary/.test(nhanCuaO(o))
+    );
+    if (!sw) return false;
+    if (!sw.checked) sw.click();
+
+    const sel = await doi(() => oHienThi(ID_SELECT_GIA) || document.getElementById(ID_SELECT_GIA), 3000);
+    if (!sel) return false;
+    let op;
+    if (coGia.length > 1) op = [...sel.options].find((x) => x.value === 'unified');
+    else op = [...sel.options].find((x) => chuan(x.textContent) === chuan(coGia[0].ten));
+    if (!op) return false;
+    if (sel.value !== op.value) setNativeValue(sel, op.value);
+    return true;
   }
 
   // Lay chu mo ta cua 1 o input: aria-label, placeholder, <label for>, aria-labelledby
   function nhanCuaO(o) {
-    const phan = [o.getAttribute('aria-label'), o.getAttribute('placeholder'), o.name];
+    const phan = [o.getAttribute('aria-label'), o.getAttribute('placeholder')];
     if (o.id) {
       const lb = document.querySelector(`label[for="${CSS.escape(o.id)}"]`);
       if (lb) phan.push(lb.textContent);
     }
-    const ids = (o.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
-    for (const id of ids) phan.push(document.getElementById(id)?.textContent);
-    const lbCha = o.closest('label');
-    if (lbCha) phan.push(lbCha.textContent);
     return chuan(phan.filter(Boolean).join(' '));
-  }
-
-  function cacOTextHienThi(goc) {
-    return [...goc.querySelectorAll('input:not([type]), input[type="text"], input[type="search"]')].filter(
-      (o) => dangHienThi(o) && !o.disabled && !o.readOnly && !o.closest('#etsy-var-panel')
-    );
-  }
-
-  function timOTenVariation(goc) {
-    return cacOTextHienThi(goc).find((o) => {
-      const n = nhanCuaO(o);
-      return /name|variation|property/.test(n) && !/option/.test(n);
-    });
-  }
-
-  function timOOption(goc) {
-    return cacOTextHienThi(goc).find((o) => /option/.test(nhanCuaO(o)));
-  }
-
-  // Tim checkbox / switch theo chu cua nhan (vd "Prices vary for each Style & Size")
-  function timCongTacTheoNhan(goc, regex) {
-    return [...goc.querySelectorAll('input[type="checkbox"]')].find(
-      (o) => !o.closest('#etsy-var-panel') && regex.test(nhanCuaO(o))
-    );
-  }
-
-  function moDauHopThoaiVariations() {
-    const nut = timNut(document.body, /^(manage|add) variations?$/);
-    if (!nut) return false;
-    bam(nut);
-    return true;
-  }
-
-  async function chonTaoMoi(tenVariation) {
-    const goc = vungHopThoai();
-
-    // Kieu 1: <select> co muc "Create your own"
-    const sel = [...goc.querySelectorAll('select')].find(
-      (s) => dangHienThi(s) && [...s.options].some((op) => /create your own|custom/i.test(op.textContent))
-    );
-    if (sel) {
-      const op = [...sel.options].find((x) => /create your own|custom/i.test(x.textContent));
-      setNativeValue(sel, op.value);
-      return true;
-    }
-
-    // Kieu 2: menu/list co nut "Create your own" (co the render ra ngoai hop thoai)
-    const muc = await doi(
-      () => timNut(document.body, /create (your own|a new|new)|custom (variation|property|option)|^custom$/),
-      3000
-    );
-    if (muc) {
-      bam(muc);
-      return true;
-    }
-
-    // Kieu 3: o tim kiem/combobox -> go ten roi chon dong "Create ..." hoac Enter
-    const cb = cacOTextHienThi(goc).find((o) => o.getAttribute('role') === 'combobox' || /search|variation/.test(nhanCuaO(o)));
-    if (cb) {
-      cb.focus();
-      setNativeValue(cb, tenVariation);
-      const dong = await doi(() => timNut(document.body, new RegExp(`(create|add).*${chuanRegex(tenVariation)}`)), 2000);
-      if (dong) bam(dong);
-      else guiEnter(cb);
-      return true;
-    }
-    return false;
-  }
-
-  function chuanRegex(s) {
-    return chuan(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  async function themMotOption(ten) {
-    const o = await doi(() => timOOption(vungHopThoai()), 4000);
-    if (!o) return false;
-    o.focus();
-    setNativeValue(o, ten);
-    await cho(80);
-
-    // Uu tien nut "Add" canh o nhap; khong co thi Enter
-    let khung = o.parentElement;
-    let nutAdd = null;
-    for (let i = 0; i < 4 && khung && !nutAdd; i++, khung = khung.parentElement) {
-      nutAdd = timNut(khung, /^\+?\s*add$/);
-    }
-    if (nutAdd) bam(nutAdd);
-    else guiEnter(o);
-
-    // Thanh cong khi o nhap duoc xoa trang
-    const xong = await doi(() => {
-      const oMoi = timOOption(vungHopThoai());
-      return oMoi && oMoi.value === '' ? true : null;
-    }, 2500);
-    if (xong) return true;
-
-    // Thu lai bang Enter neu da bam Add ma chua an
-    if (nutAdd) {
-      guiEnter(o);
-      return !!(await doi(() => (timOOption(vungHopThoai())?.value === '' ? true : null), 2000));
-    }
-    return false;
-  }
-
-  async function batGiaRieng(tenVariation) {
-    const re = new RegExp(`price.*${chuanRegex(tenVariation)}|${chuanRegex(tenVariation)}.*price|^prices? vary`);
-    const cb = timCongTacTheoNhan(vungHopThoai(), re) || timCongTacTheoNhan(document.body, re);
-    if (!cb) return false;
-    if (!cb.checked) bam(cb);
-    return true;
-  }
-
-  async function taoMotVariation(v, loi) {
-    const nutThem = await doi(() => timNut(vungHopThoai(), /^\+?\s*add (a |another )?variation$/), 6000);
-    if (!nutThem) {
-      loi.push(`Không thấy nút "Add a variation" (${v.ten})`);
-      return false;
-    }
-    bam(nutThem);
-    await cho(400);
-
-    if (!(await chonTaoMoi(v.ten))) {
-      loi.push(`Không chọn được "Create your own" (${v.ten})`);
-      return false;
-    }
-    await cho(400);
-
-    const oTen = await doi(() => timOTenVariation(vungHopThoai()), 4000);
-    if (oTen && !oTen.value) {
-      oTen.focus();
-      setNativeValue(oTen, v.ten);
-      roiKhoiO(oTen);
-    } else if (!oTen) {
-      canhBao('Khong thay o ten variation, co the ten da duoc dien qua combobox');
-    }
-    await cho(200);
-
-    let soLoi = 0;
-    for (const op of v.luaChon) {
-      const ok = await themMotOption(op.ten);
-      if (!ok) {
-        soLoi++;
-        canhBao('Khong them duoc option:', op.ten);
-      }
-      hienThongBao(`Đang tạo "${v.ten}": ${op.ten}`, '#1F2937', 0);
-      await cho(120);
-    }
-    if (soLoi) loi.push(`${soLoi} option của "${v.ten}" không thêm được`);
-
-    if (v.coGia) await batGiaRieng(v.ten);
-
-    // Mot so giao dien co nut Done/Save cho tung variation truoc khi quay lai danh sach
-    const nutXong = timNut(vungHopThoai(), /^(done|save|continue)$/);
-    if (nutXong && !timNut(vungHopThoai(), /apply/)) {
-      bam(nutXong);
-      await cho(600);
-    }
-    return true;
   }
 
   async function taoVariations(ds) {
     const loi = [];
-    if (!moDauHopThoaiVariations()) {
-      return { ok: false, loi: ['Không thấy nút "Manage variations" / "Add variations"'] };
-    }
-    await cho(800);
+    const nutMo = timNut(document.body, /^\+?\s*add variations?$/) || timNut(document.body, /^\+?\s*manage variations?$/);
+    if (!nutMo) return { ok: false, loi: ['Không thấy nút "Add variation"'] };
+    const laThemMoi = /^\+?\s*add/.test(chuan(nutMo.textContent));
+    bam(nutMo);
 
-    for (const v of ds) {
-      const ok = await taoMotVariation(v, loi);
-      if (!ok) return { ok: false, loi };
-      await cho(400);
+    for (let i = 0; i < ds.length; i++) {
+      // "Manage variations" mo thang man hinh tong -> ca variation dau cung phai bam "Add a variation"
+      if (!(await taoMotVariation(ds[i], i === 0 && laThemMoi, loi))) return { ok: false, loi };
     }
 
-    // Checkbox "Prices vary" co the nam o man hinh tong, bat lai cho chac
-    for (const v of ds) if (v.coGia) await batGiaRieng(v.ten);
+    if (!(await batGiaRieng(ds))) loi.push('Không bật được "Prices vary" (hãy bật tay rồi bấm Apply)');
     await cho(300);
 
-    const nutApDung = await doi(
-      () => timNut(vungHopThoai(), /^apply( variations)?$/) || timNut(vungHopThoai(), /^(save|done)$/),
-      4000
-    );
-    if (!nutApDung) {
-      loi.push('Không thấy nút "Apply" / "Save" để lưu variations');
+    const nutApply = await doi(() => timNut(vungHopThoai(), /^apply$/), 5000);
+    if (!nutApply) {
+      loi.push('Không thấy nút "Apply"');
       return { ok: false, loi };
     }
-    bam(nutApDung);
+    bam(nutApply);
 
-    const daCoBang = await doi(() => {
-      const ten = layCacBang().map((b) => chuan(tenBang(b)));
-      return ds.every((v) => ten.includes(chuan(v.ten))) ? true : null;
-    }, 15000);
+    const daCoBang = await doi(() => (daCoDuBang(ds) ? true : null), 15000);
     if (!daCoBang) loi.push('Đã bấm Apply nhưng chưa thấy bảng Variations xuất hiện');
     return { ok: !!daCoBang, loi };
   }
 
   // ================== BUOC 3: DIEN GIA + VISIBLE ==================
 
+  // Switch Visible bi khoa (aria-disabled) khi gia chua hop le -> dien HET gia truoc, roi moi bat/tat Visible
   async function dienGiaVaHienThi(ds) {
     const bangs = layCacBang();
     let soGia = 0;
     let soAn = 0;
     const thieu = [];
+    const canDoiVisible = [];
 
     for (const v of ds) {
       const bang = bangs.find((b) => chuan(tenBang(b)) === chuan(v.ten));
@@ -446,12 +400,20 @@
           soGia++;
           await cho(30);
         }
-        const sw = congTacCuaDong(tr);
-        if (sw && sw.checked !== op.hien) {
-          sw.click();
-          if (!op.hien) soAn++;
-          await cho(30);
-        }
+        canDoiVisible.push({ tr, hien: op.hien });
+      }
+    }
+
+    await cho(500);
+    for (const { tr, hien } of canDoiVisible) {
+      const sw = await doi(() => {
+        const x = congTacCuaDong(tr);
+        return x && x.getAttribute('aria-disabled') !== 'true' ? x : null;
+      }, 2000);
+      if (sw && sw.checked !== hien) {
+        sw.click();
+        if (!hien) soAn++;
+        await cho(30);
       }
     }
     return { soGia, soAn, thieu };
