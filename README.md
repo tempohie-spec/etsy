@@ -1155,3 +1155,19 @@ tiền cuối cùng, thay vì lấy ngay lần đọc đầu tiên.
 Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),
 panel sẽ hiện thêm nút **"⏹ Dừng"**. Bấm nút này để dừng giữa chừng — script sẽ dừng sau khi xử
 lý xong đơn hiện tại, rồi vẫn xuất file Excel với dữ liệu đã lấy được đến thời điểm đó.
+
+# Etsy Variations Copy/Paste
+
+- File script: [`etsy-variations.user.js`](etsy-variations.user.js)
+- Chỉ hiện panel trên trang tạo/sửa listing (`/your/shops/.../listing-editor/...`).
+
+| Nút | Việc làm |
+|---|---|
+| Copy variations | Đọc các bảng Variations (tên variation, tên option, giá, Visible) ở listing nguồn và lưu lại (GM_setValue, dùng chung giữa các tab) |
+| Dán variations | Ở listing mới: mở "Manage variations", tạo từng variation "Create your own" + các option, bật "Prices vary" cho variation có giá, bấm Apply, rồi điền giá và bật/tắt Visible |
+| Chỉ điền giá | Khi variations đã có sẵn (tạo tay hoặc bước tự tạo bị dừng): chỉ điền giá + Visible, khớp theo tên option |
+| Xuất / Nhập JSON | Mang dữ liệu sang trình duyệt khác hoặc sửa tay |
+
+Phần đọc bảng và điền giá dựa trên đúng HTML bảng Variations của Etsy. Phần tự tạo variations trong hộp thoại
+"Manage variations" tìm nút/ô theo chữ hiển thị ("Add a variation", "Create your own", ô "Option", "Apply"...);
+nếu Etsy đổi giao diện và bước này dừng, toast báo bước lỗi: tạo tay rồi bấm "Chỉ điền giá".
