@@ -959,6 +959,24 @@ trong Violentmonkey.
 Script dùng đúng id của Etsy: `#le-unstructured-variation-name-input`, `#le-unstructured-variation-option-input`,
 `#variations-select-controlsPrice`. Nếu một bước bị dừng, toast báo bước lỗi: làm tay phần còn lại, bấm Apply rồi bấm "Chỉ điền giá".
 
+### Bấm "Dán variations" lần 2 để dừng giữa chừng (v9.15)
+
+"Dán variations" có thể chạy khá lâu nếu variation có nhiều option (mỗi option là 1 lượt gõ + bấm
+"Add" chờ Etsy xử lý), nên trước v9.15 nếu bấm nhầm hoặc muốn dừng lại giữa chừng thì không có cách
+nào ngoài tải lại trang (mất luôn phần đã tạo dở, phải kiểm tra tay xem đã lỡ tạo tới đâu).
+
+Từ v9.15: **bấm đúng nút đó lần thứ 2 trong lúc đang chạy sẽ dừng lại** — nút tự đổi nhãn thành
+**"⏹ Dán variations - Dừng"** (nền đỏ) ngay khi bắt đầu chạy, đổi lại thành **"🎨 Dán variations"**
+(nền xanh) khi xong hoặc đã dừng, để luôn biết rõ bấm tiếp sẽ dừng hay chạy lại từ đầu.
+
+Cách làm: không có API huỷ giữa chừng một `Promise`/`await` đang chờ, nên bấm lần 2 chỉ **đặt một cờ**
+(`yeuCauDung`); các vòng lặp dài (từng variation, từng option trong 1 variation, từng dòng điền giá/
+Visible) tự kiểm tra cờ này ở đầu mỗi bước lặp và thoát ra ngay bằng cách ném một lỗi đánh dấu riêng —
+script dừng ở **bước lặp gần nhất** (không dừng ngay lập tức giữa chừng một thao tác đang gõ/bấm dở,
+tránh để Etsy ở trạng thái nửa vời khó đoán), không phải dừng ngay tức khắc. Phần đã tạo trước khi
+dừng (variation/option/giá đã điền) vẫn giữ nguyên trên trang — dùng "Chỉ điền giá" để hoàn tất nốt
+phần còn thiếu nếu cần.
+
 ### Copy sang trình duyệt khác qua Clipboard
 
 GM_setValue là kho riêng của từng trình duyệt, nên Copy ở Chrome thì Firefox/Edge không thấy. "Copy variations" ghi thêm dữ liệu vào Clipboard hệ thống (dòng đầu `ETSY_VARIATIONS_V1`), còn "Dán variations"

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.14
+// @version      9.15
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.14';
+  const PHIEN_BAN = '9.15';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -3166,6 +3166,7 @@
 
       let soLoi = 0;
       for (let i = 0; i < v.luaChon.length; i++) {
+        kiemTraDung();
         const op = v.luaChon[i];
         hienThongBao(`Đang tạo "${v.ten}" (${i + 1}/${v.luaChon.length}): ${op.ten}`, '#1F2937', 0);
         if (!(await themMotOption(op.ten))) {
@@ -3231,6 +3232,7 @@
       bam(nutMo);
 
       for (let i = 0; i < ds.length; i++) {
+        kiemTraDung();
         // "Manage variations" mo thang man hinh tong -> ca variation dau cung phai bam "Add a variation"
         if (!(await taoMotVariation(ds[i], i === 0 && laThemMoi, loi))) return { ok: false, loi };
       }
@@ -3261,6 +3263,7 @@
       const canDoiVisible = [];
 
       for (const v of ds) {
+        kiemTraDung();
         const bang = bangs.find((b) => chuan(tenBang(b)) === chuan(v.ten));
         if (!bang) {
           thieu.push(`bảng "${v.ten}"`);
@@ -3268,6 +3271,7 @@
         }
         const dong = [...bang.querySelectorAll('tbody tr')];
         for (const op of v.luaChon) {
+          kiemTraDung();
           const tr = dong.find((d) => chuan(tenDong(d)) === chuan(op.ten));
           if (!tr) {
             thieu.push(op.ten);
@@ -3287,6 +3291,7 @@
 
       await cho(500);
       for (const { tr, hien } of canDoiVisible) {
+        kiemTraDung();
         const sw = await doi(() => {
           const x = congTacCuaDong(tr);
           return x && x.getAttribute('aria-disabled') !== 'true' ? x : null;
@@ -3316,15 +3321,32 @@
     }
 
     let dangChay = false;
+    // Bam nut "Dan variations" LAN 2 trong luc dang chay se yeu cau dung: khong ngat ngang duoc
+    // await dang cho (khong co API huy cho Promise thuong), nen chi DAT CO, cac vong lap dai
+    // (tung variation, tung option, tung dong dien gia) tu kiem tra co nay o dau moi buoc va tu
+    // thoat ra bang cach nem 1 loi danh dau rieng (kiemTraDung), khong phai loi that.
+    let yeuCauDung = false;
+    const DANH_DAU_DA_DUNG = '__ETSY_VAR_DA_DUNG_THEO_YEU_CAU__';
+    function kiemTraDung() {
+      if (yeuCauDung) throw new Error(DANH_DAU_DA_DUNG);
+    }
 
-    async function danVariations() {
-      if (dangChay) return;
-      const ds = await layDuLieuDeDan();
-      if (!ds) return;
+    // Doi nhan + mau nut "Dan variations" theo dung trang thai dang chay hay khong, de nguoi dung
+    // biet bam lai la se DUNG chu khong phai chay lai tu dau.
+    function capNhatNutDan() {
+      const nut = document.getElementById('ea-btn-var-paste');
+      if (!nut) return;
+      nut.textContent = dangChay ? '⏹ Dán variations - Dừng' : '🎨 Dán variations';
+      nut.style.background = dangChay ? '#B91C1C' : '#15803D';
+    }
+
+    async function danVariations(ds) {
       dangChay = true;
+      yeuCauDung = false;
+      capNhatNutDan();
       try {
         if (!daCoDuBang(ds)) {
-          hienThongBao('Đang tạo Variations...', '#1F2937', 0);
+          hienThongBao('Đang tạo Variations... (bấm lại nút để dừng)', '#1F2937', 0);
           const kq = await taoVariations(ds);
           if (!kq.ok) {
             log('Loi tao variations:', kq.loi);
@@ -3339,11 +3361,30 @@
         }
         baoKetQuaDien(await dienGiaVaHienThi(ds));
       } catch (e) {
-        console.error('[Etsy Variations]', e);
-        hienThongBao('Lỗi: ' + e.message, DO, 8000);
+        if (e && e.message === DANH_DAU_DA_DUNG) {
+          hienThongBao('⏹ Đã dừng theo yêu cầu.', VANG, 6000);
+        } else {
+          console.error('[Etsy Variations]', e);
+          hienThongBao('Lỗi: ' + e.message, DO, 8000);
+        }
       } finally {
         dangChay = false;
+        yeuCauDung = false;
+        capNhatNutDan();
       }
+    }
+
+    // Nut "Dan variations" tren panel goi thang ham nay: dang ranh -> bat dau dan; dang chay ->
+    // coi la bam lan 2, chi dat co yeu cau dung (khong khoi dong lai tu dau).
+    async function xuLyBamNutDan() {
+      if (dangChay) {
+        yeuCauDung = true;
+        hienThongBao('⏹ Đã yêu cầu dừng, script sẽ dừng ở bước gần nhất...', VANG, 4000);
+        return;
+      }
+      const ds = await layDuLieuDeDan();
+      if (!ds) return;
+      await danVariations(ds);
     }
 
     async function chiDienGia() {
@@ -3441,7 +3482,7 @@
       return null;
     }
 
-    return { copy: copyVariations, dan: danVariations, chiDienGia };
+    return { copy: copyVariations, dan: xuLyBamNutDan, chiDienGia };
   })();
 
   // ================== GIAO DIEN NOI: KEO THA + THU NHO/MO RONG ==================
