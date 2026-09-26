@@ -1100,11 +1100,24 @@ bảng màu, script sẽ giữ nguyên `A/B/C` thay vì điền đúng màu.
 Đã thêm 1 bảng "bí danh" cho mỗi loại áo (`BI_DANH_MAU_...`, ngay dưới các bảng màu chính) để
 xử lý đúng trường hợp này: key là tên mà Etsy hiển thị, value là tên CHÍNH THỨC trong bảng màu —
 khớp được bí danh nào thì điền ra đúng tên chính thức đó, không điền nguyên văn tên Etsy ghi.
-Ví dụ đã có sẵn cho Bella Canvas Adult:
+
+Các bí danh hiện có:
+
+| Loại áo | Etsy ghi | Điền ra |
+|---|---|---|
+| Comfort Colors Adult | `Orange` | `Burnt Orange` |
+| Bella Canvas Adult | `Blue` | `Baby Blue` |
+| Bella Canvas Adult | `Dark Heather` | `Dark Grey Heather` |
+| Bella Canvas Youth | `Dark Heather` | `Dark Grey Heather` |
+| Toddler | `Violet` | `Lavender` |
+| Toddler | `Dark Heather` | `Vintage Smoke` |
+| Sweatshirt/Hoodie | `Blue` | `Light Blue` |
+| Sweatshirt/Hoodie | `Pink` | `Light Pink` |
 
 ```js
 const BI_DANH_MAU_BELLA_ADULT = {
-  'dark heather': 'Dark Grey Heather'
+  'dark heather': 'Dark Grey Heather',
+  'blue': 'Baby Blue'
 };
 ```
 

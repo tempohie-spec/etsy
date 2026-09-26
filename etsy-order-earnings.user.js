@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.27
+// @version      2.28
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -92,13 +92,24 @@
   // value la ten CHINH THUC dung trong bang mau tuong ung ben tren - dien ra se dung ten CHINH
   // THUC (value), khong dung nguyen van manh doc duoc tren Etsy (key).
   const BI_DANH_MAU_BELLA_ADULT = {
+    'dark heather': 'Dark Grey Heather',
+    'blue': 'Baby Blue'
+  };
+  const BI_DANH_MAU_BELLA_YOUTH = {
     'dark heather': 'Dark Grey Heather'
   };
-  const BI_DANH_MAU_BELLA_YOUTH = {};
-  const BI_DANH_MAU_COMFORT_ADULT = {};
+  const BI_DANH_MAU_COMFORT_ADULT = {
+    'orange': 'Burnt Orange'
+  };
   const BI_DANH_MAU_COMFORT_YOUTH = {};
-  const BI_DANH_MAU_TODDLER = {};
-  const BI_DANH_MAU_SWEATSHIRT_HOODIE = {};
+  const BI_DANH_MAU_TODDLER = {
+    'violet': 'Lavender',
+    'dark heather': 'Vintage Smoke'
+  };
+  const BI_DANH_MAU_SWEATSHIRT_HOODIE = {
+    'blue': 'Light Blue',
+    'pink': 'Light Pink'
+  };
 
   // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
   // "Bella-Youth Tee", "Toddler Tee", "Sweatshirt-Adult", "Hoodie-Adult"...) de chon dung
@@ -182,7 +193,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.27';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.28';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
