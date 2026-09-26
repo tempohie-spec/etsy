@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Etsy Variations Copy/Paste
 // @namespace    etsy-variations
-// @version      1.1
-// @description  Copy khoi Variations (ten variation, ten tung option, gia, trang thai Visible) tu 1 listing Etsy va tu tao lai + dien gia sang listing moi. Du lieu luu bang GM_setValue nen dung duoc giua 2 tab; co them Xuat/Nhap JSON de mang sang trinh duyet khac.
+// @version      1.2
+// @description  Copy khoi Variations (ten variation, ten tung option, gia, trang thai Visible) tu 1 listing Etsy va tu tao lai + dien gia sang listing moi. Copy ghi ca vao Clipboard he thong nen dan duoc sang trinh duyet khac tren cung may (va luu GM_setValue de dung giua cac tab).
 // @match        https://www.etsy.com/your/shops/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const PHIEN_BAN = '1.1';
+  const PHIEN_BAN = '1.2';
   const KHOA_LUU = 'etsy_variations_data_v1';
   const log = (...a) => console.log('[Etsy Variations]', ...a);
   const canhBao = (...a) => console.warn('[Etsy Variations]', ...a);
@@ -167,7 +167,7 @@
       .filter((b) => b.ten && b.luaChon.length);
   }
 
-  function copyVariations() {
+  async function copyVariations() {
     const ds = docVariations();
     if (!ds.length) {
       hienThongBao('Không tìm thấy bảng Variations trên trang này', DO);
@@ -175,12 +175,16 @@
     }
     const thieuGia = ds.flatMap((b) => (b.coGia ? b.luaChon.filter((o) => !o.gia).map((o) => o.ten) : []));
     ghiLuu({ luc: Date.now(), variations: ds });
-    log('Da luu:', ds);
+    const daGhiClipboard = await ghiClipboard(taoChuoiClipboard(ds));
+    log('Da luu:', ds, 'clipboard:', daGhiClipboard);
     const tomTat = ds.map((b) => `${b.ten}: ${b.luaChon.length} option${b.coGia ? ' (có giá)' : ''}`).join('\n');
     if (thieuGia.length) {
       hienThongBao(`Đã copy, nhưng ${thieuGia.length} option chưa có giá:\n${thieuGia.slice(0, 5).join(', ')}`, VANG, 7000);
     } else {
-      hienThongBao(`Đã copy Variations\n${tomTat}`, XANH);
+      hienThongBao(
+        `Đã copy Variations${daGhiClipboard ? ' (cả vào Clipboard)' : ''}\n${tomTat}`,
+        daGhiClipboard ? XANH : VANG
+      );
     }
     capNhatPanel();
   }
@@ -438,14 +442,10 @@
 
   async function danVariations() {
     if (dangChay) return;
-    const luu = docLuu();
-    if (!luu?.variations?.length) {
-      hienThongBao('Chưa có dữ liệu. Hãy Copy ở listing nguồn trước', DO);
-      return;
-    }
+    const ds = await layDuLieuDeDan();
+    if (!ds) return;
     dangChay = true;
     try {
-      const ds = luu.variations;
       if (!daCoDuBang(ds)) {
         hienThongBao('Đang tạo Variations...', '#1F2937', 0);
         const kq = await taoVariations(ds);
@@ -470,50 +470,113 @@
   }
 
   async function chiDienGia() {
-    const luu = docLuu();
-    if (!luu?.variations?.length) {
-      hienThongBao('Chưa có dữ liệu. Hãy Copy ở listing nguồn trước', DO);
-      return;
-    }
     if (!layCacBang().length) {
       hienThongBao('Chưa có bảng Variations trên trang này', DO);
       return;
     }
-    baoKetQuaDien(await dienGiaVaHienThi(luu.variations));
+    const ds = await layDuLieuDeDan();
+    if (!ds) return;
+    baoKetQuaDien(await dienGiaVaHienThi(ds));
   }
 
-  // ================== XUAT / NHAP JSON ==================
+  // ================== CLIPBOARD (DUNG CHUNG GIUA CAC TRINH DUYET) ==================
+  // GM_setValue la kho rieng cua TUNG trinh duyet (va tung ban Violentmonkey), nen Copy o Chrome
+  // thi Firefox/Edge khong thay. Clipboard he thong thi moi trinh duyet tren cung may deu doc duoc,
+  // nen Copy ghi ca 2 noi, con Dan uu tien doc Clipboard, khong co moi dung GM_setValue.
+  // Chuoi co dau DAU_CLIPBOARD o dong dau de khong nham voi chu binh thuong dang nam trong Clipboard.
 
-  function xuatJson() {
-    const luu = docLuu();
-    if (!luu) {
-      hienThongBao('Chưa có dữ liệu để xuất', DO);
-      return;
-    }
-    const s = JSON.stringify(luu.variations, null, 2);
-    if (typeof GM_setClipboard === 'function') GM_setClipboard(s, 'text');
-    else navigator.clipboard?.writeText(s);
-    hienThongBao('Đã copy JSON vào Clipboard', XANH);
+  const DAU_CLIPBOARD = 'ETSY_VARIATIONS_V1';
+
+  function taoChuoiClipboard(ds) {
+    return DAU_CLIPBOARD + '\n' + JSON.stringify(ds);
   }
 
-  function nhapJson() {
-    const s = prompt('Dán JSON variations:');
-    if (!s) return;
+  // Nhan ca chuoi co dau lan JSON tran (mang variations). Sai dinh dang -> null
+  function tachChuoiClipboard(s) {
+    s = String(s || '').trim();
+    if (s.startsWith(DAU_CLIPBOARD)) s = s.slice(DAU_CLIPBOARD.length).trim();
+    else if (!s.startsWith('[')) return null;
     try {
       const ds = JSON.parse(s);
       const hopLe =
-        Array.isArray(ds) && ds.every((v) => v && typeof v.ten === 'string' && Array.isArray(v.luaChon));
-      if (!hopLe) throw new Error('Sai định dạng');
-      for (const v of ds) {
-        v.coGia = !!v.coGia;
-        v.luaChon = v.luaChon.map((o) => ({ ten: String(o.ten), gia: String(o.gia ?? ''), hien: o.hien !== false }));
-      }
-      ghiLuu({ luc: Date.now(), variations: ds });
-      hienThongBao('Đã nhập JSON', XANH);
-      capNhatPanel();
+        Array.isArray(ds) && ds.length && ds.every((v) => v && typeof v.ten === 'string' && Array.isArray(v.luaChon));
+      if (!hopLe) return null;
+      return ds.map((v) => ({
+        ten: v.ten,
+        coGia: !!v.coGia,
+        luaChon: v.luaChon.map((o) => ({ ten: String(o.ten), gia: String(o.gia ?? ''), hien: o.hien !== false })),
+      }));
     } catch (e) {
-      hienThongBao('JSON không hợp lệ: ' + e.message, DO);
+      return null;
     }
+  }
+
+  // Thu CA HAI duong: tuy trinh duyet / ban Violentmonkey ma 1 trong 2 co the im lang khong an
+  async function ghiClipboard(chuoi) {
+    let daGhi = false;
+    if (typeof GM_setClipboard === 'function') {
+      try {
+        GM_setClipboard(chuoi, 'text');
+        daGhi = true;
+      } catch (e) {
+        canhBao('GM_setClipboard loi:', e);
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(chuoi);
+      daGhi = true;
+    } catch (e) {
+      if (!daGhi) canhBao('navigator.clipboard.writeText loi:', e);
+    }
+    return daGhi;
+  }
+
+  async function docClipboard() {
+    try {
+      return await navigator.clipboard.readText();
+    } catch (e) {
+      canhBao('Khong doc duoc Clipboard:', e);
+      return null;
+    }
+  }
+
+  // Clipboard co du lieu variations -> dung va luu lai vao GM_setValue; khong thi dung du lieu da luu
+  async function layDuLieuDeDan() {
+    const chuoi = await docClipboard();
+    const tuClipboard = tachChuoiClipboard(chuoi);
+    if (tuClipboard) {
+      ghiLuu({ luc: Date.now(), variations: tuClipboard });
+      capNhatPanel();
+      log('Dung du lieu tu Clipboard');
+      return tuClipboard;
+    }
+    const luu = docLuu();
+    if (luu?.variations?.length) {
+      log('Clipboard khong co du lieu variations, dung du lieu da luu trong trinh duyet');
+      return luu.variations;
+    }
+    hienThongBao(
+      chuoi === null
+        ? 'Không đọc được Clipboard (hãy cho phép quyền Clipboard cho etsy.com) và trình duyệt này chưa có dữ liệu.\nCó thể bấm "Nhập từ Clipboard" rồi dán tay (Ctrl+V).'
+        : 'Chưa có dữ liệu. Hãy bấm "Copy variations" ở listing nguồn trước',
+      DO,
+      9000
+    );
+    return null;
+  }
+
+  // Du phong khi trinh duyet chan quyen doc Clipboard: dan tay vao hop thoai
+  function nhapTay() {
+    const s = prompt('Dán (Ctrl+V) dữ liệu variations đã Copy:');
+    if (!s) return;
+    const ds = tachChuoiClipboard(s);
+    if (!ds) {
+      hienThongBao('Dữ liệu không hợp lệ', DO);
+      return;
+    }
+    ghiLuu({ luc: Date.now(), variations: ds });
+    hienThongBao('Đã nhập dữ liệu variations', XANH);
+    capNhatPanel();
   }
 
   // ================== GIAO DIEN ==================
@@ -557,8 +620,7 @@
     nut('Copy variations', '#2563EB', copyVariations);
     nut('Dán variations', '#15803D', danVariations);
     nut('Chỉ điền giá', '#0F766E', chiDienGia);
-    nut('Xuất JSON', '#6B7280', xuatJson);
-    nut('Nhập JSON', '#6B7280', nhapJson);
+    nut('Nhập từ Clipboard (dán tay)', '#6B7280', nhapTay);
 
     p.querySelector('.ev-head').addEventListener('click', () => {
       const an = body.style.display !== 'none';

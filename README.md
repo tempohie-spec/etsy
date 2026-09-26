@@ -1163,10 +1163,17 @@ lý xong đơn hiện tại, rồi vẫn xuất file Excel với dữ liệu đ�
 
 | Nút | Việc làm |
 |---|---|
-| Copy variations | Đọc các bảng Variations (tên variation, tên option, giá, Visible) ở listing nguồn và lưu lại (GM_setValue, dùng chung giữa các tab) |
+| Copy variations | Đọc các bảng Variations (tên variation, tên option, giá, Visible) ở listing nguồn, ghi vào **Clipboard hệ thống** và lưu GM_setValue |
 | Dán variations | Ở listing mới: bấm "Add variation" → "Create your own" → điền Name, thêm từng option bằng nút "Add" → "Done"; lặp lại qua "Add a variation" cho variation tiếp theo; bật "Prices vary for each" + chọn variation có giá → "Apply"; sau đó điền giá rồi mới bật/tắt Visible (switch Visible bị khoá khi giá chưa hợp lệ) |
 | Chỉ điền giá | Khi variations đã có sẵn (tạo tay hoặc bước tự tạo bị dừng): chỉ điền giá + Visible, khớp theo tên option |
-| Xuất / Nhập JSON | Mang dữ liệu sang trình duyệt khác hoặc sửa tay |
+| Nhập từ Clipboard (dán tay) | Dự phòng khi trình duyệt chặn quyền đọc Clipboard: dán (Ctrl+V) dữ liệu đã Copy vào hộp thoại |
 
 Script dùng đúng id của Etsy: `#le-unstructured-variation-name-input`, `#le-unstructured-variation-option-input`,
 `#variations-select-controlsPrice`. Nếu một bước bị dừng, toast báo bước lỗi: làm tay phần còn lại, bấm Apply rồi bấm "Chỉ điền giá".
+
+## Copy sang trình duyệt khác qua Clipboard (v1.2)
+
+GM_setValue là kho riêng của từng trình duyệt, nên Copy ở Chrome thì Firefox/Edge không thấy. Từ v1.2,
+"Copy variations" ghi thêm dữ liệu vào Clipboard hệ thống (dòng đầu `ETSY_VARIATIONS_V1`), còn "Dán variations"
+và "Chỉ điền giá" ưu tiên đọc Clipboard, không có mới dùng dữ liệu đã lưu trong trình duyệt. Lần đầu trình duyệt
+có thể hỏi quyền đọc Clipboard: bấm Cho phép. Không Copy thứ khác vào Clipboard giữa lúc Copy và Dán.
