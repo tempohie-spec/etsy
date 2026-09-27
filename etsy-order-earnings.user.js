@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.30
+// @version      2.31
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -158,8 +158,11 @@
     return null;
   }
 
+  // Chuan hoa: bo khoang trang dau/cuoi, ve chu thuong, VA don khoang trang quanh dau "/"
+  // (vd "Blossom / Light Pink" -> "blossom/light pink") - can thiet de bi danh CA TO HOP nhieu
+  // mau (xem ben duoi) so khop duoc du Etsy co chen khoang trang quanh dau "/" hay khong.
   function chuanHoaTenMau(s) {
-    return String(s || '').trim().toLowerCase();
+    return String(s || '').trim().toLowerCase().replace(/\s*\/\s*/g, '/');
   }
 
   // Quy doi 1 chuoi Color (co the la mau ghep "A/B/C" hoac mau don) thanh mau THAT SU can
@@ -171,10 +174,18 @@
     if (!thongTinAo) return colorRaw;
     const { mau: bangMau, biDanh } = thongTinAo;
 
-    const boMauHopLe = new Set(bangMau.map(chuanHoaTenMau));
     const biDanhChuanHoa = {};
     Object.keys(biDanh).forEach((k) => { biDanhChuanHoa[chuanHoaTenMau(k)] = biDanh[k]; });
 
+    // Uu tien so bi danh cho CA CHUOI GOC truoc khi tach theo dau "/" - cho phep dinh nghia
+    // rieng cho ca 1 to hop nhieu mau (vd "Blossom/Light Pink" -> "Pink"), khong chi tung
+    // manh rieng le nhu ben duoi.
+    const chuanCaChuoi = chuanHoaTenMau(colorRaw);
+    if (biDanhChuanHoa[chuanCaChuoi] !== undefined) {
+      return biDanhChuanHoa[chuanCaChuoi];
+    }
+
+    const boMauHopLe = new Set(bangMau.map(chuanHoaTenMau));
     const parts = colorRaw.split('/').map((s) => s.trim());
     const khop = [];
     parts.forEach((p) => {
@@ -216,7 +227,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.30';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.31';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel

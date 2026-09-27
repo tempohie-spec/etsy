@@ -1109,6 +1109,16 @@ mở hộp thoại sửa bí danh cho cả 6 loại áo. Mỗi ô là 1 loại �
 bạn tiếp tục sửa/kiểm tra ngay trong hộp thoại. Nút **"🗑️ Xoá hết"** xoá trắng tất cả các ô,
 cũng CHƯA lưu ngay — vẫn cần bấm "Lưu" nếu muốn áp dụng việc xoá đó.
 
+Phần "Tên Etsy" của 1 dòng có thể là:
+
+- **1 mảnh màu đơn** (vd `Dark Heather=Dark Grey Heather`) — áp dụng khi mảnh đó xuất hiện
+  trong chuỗi màu ghép `A/B/C`, dù đứng ở vị trí nào.
+- **Cả một tổ hợp nhiều màu, có dấu `/`** (vd `Blossom/Light Pink=Pink`) — áp dụng khi TOÀN BỘ
+  chuỗi Color của sản phẩm đúng bằng tổ hợp đó (khoảng trắng quanh dấu `/` không quan trọng,
+  `"Blossom / Light Pink"` và `"Blossom/Light Pink"` đều khớp). Cách này được kiểm tra TRƯỚC,
+  nên nếu vừa có bí danh cho cả tổ hợp vừa có bí danh cho từng mảnh riêng, bí danh cho **cả tổ
+  hợp** sẽ được ưu tiên dùng.
+
 Các bí danh mặc định (dùng làm giá trị khởi tạo lần đầu, trước khi bạn tự sửa):
 
 | Loại áo | Etsy ghi | Điền ra |
