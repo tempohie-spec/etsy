@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.29
+// @version      2.30
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -216,7 +216,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.29';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.30';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -1324,13 +1324,13 @@
     const dongNut = document.createElement('div');
     dongNut.style.cssText = 'display:flex; gap:8px; margin-top:14px;';
 
-    const btnKhoiPhuc = document.createElement('button');
-    btnKhoiPhuc.textContent = '↩️ Mặc định';
-    btnKhoiPhuc.title = 'Chỉ điền lại giá trị mặc định vào các ô bên trên, chưa lưu ngay';
-    btnKhoiPhuc.style.cssText = 'flex:1; padding:8px 10px; background:#6b7280; color:#fff; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
-    btnKhoiPhuc.onclick = () => {
+    const btnXoaHet = document.createElement('button');
+    btnXoaHet.textContent = '🗑️ Xoá hết';
+    btnXoaHet.title = 'Xoá trắng tất cả các ô bên trên, chưa lưu ngay - vẫn phải bấm Lưu';
+    btnXoaHet.style.cssText = 'flex:1; padding:8px 10px; background:#6b7280; color:#fff; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
+    btnXoaHet.onclick = () => {
       Object.keys(cacTextarea).forEach((key) => {
-        cacTextarea[key].value = bienDoiBiDanhThanhVanBan(DEFAULT_BI_DANH[key]);
+        cacTextarea[key].value = '';
       });
     };
 
@@ -1344,7 +1344,7 @@
       });
       biDanhHienTai = moi;
       GM_setValue(COLOR_ALIAS_STORAGE_KEY, JSON.stringify(moi));
-      document.body.removeChild(overlay);
+      // KHONG dong cua so sau khi luu - de nguoi dung tiep tuc sua/kiem tra ngay trong hop thoai.
       hienThongBao('✅ Đã lưu quy đổi màu.', '#16A34A');
     };
 
@@ -1353,7 +1353,7 @@
     btnDong.style.cssText = 'flex:1; padding:8px 10px; background:#e5e7eb; color:#111827; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
     btnDong.onclick = () => document.body.removeChild(overlay);
 
-    dongNut.appendChild(btnKhoiPhuc);
+    dongNut.appendChild(btnXoaHet);
     dongNut.appendChild(btnLuu);
     dongNut.appendChild(btnDong);
     hop.appendChild(dongNut);

@@ -1105,10 +1105,11 @@ thức đó, không điền nguyên văn tên Etsy ghi.
 mở hộp thoại sửa bí danh cho cả 6 loại áo. Mỗi ô là 1 loại áo, mỗi dòng 1 quy đổi dạng
 `Tên Etsy=Tên chính thức` (vd `Dark Heather=Dark Grey Heather`) — dòng trống hoặc không có dấu
 `=` sẽ bị bỏ qua. Bấm **"💾 Lưu"** để áp dụng ngay (không cần tải lại trang) và lưu lại qua
-`GM_setValue` nên vẫn còn sau khi đóng trình duyệt. Nút **"↩️ Mặc định"** chỉ điền lại giá trị
-gốc vào các ô, chưa lưu ngay — vẫn cần bấm "Lưu" nếu muốn áp dụng.
+`GM_setValue` nên vẫn còn sau khi đóng trình duyệt — cửa sổ **không tự đóng** sau khi lưu, để
+bạn tiếp tục sửa/kiểm tra ngay trong hộp thoại. Nút **"🗑️ Xoá hết"** xoá trắng tất cả các ô,
+cũng CHƯA lưu ngay — vẫn cần bấm "Lưu" nếu muốn áp dụng việc xoá đó.
 
-Các bí danh mặc định (dùng làm giá trị khởi tạo lần đầu và cho nút "Mặc định"):
+Các bí danh mặc định (dùng làm giá trị khởi tạo lần đầu, trước khi bạn tự sửa):
 
 | Loại áo | Etsy ghi | Điền ra |
 |---|---|---|
