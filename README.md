@@ -1097,11 +1097,18 @@ ví dụ áo Bella Canvas, Etsy ghi mảnh là `"Dark Heather"` nhưng tên chí
 lại là `"Dark Grey Heather"`. Nếu chỉ so khớp tên chính xác thì mảnh này sẽ không khớp được với
 bảng màu, script sẽ giữ nguyên `A/B/C` thay vì điền đúng màu.
 
-Đã thêm 1 bảng "bí danh" cho mỗi loại áo (`BI_DANH_MAU_...`, ngay dưới các bảng màu chính) để
-xử lý đúng trường hợp này: key là tên mà Etsy hiển thị, value là tên CHÍNH THỨC trong bảng màu —
-khớp được bí danh nào thì điền ra đúng tên chính thức đó, không điền nguyên văn tên Etsy ghi.
+Đã thêm 1 bảng "bí danh" cho mỗi loại áo để xử lý đúng trường hợp này: key là tên mà Etsy hiển
+thị, value là tên CHÍNH THỨC trong bảng màu — khớp được bí danh nào thì điền ra đúng tên chính
+thức đó, không điền nguyên văn tên Etsy ghi.
 
-Các bí danh hiện có:
+**Sửa trực tiếp trên panel, không cần sửa code**: bấm nút **"🎨 Sửa quy đổi màu"** trong panel để
+mở hộp thoại sửa bí danh cho cả 6 loại áo. Mỗi ô là 1 loại áo, mỗi dòng 1 quy đổi dạng
+`Tên Etsy=Tên chính thức` (vd `Dark Heather=Dark Grey Heather`) — dòng trống hoặc không có dấu
+`=` sẽ bị bỏ qua. Bấm **"💾 Lưu"** để áp dụng ngay (không cần tải lại trang) và lưu lại qua
+`GM_setValue` nên vẫn còn sau khi đóng trình duyệt. Nút **"↩️ Mặc định"** chỉ điền lại giá trị
+gốc vào các ô, chưa lưu ngay — vẫn cần bấm "Lưu" nếu muốn áp dụng.
+
+Các bí danh mặc định (dùng làm giá trị khởi tạo lần đầu và cho nút "Mặc định"):
 
 | Loại áo | Etsy ghi | Điền ra |
 |---|---|---|
@@ -1114,15 +1121,8 @@ Các bí danh hiện có:
 | Sweatshirt/Hoodie | `Blue` | `Light Blue` |
 | Sweatshirt/Hoodie | `Pink` | `Light Pink` |
 
-```js
-const BI_DANH_MAU_BELLA_ADULT = {
-  'dark heather': 'Dark Grey Heather',
-  'blue': 'Baby Blue'
-};
-```
-
-Gặp thêm trường hợp tương tự (tên Etsy ghi khác tên chính thức) thì thêm 1 dòng vào đúng bảng
-bí danh của loại áo đó, không cần sửa bảng màu chính hay logic so khớp.
+Gặp thêm trường hợp tương tự (tên Etsy ghi khác tên chính thức) thì mở panel, thêm 1 dòng vào
+đúng ô của loại áo đó rồi bấm Lưu — không cần sửa code.
 
 ## Tự động copy dữ liệu vào clipboard
 

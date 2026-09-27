@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.28
+// @version      2.29
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -46,8 +46,8 @@
   // Cap nhat bang mau: copy dung chinh ta tu anh bang mau cua nha cung cap (khong phan biet
   // hoa/thuong, khoang trang du khi so khop). Them 1 gia tri vao mang tuong ung la du, khong
   // can sua ham resolveColorForGarment ben duoi. Neu Etsy hien ten mau KHAC voi ten chinh
-  // thuc trong bang mau (vd "Dark Heather" thay vi "Dark Grey Heather"), them vao bang
-  // BI_DANH_MAU_... tuong ung ben duoi thay vi sua bang mau chinh.
+  // thuc trong bang mau (vd "Dark Heather" thay vi "Dark Grey Heather"), sua trong bang
+  // DEFAULT_BI_DANH ben duoi (hoac tren panel "🎨 Sua quy doi mau" - xem giai thich duoi day).
   const BANG_MAU_COMFORT_ADULT = [
     'White', 'Ivory', 'Banana', 'Butter', 'Mustard', 'Grey', 'Granite', 'Pepper', 'Orange',
     'Yam', 'Bay', 'Moss', 'Light Green', 'Island Reef', 'Khaki', 'Chambray', 'Espresso',
@@ -91,46 +91,69 @@
   // Khai bao bi danh (alias) o day: key la ten XUAT HIEN TREN ETSY (khong phan biet hoa/thuong),
   // value la ten CHINH THUC dung trong bang mau tuong ung ben tren - dien ra se dung ten CHINH
   // THUC (value), khong dung nguyen van manh doc duoc tren Etsy (key).
-  const BI_DANH_MAU_BELLA_ADULT = {
-    'dark heather': 'Dark Grey Heather',
-    'blue': 'Baby Blue'
+  //
+  // Day CHI LA GIA TRI MAC DINH (dung lam "hat giong" lan dau va cho nut "Khoi phuc mac dinh"
+  // trong panel) - nguoi dung co the tu sua danh sach nay ngay tren panel (nut "🎨 Sua quy doi
+  // mau") ma khong can sua code. Gia tri THAT SU dang dung nam trong bien biDanhHienTai o duoi,
+  // duoc doc/ghi qua GM_getValue/GM_setValue.
+  const DEFAULT_BI_DANH = {
+    comfort_adult: { 'orange': 'Burnt Orange' },
+    comfort_youth: {},
+    bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue' },
+    bella_youth: { 'dark heather': 'Dark Grey Heather' },
+    toddler: { 'violet': 'Lavender', 'dark heather': 'Vintage Smoke' },
+    sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' }
   };
-  const BI_DANH_MAU_BELLA_YOUTH = {
-    'dark heather': 'Dark Grey Heather'
+
+  // Ten hien thi cho tung loai ao tren panel (dung khi dung nut "🎨 Sua quy doi mau").
+  const TEN_HIEN_THI_LOAI_AO = {
+    comfort_adult: 'Comfort Colors Adult',
+    comfort_youth: 'Comfort Colors Youth',
+    bella_adult: 'Bella Canvas Adult',
+    bella_youth: 'Bella Canvas Youth',
+    toddler: 'Toddler',
+    sweatshirt_hoodie: 'Sweatshirt / Hoodie'
   };
-  const BI_DANH_MAU_COMFORT_ADULT = {
-    'orange': 'Burnt Orange'
-  };
-  const BI_DANH_MAU_COMFORT_YOUTH = {};
-  const BI_DANH_MAU_TODDLER = {
-    'violet': 'Lavender',
-    'dark heather': 'Vintage Smoke'
-  };
-  const BI_DANH_MAU_SWEATSHIRT_HOODIE = {
-    'blue': 'Light Blue',
-    'pink': 'Light Pink'
-  };
+
+  const COLOR_ALIAS_STORAGE_KEY = 'etsy_scraper_color_aliases_v1';
+
+  // Doc bang bi danh dang luu (GM_setValue) - neu chua co (lan dau chay) hoac loi thi dung
+  // DEFAULT_BI_DANH lam gia tri khoi tao. Day la bien MUTABLE, duoc cap nhat truc tiep moi khi
+  // nguoi dung bam Luu trong panel "🎨 Sua quy doi mau" (khong can tai lai trang de ap dung).
+  function docBiDanhDaLuu() {
+    try {
+      const raw = GM_getValue(COLOR_ALIAS_STORAGE_KEY, null);
+      if (!raw) return JSON.parse(JSON.stringify(DEFAULT_BI_DANH));
+      const parsed = JSON.parse(raw);
+      // Dam bao du 6 loai ao (phong khi ban cu chua co du key, hoac them loai ao moi sau nay).
+      return Object.assign(JSON.parse(JSON.stringify(DEFAULT_BI_DANH)), parsed);
+    } catch (e) {
+      return JSON.parse(JSON.stringify(DEFAULT_BI_DANH));
+    }
+  }
+
+  let biDanhHienTai = docBiDanhDaLuu();
 
   // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
   // "Bella-Youth Tee", "Toddler Tee", "Sweatshirt-Adult", "Hoodie-Adult"...) de chon dung
   // bang mau + bang bi danh tuong ung. Tra ve null neu khong nhan ra loai ao nao ben duoi.
   function xacDinhBangMauTheoAo(title) {
     const t = (title || '').toLowerCase();
-    if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: BI_DANH_MAU_TODDLER };
+    if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: biDanhHienTai.toddler };
     if (t.includes('sweatshirt') || t.includes('hoodie')) {
-      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU_SWEATSHIRT_HOODIE };
+      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: biDanhHienTai.sweatshirt_hoodie };
     }
     if (t.includes('comfort') && t.includes('youth')) {
-      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU_COMFORT_YOUTH };
+      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: biDanhHienTai.comfort_youth };
     }
     if (t.includes('comfort') && t.includes('adult')) {
-      return { mau: BANG_MAU_COMFORT_ADULT, biDanh: BI_DANH_MAU_COMFORT_ADULT };
+      return { mau: BANG_MAU_COMFORT_ADULT, biDanh: biDanhHienTai.comfort_adult };
     }
     if (t.includes('bella') && t.includes('youth')) {
-      return { mau: BANG_MAU_BELLA_YOUTH, biDanh: BI_DANH_MAU_BELLA_YOUTH };
+      return { mau: BANG_MAU_BELLA_YOUTH, biDanh: biDanhHienTai.bella_youth };
     }
     if (t.includes('bella') && t.includes('adult')) {
-      return { mau: BANG_MAU_BELLA_ADULT, biDanh: BI_DANH_MAU_BELLA_ADULT };
+      return { mau: BANG_MAU_BELLA_ADULT, biDanh: biDanhHienTai.bella_adult };
     }
     return null;
   }
@@ -193,7 +216,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.28';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.29';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -1234,6 +1257,111 @@
     }, 5000);
   }
 
+  // ====== GIAO DIEN SUA QUY DOI MAU (BI_DANH) NGAY TREN PANEL ======
+
+  // Doi 1 bang bi danh {key: value} thanh van ban nhieu dong "key=value" de hien trong textarea.
+  function bienDoiBiDanhThanhVanBan(obj) {
+    return Object.keys(obj || {}).map((k) => `${k}=${obj[k]}`).join('\n');
+  }
+
+  // Nguoc lai: doi van ban nhieu dong "Ten Etsy=Ten chinh thuc" thanh bang bi danh {key: value}.
+  // Bo qua dong trong/khong co dau "=". Key duoc chuan hoa ve chu thuong (khong phan biet
+  // hoa/thuong khi so khop, giong logic resolveColorForGarment).
+  function bienDoiVanBanThanhBiDanh(text) {
+    const out = {};
+    (text || '').split('\n').forEach((dong) => {
+      const idx = dong.indexOf('=');
+      if (idx === -1) return;
+      const key = dong.slice(0, idx).trim().toLowerCase();
+      const value = dong.slice(idx + 1).trim();
+      if (key && value) out[key] = value;
+    });
+    return out;
+  }
+
+  // Mo 1 hop thoai (overlay) cho phep xem/sua truc tiep bang bi danh mau cho ca 6 loai ao,
+  // khong can sua code. Luu qua GM_setValue (COLOR_ALIAS_STORAGE_KEY) va cap nhat ngay bien
+  // biDanhHienTai de ap dung tu lan quet tiep theo, khong can tai lai trang.
+  function moModalSuaQuyDoiMau() {
+    const overlay = document.createElement('div');
+    overlay.id = 'eos-color-alias-overlay';
+    overlay.style.cssText = `
+      position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1000000;
+      display:flex; align-items:center; justify-content:center; padding:20px;
+      font-family:sans-serif;
+    `;
+
+    const hop = document.createElement('div');
+    hop.style.cssText = `
+      background:#fff; border-radius:10px; width:100%; max-width:480px; max-height:85vh;
+      overflow-y:auto; padding:16px;
+    `;
+
+    const tieuDe = document.createElement('div');
+    tieuDe.innerHTML = `
+      <div style="font-weight:bold; font-size:15px; margin-bottom:4px;">🎨 Sửa quy đổi màu theo loại áo</div>
+      <div style="font-size:11px; color:#6b7280; margin-bottom:10px;">
+        Mỗi dòng 1 quy đổi, dạng <code>Tên Etsy=Tên chính thức</code>. Ví dụ:
+        <code>Dark Heather=Dark Grey Heather</code>. Dòng trống hoặc không có dấu "=" sẽ bị bỏ qua.
+      </div>
+    `;
+    hop.appendChild(tieuDe);
+
+    const cacTextarea = {};
+    Object.keys(TEN_HIEN_THI_LOAI_AO).forEach((key) => {
+      const nhan = document.createElement('div');
+      nhan.textContent = TEN_HIEN_THI_LOAI_AO[key];
+      nhan.style.cssText = 'font-weight:bold; font-size:12px; margin:10px 0 4px;';
+      hop.appendChild(nhan);
+
+      const ta = document.createElement('textarea');
+      ta.value = bienDoiBiDanhThanhVanBan(biDanhHienTai[key]);
+      ta.style.cssText = 'width:100%; height:56px; box-sizing:border-box; font-size:12px; resize:vertical;';
+      hop.appendChild(ta);
+      cacTextarea[key] = ta;
+    });
+
+    const dongNut = document.createElement('div');
+    dongNut.style.cssText = 'display:flex; gap:8px; margin-top:14px;';
+
+    const btnKhoiPhuc = document.createElement('button');
+    btnKhoiPhuc.textContent = '↩️ Mặc định';
+    btnKhoiPhuc.title = 'Chỉ điền lại giá trị mặc định vào các ô bên trên, chưa lưu ngay';
+    btnKhoiPhuc.style.cssText = 'flex:1; padding:8px 10px; background:#6b7280; color:#fff; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
+    btnKhoiPhuc.onclick = () => {
+      Object.keys(cacTextarea).forEach((key) => {
+        cacTextarea[key].value = bienDoiBiDanhThanhVanBan(DEFAULT_BI_DANH[key]);
+      });
+    };
+
+    const btnLuu = document.createElement('button');
+    btnLuu.textContent = '💾 Lưu';
+    btnLuu.style.cssText = 'flex:1; padding:8px 10px; background:#1a7f37; color:#fff; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
+    btnLuu.onclick = () => {
+      const moi = {};
+      Object.keys(cacTextarea).forEach((key) => {
+        moi[key] = bienDoiVanBanThanhBiDanh(cacTextarea[key].value);
+      });
+      biDanhHienTai = moi;
+      GM_setValue(COLOR_ALIAS_STORAGE_KEY, JSON.stringify(moi));
+      document.body.removeChild(overlay);
+      hienThongBao('✅ Đã lưu quy đổi màu.', '#16A34A');
+    };
+
+    const btnDong = document.createElement('button');
+    btnDong.textContent = 'Đóng';
+    btnDong.style.cssText = 'flex:1; padding:8px 10px; background:#e5e7eb; color:#111827; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
+    btnDong.onclick = () => document.body.removeChild(overlay);
+
+    dongNut.appendChild(btnKhoiPhuc);
+    dongNut.appendChild(btnLuu);
+    dongNut.appendChild(btnDong);
+    hop.appendChild(dongNut);
+
+    overlay.appendChild(hop);
+    document.body.appendChild(overlay);
+  }
+
   function docTrangThaiPanel() {
     try {
       return JSON.parse(GM_getValue(PANEL_STATE_KEY, '{}')) || {};
@@ -1411,6 +1539,15 @@
     `;
     btnScanOnly.onclick = () => scanAndExport(false);
     vungNoiDung.appendChild(taoDongNutCoTheBatTat(btnScanOnly, ENABLE_SCAN_ONLY_KEY));
+
+    const btnSuaMauSac = document.createElement('button');
+    btnSuaMauSac.textContent = '🎨 Sửa quy đổi màu';
+    btnSuaMauSac.style.cssText = `
+      padding:8px 10px; background:#7C3AED; color:#fff; border:none;
+      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
+    `;
+    btnSuaMauSac.onclick = moModalSuaQuyDoiMau;
+    vungNoiDung.appendChild(btnSuaMauSac);
 
     idsTextarea = document.createElement('textarea');
     idsTextarea.placeholder = 'Mỗi mã đơn 1 dòng, ví dụ:\n4127701646\n4127701647';
