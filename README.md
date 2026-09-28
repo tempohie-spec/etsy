@@ -1354,6 +1354,20 @@ orderNumber) bị bỏ qua.
 cancel: thêm hậu tố chữ vào orderNumber (vd `4181764944a`) vì Merchize không nhận trùng
 External number.
 
+## Base Cost ước tính (cột Y, v1.5)
+
+Khi gửi đơn thành công, script tự điền **Base Cost ước tính** vào cột Y ở dòng đầu của đơn (chỉ
+khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền Base Cost ước tính cho đơn đã gửi**.
+
+- Giá gốc: `tiers` trong catalog theo cột A (`dtg_tier1` / `dtf_tier1`). Đổi bậc giá ở hằng số
+  `TIER` nếu store lên tier2/tier3.
+- Phí ship: `shipping_prices` theo quốc gia người nhận (đúng mã nước, rồi zone, rồi EU, rồi ROW).
+  Sản phẩm có phí "first item" cao nhất tính first item, các sản phẩm/số lượng còn lại tính
+  "additional item".
+- **Chỉ là ước tính**: chưa gồm phụ phí (in mặt sau, surcharge, thuế). Cost thật vẫn lấy bằng
+  script **Import Cost/Earnings** như cũ, script đó sẽ ghi đè số ước tính khi có cost thật.
+- Catalog lưu từ bản cũ chưa có giá: bấm **1. Cập nhật catalog** lại một lần.
+
 ## Quy tắc tra SKU
 
 | Title (viết kiểu nào cũng được) | Mã Merchize |

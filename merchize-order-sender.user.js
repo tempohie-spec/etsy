@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.4
+// @version      1.5
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.4';
+  const SCRIPT_VERSION = '1.5';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -47,11 +47,15 @@
     country: 19,       // T
     phone: 20,         // U
     email: 21,         // V
+    baseCost: 24,      // Y
     merchizeSku: 27,   // AB
     status: 28,        // AC
     merchizeId: 29     // AD
   };
   const OUTPUT_HEADERS = ['Merchize SKU', 'Trạng thái Merchize', 'Mã đơn Merchize'];
+
+  // Bac gia goc Merchize dang ap dung cho store (tier1 = 0-999 don, tier2 = 1000-2999, tier3 = >3000).
+  const TIER = 'tier1';
 
   const STATUS_SENT = 'Đã gửi';
   const STATUS_OLD = 'Cũ';
@@ -219,7 +223,12 @@
         });
         const key = mau + '|' + size;
         if (v.sku && variants[key] === undefined) {
-          variants[key] = v.sku;
+          const gia = {};
+          (v.tiers || []).forEach((t) => { gia[t.name] = Number(t.price); });
+          const ship = (v.shipping_prices || v.shipping_price || []).map((x) => [
+            str(x.to_zone), str(x.to_country), Number(x.first_item) || 0, Number(x.additional_item) || 0
+          ]);
+          variants[key] = { sku: v.sku, gia, ship };
           soVariant++;
         }
       });
@@ -252,10 +261,50 @@
     });
     const khop = Array.from(khopMap.keys());
     if (khop.length === 1) {
-      return { sku: bang[khop[0] + '|' + s], productTitle: sp.title, mauGui: khopMap.get(khop[0]) };
+      const v = bang[khop[0] + '|' + s];
+      // Catalog luu tu ban <= 1.4 chi co chuoi SKU, chua co gia/phi ship.
+      return typeof v === 'string'
+        ? { sku: v, productTitle: sp.title, mauGui: khopMap.get(khop[0]), variant: null }
+        : { sku: v.sku, productTitle: sp.title, mauGui: khopMap.get(khop[0]), variant: v };
     }
     if (khop.length > 1) return { loi: `màu "${color}" khớp nhiều màu trong catalog ${maSp}` };
     return { loi: `${maSp} không có màu "${color}" size "${size}"` };
+  }
+
+  // ============ UOC TINH BASE COST (gia goc + phi ship) TU CATALOG ============
+  const NUOC_EU = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE',
+    'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
+
+  // ship: [[to_zone, to_country, first_item, additional_item], ...]. Uu tien dong ghi dung ma
+  // nuoc, roi toi zone trung ma nuoc (vd "CA"), roi EU, cuoi cung ROW.
+  function chonPhiShip(ship, code) {
+    const tatCa = (x) => /^(all|)$/i.test(x[1]);
+    return ship.find((x) => x[1].split(/\s*,\s*/).includes(code)) ||
+      ship.find((x) => (x[0] === code || (code === 'GB' && x[0] === 'UK')) && tatCa(x)) ||
+      (NUOC_EU.has(code) && (ship.find((x) => x[0] === 'EU' && /rest of eu/i.test(x[1])) ||
+        ship.find((x) => x[0] === 'EU' && tatCa(x)))) ||
+      ship.find((x) => x[0] === 'ROW' && tatCa(x)) ||
+      null;
+  }
+
+  // dong: [{ variant, pm, qty }]. Tong = gia goc tung san pham + phi ship: san pham co phi
+  // "first item" cao nhat tinh first item, cac san pham con lai tinh "additional item".
+  // Tra ve so (lam tron 2 chu so) hoac chuoi loi.
+  function uocTinhCost(dong, code) {
+    const donVi = [];
+    for (const d of dong) {
+      if (!d.variant) return 'catalog cũ, bấm "Cập nhật catalog"';
+      const gia = d.variant.gia[`${d.pm.toLowerCase()}_${TIER}`] ?? d.variant.gia[TIER];
+      if (typeof gia !== 'number' || isNaN(gia)) return `không có giá ${TIER} cho ${d.variant.sku}`;
+      const phi = chonPhiShip(d.variant.ship, code);
+      if (!phi) return `không có phí ship tới ${code} cho ${d.variant.sku}`;
+      for (let i = 0; i < d.qty; i++) donVi.push({ gia, first: phi[2], add: phi[3] });
+    }
+    if (donVi.length === 0) return 'đơn trống';
+    let iMax = 0;
+    donVi.forEach((u, i) => { if (u.first > donVi[iMax].first) iMax = i; });
+    const tong = donVi.reduce((t, u, i) => t + u.gia + (i === iMax ? u.first : u.add), 0);
+    return Math.round(tong * 100) / 100;
   }
 
   // ============ GOOGLE OAUTH + SHEETS API (giong script Import Cost/Earnings) ============
@@ -407,6 +456,7 @@
   function dungDon(don, catalog, tenTab) {
     const loi = [];
     const skus = [];
+    const dongCost = [];
     if (don.daGuiTruoc) loi.push('đơn này đã có dòng được gửi/đánh dấu trước đó');
 
     const first = don.rows[0].r;
@@ -450,6 +500,7 @@
 
       const qty = parseInt(cell(r, COL.quantity), 10);
       const pm = cell(r, COL.printingMethod).toUpperCase();
+      dongCost.push({ variant: tra.variant || null, pm: pm || 'DTF', qty: qty > 0 ? qty : 1 });
       const item = {
         name: title,
         merchize_sku: tra.sku || '',
@@ -471,8 +522,50 @@
     return {
       loi,
       skus,
+      cost: country && !coLoiSku(loi) ? uocTinhCost(dongCost, country) : '',
       payload: { order_id: don.orderNumber, identifier, shipping_info: shipping, items }
     };
+  }
+
+  function coLoiSku(loi) {
+    return loi.some((x) => /không có màu|không nhận ra loại áo|catalog chưa có|khớp nhiều màu/.test(x));
+  }
+
+  // Ghi Base Cost (cot Y) vao dong DAU cua don, giong cach dang dien tay. USER_ENTERED de la so.
+  async function ghiBaseCost(spreadsheetId, title, list) {
+    const data = list.filter((x) => typeof x.cost === 'number')
+      .map((x) => ({ range: `'${title}'!Y${x.row}`, values: [[x.cost]] }));
+    if (data.length === 0) return;
+    await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
+      method: 'POST',
+      body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data })
+    });
+  }
+
+  // Dien Base Cost uoc tinh cho cac don "Da gui" ma cot Y con trong (vd don gui tu ban cu).
+  async function dienBaseCost(statusEl) {
+    const catalog = docCatalogDaLuu();
+    if (!catalog) throw new Error('Chưa có catalog. Bấm "Cập nhật catalog" trước.');
+    log(statusEl, '⏳ Đang đọc trang tính...');
+    const { spreadsheetId, title } = await layTrangTinhDangMo();
+    const rows = await docTrangTinh(spreadsheetId, title);
+    const donMap = new Map();
+    rows.forEach((r, i) => {
+      const ma = cell(r, COL.orderNumber);
+      if (i === 0 || !ma || cell(r, COL.status) !== STATUS_SENT) return;
+      if (!donMap.has(ma)) donMap.set(ma, { orderNumber: ma, rows: [], daGuiTruoc: false });
+      donMap.get(ma).rows.push({ rowNumber: i + 1, r });
+    });
+    const canDien = Array.from(donMap.values()).filter((d) => !cell(d.rows[0].r, COL.baseCost));
+    const list = [];
+    const loi = [];
+    canDien.forEach((d) => {
+      const kq = dungDon(d, catalog, title);
+      if (typeof kq.cost === 'number') list.push({ row: d.rows[0].rowNumber, cost: kq.cost });
+      else loi.push(`• ${d.orderNumber}: ${kq.cost || kq.loi.join('; ')}`);
+    });
+    await ghiBaseCost(spreadsheetId, title, list);
+    return [`Đã điền Base Cost ước tính cho ${list.length}/${canDien.length} đơn "Đã gửi" còn trống cột Y.`, ...loi].join('\n');
   }
 
   // ============ 3 CHUC NANG CHINH ============
@@ -539,6 +632,9 @@
           trangThai = STATUS_SENT;
           maMerchize = str(json.data && json.data._id);
           thanhCong++;
+          if (typeof d.cost === 'number' && !cell(d.rows[0].r, COL.baseCost)) {
+            await ghiBaseCost(spreadsheetId, title, [{ row: d.rows[0].rowNumber, cost: d.cost }]);
+          }
         } else {
           trangThai = STATUS_ERROR_PREFIX + (json.message || 'Merchize từ chối');
         }
@@ -643,11 +739,12 @@
     const catalogBtn = nut('1. Cập nhật catalog', '#2196F3');
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
     const sendBtn = nut('3. Gửi đơn lên Merchize', '#4CAF50');
+    const costBtn = nut('Điền Base Cost ước tính cho đơn đã gửi', '#00897b');
     const oldBtn = nut('Đánh dấu dòng cũ (dùng 1 lần mỗi tab)', '#9e9e9e');
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, oldBtn, statusEl]
+    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
     document.body.appendChild(panel);
@@ -704,7 +801,7 @@
       if (show) repositionPanel();
     });
 
-    const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, oldBtn];
+    const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -747,6 +844,7 @@
     catalogBtn.addEventListener('click', () => chay(() => capNhatCatalog(statusEl)));
     checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
     sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true)));
+    costBtn.addEventListener('click', () => chay(() => dienBaseCost(statusEl)));
     oldBtn.addEventListener('click', () => chay(() => danhDauDongCu(statusEl)));
   }
 
