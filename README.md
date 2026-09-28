@@ -1403,6 +1403,23 @@ Mã màu/size của Merchize khác nhau theo từng sản phẩm nên không t�
 - Không gửi nếu thiếu: tên/địa chỉ/city/postalCode, quốc gia không nhận ra, thiếu mockUp, thiếu
   cả 2 link design, hoặc không tra được SKU.
 
+## Cập nhật tracking + cost qua API (v1.15)
+
+Nút **Cập nhật tracking + cost qua API**: với tab đang mở, tra từng đơn có Date Fulfill (cột W)
+trong **30 ngày** gần nhất và **chưa có tracking** (cột AE trống), bỏ qua đơn `Lỗi import`, qua
+`GET /order/external/orders/tracking?external_number=...`. Dùng được cho cả đơn gửi trước khi
+có webhook, và bù các thông báo webhook bị sót.
+
+- AE / AF = `tracking_number` / `tracking_company` (nhiều gói thì nối bằng dấu phẩy); AC =
+  `Có tracking` (dòng `Cũ` giữ nguyên `Cũ`).
+- AD = mã RX lấy từ tên gói (`RD-35688-45358-F1` → `RD-35688-45358`).
+- Y (dòng đầu của đơn) = cost thật = tổng `fulfillment_cost` × số lượng − giảm giá + `shipping_cost`,
+  cộng thêm 3.5$ thuế nhập khẩu nếu nước nhận thuộc danh sách châu Âu (API không tính khoản này;
+  đã đối chiếu: đơn 4181224261 API 37.58 + 3.5 = 41.08 đúng cost thật).
+- Đơn chưa được Merchize xử lý (chưa có gói hàng) thì bỏ qua, lần sau tra lại.
+
+Nút **Tra thử 1 đơn qua API** hiện nguyên dữ liệu API của 1 đơn để đối chiếu.
+
 # Merchize Webhook - Cloudflare Worker
 
 Nhận thông báo từ Merchize (sai địa chỉ, lỗi import, tracking, cost...), lưu lại để userscript
