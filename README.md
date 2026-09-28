@@ -1457,6 +1457,14 @@ Worker `merchize-webhook` → **Settings** → **Variables and Secrets** → **A
 Kiểm tra: mở `https://merchize-webhook.<tên-tài-khoản>.workers.dev` trên trình duyệt, thấy
 `{"ok":true,"service":"merchize-webhook"}` là Worker đã chạy.
 
+Kiểm tra sâu hơn (thay `<READ_KEY>` bằng giá trị biến `READ_KEY`):
+
+- `.../status?key=<READ_KEY>`: xem đã gắn KV `EVENTS` chưa, có bao nhiêu Secret key, đã khai
+  báo Telegram chưa, số thông báo đang chờ, và **lần gọi gần nhất từ Merchize** (thời gian, loại
+  sự kiện, bị từ chối vì sai Secret key hay không).
+- `.../test-telegram?key=<READ_KEY>`: gửi 1 tin thử tới Telegram, báo lỗi cụ thể nếu sai token
+  hoặc Chat ID (vd `chat not found` = chưa bấm Start với bot hoặc sai Chat ID).
+
 ## Bước 5: Cài webhook trên từng store Merchize
 
 Merchize → **Settings** → **Webhook** → **Add webhook**:

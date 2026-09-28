@@ -78,25 +78,41 @@ function noiDungTelegram(ev) {
   return dong.join('\n');
 }
 
+// Tra ve ket qua cua Telegram de /test-telegram hien ro loi (sai token, chua bam Start...).
 async function guiTelegram(env, text) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
-  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return { ok: false, description: 'thiếu TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID' };
+  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text })
   });
+  return res.json().catch(() => ({ ok: false, description: 'HTTP ' + res.status }));
+}
+
+// Ghi lai lan goi webhook gan nhat (ke ca bi tu choi) de /status biet Merchize co goi toi khong.
+async function ghiLanGoiCuoi(env, info) {
+  if (!env.EVENTS) return;
+  await env.EVENTS.put('last:attempt', JSON.stringify({ time: new Date().toISOString(), ...info }));
 }
 
 async function nhanWebhook(request, env, ctx) {
   const key = request.headers.get('merchize-webhook-key') || '';
-  if (!cacSecretKey(env).includes(key)) return json({ ok: false, error: 'invalid key' }, 401);
-
   let ev;
   try {
     ev = await request.json();
   } catch (e) {
+    await ghiLanGoiCuoi(env, { ketQua: 'invalid json' });
     return json({ ok: false, error: 'invalid json' }, 400);
   }
+  if (!cacSecretKey(env).includes(key)) {
+    // Chi luu 4 ky tu dau cua key de doi chieu, khong luu ca key.
+    await ghiLanGoiCuoi(env, {
+      ketQua: 'sai secret key (401)', event_type: ev.event_type,
+      keyNhanDuoc: key ? key.slice(0, 4) + '...' : '(không có header merchize-webhook-key)'
+    });
+    return json({ ok: false, error: 'invalid key' }, 401);
+  }
+  ctx.waitUntil(ghiLanGoiCuoi(env, { ketQua: 'OK', event_type: ev.event_type }).catch(() => {}));
 
   // Key theo event_id: Merchize gui lai cung 1 su kien thi chi ghi de, khong bi trung.
   const id = String(ev.event_id || crypto.randomUUID());
@@ -148,6 +164,28 @@ export default {
       const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
       await Promise.all(ids.map((id) => env.EVENTS.delete('ev:' + id)));
       return json({ ok: true, deleted: ids.length });
+    }
+
+    // Kiem tra cau hinh bang trinh duyet: /status?key=READ_KEY va /test-telegram?key=READ_KEY
+    if (request.method === 'GET' && (url.pathname === '/status' || url.pathname === '/test-telegram')) {
+      if (!env.READ_KEY || url.searchParams.get('key') !== env.READ_KEY) {
+        return json({ ok: false, error: 'thiếu hoặc sai ?key=READ_KEY' }, 401);
+      }
+      if (url.pathname === '/test-telegram') {
+        const kq = await guiTelegram(env, '✅ Test từ merchize-webhook: Telegram đã hoạt động.');
+        return json({ ok: !!kq.ok, telegram: kq.ok ? 'đã gửi' : kq.description || kq });
+      }
+      const coKV = !!env.EVENTS;
+      const last = coKV ? await env.EVENTS.get('last:attempt') : null;
+      const cho = coKV ? (await env.EVENTS.list({ prefix: 'ev:' })).keys.length : 0;
+      return json({
+        ok: true,
+        kvEVENTS: coKV ? 'đã gắn' : 'CHƯA gắn binding EVENTS',
+        soSecretKey: cacSecretKey(env).length,
+        telegram: env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID ? 'đã khai báo' : 'CHƯA khai báo',
+        thongBaoDangCho: cho,
+        lanGoiCuoi: last ? JSON.parse(last) : 'chưa có lần gọi nào từ Merchize'
+      });
     }
 
     // Mo URL bang trinh duyet de kiem tra Worker dang chay.
