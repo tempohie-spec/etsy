@@ -1407,7 +1407,7 @@ Mã màu/size của Merchize khác nhau theo từng sản phẩm nên không t�
 ## Cập nhật tracking + cost qua API (v1.15)
 
 Nút **Cập nhật tracking + cost qua API**: với tab đang mở, tra từng đơn có Date Fulfill (cột W)
-trong **30 ngày** gần nhất và **chưa có tracking** (cột AE trống), bỏ qua đơn `Lỗi import`, qua
+trong **10 ngày** gần nhất và **chưa có tracking** (cột AE trống), bỏ qua đơn `Lỗi import`, qua
 `GET /order/external/orders/tracking?external_number=...`. Dùng được cho cả đơn gửi trước khi
 có webhook, và bù các thông báo webhook bị sót.
 
@@ -1428,7 +1428,7 @@ Chạy 24/7, **không cần mở Sheet**:
 - **Webhook (real time):** Merchize gửi thông báo → Worker gửi Telegram (lỗi địa chỉ, lỗi import,
   ticket) và **ghi ngay vào Google Sheet** trong vài giây.
 - **Lịch 30 phút/lần:** chạy lại thông báo chưa ghi được (đơn chưa có trong Sheet, lỗi tạm thời), và
-  tra API tracking cho đơn 30 ngày gần nhất còn thiếu tracking để bù thông báo bị sót.
+  tra API tracking cho đơn 10 ngày gần nhất còn thiếu tracking để bù thông báo bị sót.
 
 - File code: [`merchize-webhook-worker.js`](merchize-webhook-worker.js)
 - Miễn phí trên gói Free của Cloudflare. Giới hạn: tối đa 50 request ra ngoài mỗi lần chạy, nên
@@ -1450,8 +1450,11 @@ thông báo có gửi). Ticket tìm theo mã RX ở cột AD.
 | Order issue updated | AG = `<trạng thái> [vấn đề]: <tin nhắn mới nhất>` |
 | Mọi nguồn có mã Merchize | AD = mã `RX-...` thật |
 
-Kết quả API tracking chỉ được nhận khi sản phẩm trong gói hàng khớp đơn (SKU cột AB, hoặc màu +
-size); không khớp (API trả nhầm đơn khác, vd đơn gửi lại có hậu tố) thì bỏ qua và báo Telegram.
+Khớp đơn theo mã đơn Etsy, kể cả đơn gửi lại có hậu tố chữ (thông báo của `4181764944a` ghi vào
+dòng `4181764944` nếu Sheet không có dòng `4181764944a`). Tra API mà mã gốc không có gói hàng nào
+thì tra tiếp mã có hậu tố `a`. API tracking không trả về tên khách hàng nên không đối chiếu theo
+tên. **Mã đơn Merchize (AD), Tracking (AE), Hãng vận chuyển (AF), Ticket (AG) chỉ ghi ở dòng đầu**
+của đơn nhiều dòng (dòng sau nếu còn giá trị cũ sẽ bị xoá); AC ghi cho mọi dòng của đơn.
 Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không phải đơn nào cũng bị thu (vd đơn UK không bị thu).
 
 Ghi Sheet thất bại (sai quyền, sai khoá...) thì thông báo được giữ lại để lịch chạy lại, và

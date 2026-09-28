@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.18
+// @version      1.19
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.18';
+  const SCRIPT_VERSION = '1.19';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -654,7 +654,7 @@
 
   // ============ CAP NHAT TRACKING + COST HANG LOAT QUA API ============
   // Chi xet don co Date Fulfill (cot W) trong SO_NGAY_CAP_NHAT ngay gan nhat va chua co tracking (AE).
-  const SO_NGAY_CAP_NHAT = 30;
+  const SO_NGAY_CAP_NHAT = 10;
 
   function ngayTuO(v) {
     const m = str(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
@@ -664,12 +664,8 @@
   // Tu ket qua API -> { maRx, tracking, carrier, cost } (cost chua gom thue chau Au).
   // fulfillment_cost tinh theo 1 cai (da doi chieu don so luong 1), nhan voi quantity.
   function tomTatApiTracking(goi) {
-    const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goi.length > 0, sanPham: [] };
+    const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goi.length > 0 };
     goi.forEach((g) => {
-      (g.items || []).forEach((it) => kq.sanPham.push({
-        sku: str(it.ffm_mapped_catalog_sku || it.sku).toUpperCase(),
-        mauSize: (str(it.color) + '|' + str(it.size)).toLowerCase().replace(/\s+/g, '')
-      }));
       if (!kq.maRx && g.name) kq.maRx = str(g.name).replace(/-F\d+$/i, '');
       if (str(g.tracking_number)) {
         kq.tracking.push(str(g.tracking_number));
@@ -691,17 +687,20 @@
     const moc = new Date();
     moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
 
+    // Gom du cac dong cua don truoc roi moi loc (tracking chi ghi o dong dau cua don).
     const donMap = new Map();
     rows.forEach((r, i) => {
       const ma = cell(r, COL.orderNumber);
-      if (i === 0 || !ma || cell(r, COL.tracking)) return;
-      if (/^Lỗi import/.test(cell(r, COL.status))) return;
-      const ngay = ngayTuO(cell(r, COL.dateFulfill));
-      if (!ngay || ngay < moc) return;
+      if (i === 0 || !ma) return;
       if (!donMap.has(ma)) donMap.set(ma, []);
       donMap.get(ma).push({ rowNumber: i + 1, r });
     });
-    const dsDon = Array.from(donMap.entries());
+    const dsDon = Array.from(donMap.entries()).filter(([, dong]) => {
+      if (dong.some(({ r }) => cell(r, COL.tracking))) return false;
+      if (dong.some(({ r }) => /^Lỗi import/.test(cell(r, COL.status)))) return false;
+      const ngay = ngayTuO(cell(dong[0].r, COL.dateFulfill));
+      return ngay && ngay >= moc;
+    });
     if (dsDon.length === 0) return `Trang "${title}": không có đơn nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất còn thiếu tracking.`;
 
     const ghiText = [];
@@ -712,37 +711,38 @@
     for (let i = 0; i < dsDon.length; i++) {
       const [ma, dong] = dsDon[i];
       log(statusEl, `⏳ Đang tra ${i + 1}/${dsDon.length}: ${ma}...`);
-      let json;
+      const traMa = async (m) => {
+        const { json } = await merchizeRequest(store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(m));
+        if (!json.success) throw new Error(json.message || 'Merchize từ chối');
+        return Array.isArray(json.data) ? json.data : [];
+      };
+      let goiHang;
       try {
-        ({ json } = await merchizeRequest(store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma)));
+        goiHang = await traMa(ma);
+        // Khong co goi hang nao: co the don da huy va gui lai voi hau to "a".
+        if (!goiHang.length && /\d$/.test(ma)) goiHang = await traMa(ma + 'a');
       } catch (e) {
         loi.push(`• ${ma}: ${e.message}`);
         continue;
       }
-      if (!json.success) { loi.push(`• ${ma}: ${json.message || 'Merchize từ chối'}`); continue; }
-      const kq = tomTatApiTracking(Array.isArray(json.data) ? json.data : []);
+      const kq = tomTatApiTracking(goiHang);
       if (!kq.coGoi) continue;
-      // API co the tra ve don khac (vd don gui lai co hau to): chi nhan khi SKU (AB) hoac mau + size khop.
-      const khop = dong.some(({ r }) => {
-        const sku = cell(r, COL.merchizeSku).toUpperCase();
-        const mauSize = (cell(r, COL.color) + '|' + cell(r, COL.size)).toLowerCase().replace(/\s+/g, '');
-        return kq.sanPham.some((sp) => (sku && sp.sku === sku) || sp.mauSize === mauSize);
-      });
-      if (!khop) {
-        loi.push(`• ${ma}: API trả về sản phẩm không khớp đơn, bỏ qua`);
-        continue;
-      }
 
       const r0 = dong[0].r;
       if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(r0, COL.country)))) kq.cost += THUE_NHAP_KHAU_CHAU_AU;
       kq.cost = Math.round(kq.cost * 100) / 100;
 
-      dong.forEach(({ rowNumber, r }) => {
+      // Ma RX, tracking, hang van chuyen chi ghi o dong dau; dong sau co gia tri cu thi xoa.
+      dong.forEach(({ rowNumber, r }, idx) => {
         const o = (cot) => `'${title}'!${cot}${rowNumber}`;
-        if (kq.maRx && cell(r, COL.merchizeId) !== kq.maRx) ghiText.push({ range: o('AD'), values: [[kq.maRx]] });
+        const dat = (cot, col, v) => {
+          if (idx === 0) ghiText.push({ range: o(cot), values: [[v]] });
+          else if (cell(r, col)) ghiText.push({ range: o(cot), values: [['']] });
+        };
+        if (kq.maRx && (idx > 0 || cell(r, COL.merchizeId) !== kq.maRx)) dat('AD', COL.merchizeId, kq.maRx);
         if (kq.tracking.length) {
-          ghiText.push({ range: o('AE'), values: [[kq.tracking.join(', ')]] });
-          ghiText.push({ range: o('AF'), values: [[kq.carrier.join(', ')]] });
+          dat('AE', COL.tracking, kq.tracking.join(', '));
+          dat('AF', COL.carrier, kq.carrier.join(', '));
           // Giu nguyen "Cu" de don cu khong bao gio bi gui lai.
           if (cell(r, COL.status) !== STATUS_OLD) ghiText.push({ range: o('AC'), values: [['Có tracking']] });
         }

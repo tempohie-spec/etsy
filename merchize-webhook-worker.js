@@ -6,7 +6,7 @@
 //               Ghi loi hoac chua tim thay don thi luu KV de lich chay lai.
 // - Lich (Cron Trigger, vd moi 30 phut hoac moi gio):
 //     1. Chay lai cac thong bao con cho trong KV.
-//     2. Tra API tracking cho don 30 ngay gan nhat chua co tracking -> dien tracking, ma RX, cost.
+//     2. Tra API tracking cho don 10 ngay gan nhat chua co tracking -> dien tracking, ma RX, cost.
 // - GET /run?key=<1 trong SECRET_KEYS>: chay lich ngay lap tuc.
 //
 // Bien moi truong (Settings > Variables and Secrets, loai Secret):
@@ -19,14 +19,14 @@
 // KV binding: EVENTS
 
 const LUU_TOI_DA_GIAY = 30 * 24 * 3600;
-const SO_NGAY_CAP_NHAT = 30;
+const SO_NGAY_CAP_NHAT = 10;
 // Goi Free cua Cloudflare cho toi da 50 request ra ngoai moi lan chay -> chua lai vai request.
 const GIOI_HAN_REQUEST = 45;
 
 // Vi tri cot (0-based) - giong userscript merchize-order-sender.user.js.
 const COL = {
-  account: 1, orderNumber: 2, color: 8, size: 9, country: 19, dateFulfill: 22, baseCost: 24,
-  merchizeSku: 27, status: 28, merchizeId: 29, tracking: 30, carrier: 31, ticket: 32
+  account: 1, orderNumber: 2, country: 19, dateFulfill: 22, baseCost: 24,
+  status: 28, merchizeId: 29, tracking: 30, carrier: 31, ticket: 32
 };
 const TEN_COT = { 24: 'Y', 28: 'AC', 29: 'AD', 30: 'AE', 31: 'AF', 32: 'AG' };
 const STATUS_OLD = 'Cũ';
@@ -101,6 +101,19 @@ function maQuocGia(ten) {
 function ngayTuO(v) {
   const m = str(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
+}
+
+// Ma don goc: bo hau to chu o cuoi (don gui lai "4181764944a" -> "4181764944").
+function maGoc(ma) {
+  const v = str(ma);
+  return v.replace(/[^0-9]+$/, '') || v;
+}
+
+// Ma don, tracking, hang van chuyen, ticket chi ghi o DONG DAU cua don (don nhieu dong); cac dong
+// sau neu dang co gia tri (ghi tu ban cu) thi xoa di.
+function datDongDau(boGhi, tab, rowNumber, row, laDongDau, col, value) {
+  if (laDongDau) boGhi.dat(tab, rowNumber, col, value);
+  else if (cell(row, col)) boGhi.dat(tab, rowNumber, col, '');
 }
 
 // Dem so request ra ngoai trong 1 lan chay de khong vuot gioi han cua Cloudflare.
@@ -316,39 +329,47 @@ function apDungSuKien(ev, duLieu, boGhi) {
   const r = ev.resource || {};
   const ma = str(r.external_number);
   const idf = str(r.identifier);
-  const tim = [];
+  const timDung = [];
+  const timGoc = [];
   Object.keys(duLieu).forEach((t) => {
     duLieu[t].forEach((row, i) => {
       if (i === 0) return;
       if (co.cacRx) {
-        if (co.cacRx.includes(cell(row, COL.merchizeId))) tim.push({ t, rowNumber: i + 1, row });
+        if (co.cacRx.includes(cell(row, COL.merchizeId))) timDung.push({ t, rowNumber: i + 1, row });
         return;
       }
-      if (!ma || cell(row, COL.orderNumber) !== ma) return;
+      const maDong = cell(row, COL.orderNumber);
+      if (!ma || !maDong) return;
       if (idf && idf !== t && idf !== cell(row, COL.account)) return;
-      tim.push({ t, rowNumber: i + 1, row });
+      // Uu tien dong trung dung ma; khong co thi khop theo ma goc (don gui lai co hau to "a").
+      if (maDong === ma) timDung.push({ t, rowNumber: i + 1, row });
+      else if (maGoc(maDong) === maGoc(ma)) timGoc.push({ t, rowNumber: i + 1, row });
     });
   });
+  const tim = timDung.length ? timDung : timGoc;
   // Ticket cua don chua co ma RX trong Sheet: da bao Telegram, khong cho nua.
   if (tim.length === 0) return co.cacRx ? 'boQua' : 'chuaThay';
 
   const dongDau = {};
+  tim.forEach(({ t, rowNumber }) => {
+    if (dongDau[t] === undefined || rowNumber < dongDau[t]) dongDau[t] = rowNumber;
+  });
   tim.forEach(({ t, rowNumber, row }) => {
+    const dau = rowNumber === dongDau[t];
     if (co.status && !(cell(row, COL.status) === STATUS_OLD && co.status === 'Có tracking')) {
       boGhi.dat(t, rowNumber, COL.status, co.status);
     }
-    if (co.maRx) boGhi.dat(t, rowNumber, COL.merchizeId, co.maRx);
+    if (co.maRx) datDongDau(boGhi, t, rowNumber, row, dau, COL.merchizeId, co.maRx);
     if (co.tracking) {
-      boGhi.dat(t, rowNumber, COL.tracking, co.tracking);
-      boGhi.dat(t, rowNumber, COL.carrier, co.carrier);
+      datDongDau(boGhi, t, rowNumber, row, dau, COL.tracking, co.tracking);
+      datDongDau(boGhi, t, rowNumber, row, dau, COL.carrier, co.carrier);
       boGhi.tieuDe(t, COL.tracking, 'Tracking');
       boGhi.tieuDe(t, COL.carrier, 'Hãng vận chuyển');
     }
     if (co.ticket) {
-      boGhi.dat(t, rowNumber, COL.ticket, co.ticket);
+      datDongDau(boGhi, t, rowNumber, row, dau, COL.ticket, co.ticket);
       boGhi.tieuDe(t, COL.ticket, 'Ticket');
     }
-    if (dongDau[t] === undefined || rowNumber < dongDau[t]) dongDau[t] = rowNumber;
   });
   if (typeof co.cost === 'number') {
     Object.keys(dongDau).forEach((t) => {
@@ -400,12 +421,8 @@ async function nhanWebhook(request, env, ctx) {
 // ============ LICH CHAY (CRON) ============
 // Tu ket qua API tracking -> { maRx, tracking[], carrier[], cost } (cost chua gom thue chau Au).
 function tomTatApiTracking(goiHang) {
-  const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goiHang.length > 0, sanPham: [] };
+  const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goiHang.length > 0 };
   goiHang.forEach((g) => {
-    (g.items || []).forEach((it) => kq.sanPham.push({
-      sku: str(it.ffm_mapped_catalog_sku || it.sku).toUpperCase(),
-      mauSize: (str(it.color) + '|' + str(it.size)).toLowerCase().replace(/\s+/g, '')
-    }));
     if (!kq.maRx && g.name) kq.maRx = str(g.name).replace(/-F\d+$/i, '');
     if (str(g.tracking_number)) {
       kq.tracking.push(str(g.tracking_number));
@@ -419,34 +436,23 @@ function tomTatApiTracking(goiHang) {
   return kq;
 }
 
-// Goi hang API tra ve co dung la cua don nay khong: it nhat 1 dong co SKU (cot AB) hoac
-// mau + size trung voi san pham trong goi. API co the tra ve don khac (vd don gui lai co hau to).
-function khopSanPham(dong, kq) {
-  return dong.some(({ row }) => {
-    const sku = cell(row, COL.merchizeSku).toUpperCase();
-    const mauSize = (cell(row, COL.color) + '|' + cell(row, COL.size)).toLowerCase().replace(/\s+/g, '');
-    return kq.sanPham.some((sp) => (sku && sp.sku === sku) || sp.mauSize === mauSize);
-  });
-}
-
-// Tra ve { tracking, cost, lech }: co ghi tracking moi / cost moi hay khong, hoac goi hang khong
-// khop san pham cua don (bo qua, de bao cao).
+// Tra ve { tracking, cost }: co ghi tracking moi / cost moi hay khong (de bao cao).
+// API tra theo ma don (external_number) nen tin ket qua; ma RX/tracking chi ghi o dong dau.
 function apDungKetQuaApi(tab, dong, kq, boGhi) {
-  const kqGhi = { tracking: false, cost: false, lech: false };
+  const kqGhi = { tracking: false, cost: false };
   if (!kq.coGoi) return kqGhi;
-  if (!khopSanPham(dong, kq)) {
-    kqGhi.lech = true;
-    return kqGhi;
-  }
   const r0 = dong[0].row;
   let cost = kq.cost;
   if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(r0, COL.country)))) cost += THUE_NHAP_KHAU_CHAU_AU;
   cost = Math.round(cost * 100) / 100;
-  dong.forEach(({ rowNumber, row }) => {
-    if (kq.maRx && cell(row, COL.merchizeId) !== kq.maRx) boGhi.dat(tab, rowNumber, COL.merchizeId, kq.maRx);
+  dong.forEach(({ rowNumber, row }, i) => {
+    const dau = i === 0;
+    if (kq.maRx && (!dau || cell(row, COL.merchizeId) !== kq.maRx)) {
+      datDongDau(boGhi, tab, rowNumber, row, dau, COL.merchizeId, kq.maRx);
+    }
     if (kq.tracking.length) {
-      boGhi.dat(tab, rowNumber, COL.tracking, kq.tracking.join(', '));
-      boGhi.dat(tab, rowNumber, COL.carrier, kq.carrier.join(', '));
+      datDongDau(boGhi, tab, rowNumber, row, dau, COL.tracking, kq.tracking.join(', '));
+      datDongDau(boGhi, tab, rowNumber, row, dau, COL.carrier, kq.carrier.join(', '));
       if (cell(row, COL.status) !== STATUS_OLD) boGhi.dat(tab, rowNumber, COL.status, 'Có tracking');
       boGhi.tieuDe(tab, COL.tracking, 'Tracking');
       boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
@@ -488,29 +494,31 @@ async function merchizeFetch(dem, store, method, path, body) {
   return Array.isArray(data.data) ? data.data : [];
 }
 
-// Don can tra: Date Fulfill trong 30 ngay, chua co tracking, khong phai "Loi import".
+// Don can tra: Date Fulfill (dong dau) trong SO_NGAY_CAP_NHAT ngay, chua dong nao co tracking,
+// khong phai "Loi import". Gom du cac dong cua don truoc roi moi loc (tracking chi o dong dau).
 function donCanTra(rows) {
   const moc = new Date();
   moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
   const map = new Map();
   rows.forEach((row, i) => {
     const ma = cell(row, COL.orderNumber);
-    if (i === 0 || !ma || cell(row, COL.tracking)) return;
-    if (/^Lỗi import/.test(cell(row, COL.status))) return;
-    const ngay = ngayTuO(cell(row, COL.dateFulfill));
-    if (!ngay || ngay < moc) return;
+    if (i === 0 || !ma) return;
     if (!map.has(ma)) map.set(ma, []);
     map.get(ma).push({ rowNumber: i + 1, row });
   });
-  return Array.from(map.entries());
+  return Array.from(map.entries()).filter(([, dong]) => {
+    if (dong.some(({ row }) => cell(row, COL.tracking))) return false;
+    if (dong.some(({ row }) => /^Lỗi import/.test(cell(row, COL.status)))) return false;
+    const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
+    return ngay && ngay >= moc;
+  });
 }
 
 async function chayLich(env, event) {
   const dem = taoBoDem();
-  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, lech: [] };
+  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0 };
   const ghiNhan = (ma, kq) => {
     thongKe.daTra++;
-    if (kq.lech) thongKe.lech.push(ma);
     if (kq.tracking) thongKe.tracking.push(ma);
     if (kq.cost) thongKe.cost.push(ma);
   };
@@ -565,7 +573,12 @@ async function chayLich(env, event) {
     for (let i = 0; i < Math.min(conLai, donLe.length); i++) {
       const { tab, store, ma, dong } = donLe[(batDau + i) % donLe.length];
       try {
-        const goiHang = await merchizeFetch(dem, store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma));
+        const url = (m) => '/order/external/orders/tracking?external_number=' + encodeURIComponent(m);
+        let goiHang = await merchizeFetch(dem, store, 'GET', url(ma));
+        // Khong co goi hang nao: co the don da huy va gui lai voi hau to "a".
+        if (!goiHang.length && /\d$/.test(ma) && dem.n < GIOI_HAN_REQUEST - 2) {
+          goiHang = await merchizeFetch(dem, store, 'GET', url(ma + 'a'));
+        }
         ghiNhan(ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi));
       } catch (e) { /* bo qua, lan sau tra lai */ }
     }
@@ -575,7 +588,7 @@ async function chayLich(env, event) {
   await Promise.all(daXong.map((k) => env.EVENTS.delete(k)));
 
   // Chi nhan Telegram khi co cap nhat moi, tranh 48 tin/ngay.
-  if (thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.lech.length) {
+  if (thongKe.tracking.length || thongKe.cost.length || thongKe.cho) {
     const luc = (event && event.scheduledTime) || Date.now();
     const tiep = lanChayTiep(event && event.cron, luc);
     const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
@@ -584,13 +597,12 @@ async function chayLich(env, event) {
       thongKe.tracking.length ? `Tracking mới: ${thongKe.tracking.length} đơn (${ds(thongKe.tracking)})` : '',
       thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
       thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
-      thongKe.lech.length ? `Bỏ qua vì API trả về sản phẩm không khớp đơn: ${ds(thongKe.lech)}` : '',
       `Đã tra ${thongKe.daTra} đơn.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : '')
     ].filter(Boolean).join('\n'));
   }
   return {
     tracking: thongKe.tracking.length, cost: thongKe.cost.length,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, khongKhop: thongKe.lech
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra
   };
 }
 
