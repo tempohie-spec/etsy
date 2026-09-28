@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.11
+// @version      1.12
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -17,7 +17,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.11';
+  const SCRIPT_VERSION = '1.12';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -53,7 +53,8 @@
     status: 28,        // AC
     merchizeId: 29,    // AD
     tracking: 30,      // AE
-    carrier: 31        // AF
+    carrier: 31,       // AF
+    ticket: 32         // AG
   };
   const OUTPUT_HEADERS = ['Merchize SKU', 'Trạng thái Merchize', 'Mã đơn Merchize'];
   const TRACKING_HEADERS = ['Tracking', 'Hãng vận chuyển'];
@@ -473,7 +474,7 @@
   }
 
   async function docTrangTinh(spreadsheetId, title) {
-    const range = encodeURIComponent(`'${title}'!A:AF`);
+    const range = encodeURIComponent(`'${title}'!A:AG`);
     // FORMATTED_VALUE: lay dung chu dang hien tren o (giu nguyen postalCode "02720", orderNumber khong bi thanh 4.17E+09).
     const data = await sheetsApiFetch(`${spreadsheetId}/values/${range}?valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
     return data.values || [];
@@ -702,6 +703,12 @@
       co.status = 'Có tracking';
       co.tracking = str(r.tracking_number);
       co.carrier = str(r.tracking_company);
+    } else if (loai === 'ORDER.ISSUE.UPDATED') {
+      const msg = r.last_message || {};
+      const noiDung = str(msg.body_text || msg.body).replace(/\s+/g, ' ').slice(0, 300);
+      co.cacRx = (r.orders || []).map(str).filter(Boolean);
+      co.ticket = `${str(r.ticket_status) || '?'}${(r.category || []).length ? ' [' + r.category.join(', ') + ']' : ''}` +
+        (noiDung ? ': ' + noiDung : '');
     } else if (loai === 'ORDER.PAYMENT.FULFILLMENT_COST') {
       const gia = Number(r.price);
       if (!isNaN(gia) && str(r.price) !== '') co.cost = Math.round(gia * 100) / 100;
@@ -731,6 +738,7 @@
     const daXuLy = [];
     const khongKhop = [];
     const tabCanTieuDe = new Set();
+    const tabCanTieuDeTicket = new Set();
     let soDong = 0;
 
     for (const ev of events) {
@@ -740,14 +748,27 @@
       const ma = str(r.external_number);
       const idf = str(r.identifier);
       const tim = [];
-      cacTab.forEach((t) => {
-        duLieu[t].forEach((row, i) => {
-          if (i === 0 || cell(row, COL.orderNumber) !== ma) return;
-          if (idf && idf !== t && idf !== cell(row, COL.account)) return;
-          tim.push({ t, rowNumber: i + 1 });
+      if (co.cacRx) {
+        // Ticket: khop theo ma RX-... o cot AD (chi don da duoc webhook dien ma RX).
+        cacTab.forEach((t) => duLieu[t].forEach((row, i) => {
+          if (i > 0 && co.cacRx.includes(cell(row, COL.merchizeId))) tim.push({ t, rowNumber: i + 1 });
+        }));
+        if (tim.length === 0) {
+          // Da bao Telegram roi, khong giu lai de tranh bao mai tren bang.
+          khongKhop.push(`• Ticket ${co.cacRx.join(', ') || '?'}: chưa có mã RX trong cột AD (đã báo Telegram)`);
+          daXuLy.push(ev.id);
+          continue;
+        }
+      } else {
+        cacTab.forEach((t) => {
+          duLieu[t].forEach((row, i) => {
+            if (i === 0 || cell(row, COL.orderNumber) !== ma) return;
+            if (idf && idf !== t && idf !== cell(row, COL.account)) return;
+            tim.push({ t, rowNumber: i + 1 });
+          });
         });
-      });
-      if (!ma || tim.length === 0) {
+      }
+      if (tim.length === 0) {
         khongKhop.push(`• ${ev.event_type} ${ma || '?'} (${idf || '?'})`);
         continue;
       }
@@ -756,6 +777,10 @@
         const o = (cot) => `'${t}'!${cot}${rowNumber}`;
         if (co.status) ghiText.push({ range: o('AC'), values: [[co.status]] });
         if (co.maRx) ghiText.push({ range: o('AD'), values: [[co.maRx]] });
+        if (co.ticket) {
+          ghiText.push({ range: o('AG'), values: [[co.ticket]] });
+          tabCanTieuDeTicket.add(t);
+        }
         if (co.tracking) {
           ghiText.push({ range: o('AE'), values: [[co.tracking]] });
           ghiText.push({ range: o('AF'), values: [[co.carrier]] });
@@ -770,6 +795,9 @@
       daXuLy.push(ev.id);
     }
 
+    tabCanTieuDeTicket.forEach((t) => {
+      if (!cell(duLieu[t][0] || [], COL.ticket)) ghiText.push({ range: `'${t}'!AG1`, values: [['Ticket']] });
+    });
     tabCanTieuDe.forEach((t) => {
       const h = duLieu[t][0] || [];
       if (!cell(h, COL.tracking) && !cell(h, COL.carrier)) {

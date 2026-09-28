@@ -1464,7 +1464,7 @@ Merchize → **Settings** → **Webhook** → **Add webhook**:
 - Enabled: bật
 - Endpoint: `https://merchize-webhook.<tên-tài-khoản>.workers.dev`
 - Events: **Order invalid address**, **Order importer error**, **Order changed tracking**,
-  **Order payment fulfillment cost**
+  **Order payment fulfillment cost**, **Order issue updated**
 
 Làm lại cho từng store. Nhớ lấy Secret key của store đó khai báo vào `SECRET_KEYS`.
 
@@ -1491,9 +1491,12 @@ Script đọc các tab đã cài store, tìm dòng theo `external_number` (= ord
 | Order importer error | AC = `Lỗi import: <lỗi>` |
 | Order changed tracking | AC = `Có tracking`, AE = tracking number, AF = hãng vận chuyển |
 | Order payment fulfillment cost | Y (dòng đầu của đơn) = `price` (tổng cost thật), ghi đè số ước tính |
+| Order issue updated | AG = `<trạng thái ticket> [vấn đề]: <tin nhắn mới nhất>`, khớp theo mã `RX-...` ở cột AD |
 | Mọi sự kiện có mã Merchize | AD = mã `RX-...` thật |
 
 - Từ v1.11, lúc gửi đơn cột AD để trống, chờ webhook điền mã `RX-...`.
 - Thông báo đã ghi xong mới bị xoá khỏi Worker. Thông báo chưa tìm thấy đơn được giữ lại (tối
   đa 30 ngày) và báo trên bảng để kiểm tra.
 - Sửa xong đơn lỗi import thì xoá ô AC để gửi lại.
+- Ticket luôn được báo qua Telegram (trạng thái, vấn đề, tin nhắn mới nhất). Ticket của đơn chưa
+  có mã RX ở cột AD (đơn gửi trước khi có webhook) chỉ báo Telegram, không ghi vào Sheet.

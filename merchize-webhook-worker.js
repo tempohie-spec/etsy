@@ -19,7 +19,7 @@ const LUU_TOI_DA_GIAY = 30 * 24 * 3600;
 
 // Su kien gui Telegram ngay. Ten su kien khac (chua biet ten chinh xac) co chu INVALID/ERROR
 // cung gui, de khong bo sot loi.
-const SU_KIEN_TELEGRAM = new Set(['ORDER.INVALID.ADDRESS']);
+const SU_KIEN_TELEGRAM = new Set(['ORDER.INVALID.ADDRESS', 'ORDER.ISSUE.UPDATED']);
 
 const MO_TA_LOI_DIA_CHI = {
   invalid: 'Địa chỉ không hợp lệ',
@@ -47,7 +47,23 @@ function canGuiTelegram(eventType) {
   return SU_KIEN_TELEGRAM.has(t) || t.includes('INVALID') || t.includes('ERROR');
 }
 
+// Ticket: payload khong co ma Etsy, chi co danh sach ma RX-... cua cac don lien quan.
+function noiDungTicket(ev) {
+  const r = ev.resource || {};
+  const msg = r.last_message || {};
+  const dong = [
+    `💬 Ticket cập nhật: ${r.ticket_status || '?'}`,
+    `Đơn Merchize: ${(r.orders || []).join(', ') || '?'}`
+  ];
+  if ((r.category || []).length) dong.push(`Vấn đề: ${r.category.join(', ')}`);
+  if (r.prefer_solution) dong.push(`Hướng xử lý: ${r.prefer_solution}`);
+  const noiDung = String(msg.body_text || msg.body || '').trim();
+  if (noiDung) dong.push(`Tin nhắn mới nhất: ${noiDung.slice(0, 1000)}`);
+  return dong.join('\n');
+}
+
 function noiDungTelegram(ev) {
+  if (String(ev.event_type).toUpperCase() === 'ORDER.ISSUE.UPDATED') return noiDungTicket(ev);
   const r = ev.resource || {};
   const dong = [
     `⚠️ ${ev.event_type}`,
