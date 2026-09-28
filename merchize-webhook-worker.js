@@ -543,10 +543,12 @@ async function chayLich(env, event) {
   // 2. Tra API tracking. Don da co ma RX: gop 50 don/1 request. Don chua co ma RX: tra tung don,
   //    trong gioi han request con lai, xoay vong theo gio de lan luot tra het.
   const donLe = [];
+  let tongCanTra = 0;
   for (const tab of tabs) {
     const store = stores[tab];
     if (!store || !store.baseUrl || !store.token) continue;
     const ds = donCanTra(duLieu[tab] || []);
+    tongCanTra += ds.length;
     const coRx = ds.filter(([, dong]) => /^[A-Z]{2}-\d+-\d+$/.test(cell(dong[0].row, COL.merchizeId)));
     const chuaRx = ds.filter((d) => !coRx.includes(d));
     for (let i = 0; i < coRx.length && dem.n < GIOI_HAN_REQUEST - 4; i += 50) {
@@ -600,9 +602,21 @@ async function chayLich(env, event) {
       `Đã tra ${thongKe.daTra} đơn.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : '')
     ].filter(Boolean).join('\n'));
   }
+
+  // Bao 1 lan khi tat ca don trong SO_NGAY_CAP_NHAT ngay da co tracking; con don thieu thi mo lai co.
+  const conThieu = Math.max(0, tongCanTra - thongKe.tracking.length);
+  if (conThieu === 0) {
+    if (!(await env.EVENTS.get('cron:dudon'))) {
+      await env.EVENTS.put('cron:dudon', '1');
+      await guiTelegram(env, dem, `✅ Tất cả đơn trong ${SO_NGAY_CAP_NHAT} ngày gần nhất đã có tracking.`);
+    }
+  } else if (await env.EVENTS.get('cron:dudon')) {
+    await env.EVENTS.delete('cron:dudon');
+  }
+
   return {
     tracking: thongKe.tracking.length, cost: thongKe.cost.length,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, conThieuTracking: conThieu
   };
 }
 

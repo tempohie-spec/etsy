@@ -1474,6 +1474,10 @@ Cost thật: 2 đơn (4179216794, 4181224261)
 (`<SECRET_KEY>` là 1 key bất kỳ trong `SECRET_KEYS`). Trang trả về số đơn đã tra / có tracking mới /
 cost mới, hoặc nội dung lỗi.
 
+Khi **tất cả đơn trong 10 ngày gần nhất đã có tracking**, Telegram báo 1 lần
+`✅ Tất cả đơn trong 10 ngày gần nhất đã có tracking.` (không nhắn lặp lại; có đơn mới thiếu
+tracking thì lần sau lại báo).
+
 Giờ theo giờ Việt Nam. Lịch `*/30 * * * *` chạy vào phút 00 và 30 mỗi giờ. Lịch sử các lần chạy
 xem ở Worker → **Observability** (hoặc **Logs**) trên Cloudflare.
 
