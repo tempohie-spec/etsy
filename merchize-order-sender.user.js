@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.12
+// @version      1.13
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -17,7 +17,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.12';
+  const SCRIPT_VERSION = '1.13';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -691,7 +691,7 @@
   // Tu 1 thong bao -> nhung gi can ghi vao Sheet. null = loai su kien khong xu ly (van xoa khoi Worker).
   function noiDungTuSuKien(ev) {
     const r = ev.resource || {};
-    const loai = str(ev.event_type).toUpperCase();
+    const loai = str(ev.event_type || ev.event).toUpperCase();
     const co = { maRx: str(r.code || r.order_code) };
     if (loai === 'ORDER.INVALID.ADDRESS') {
       const mt = MO_TA_LOI_DIA_CHI[r.type_invalid] || str(r.type_invalid);
@@ -769,7 +769,7 @@
         });
       }
       if (tim.length === 0) {
-        khongKhop.push(`• ${ev.event_type} ${ma || '?'} (${idf || '?'})`);
+        khongKhop.push(`• ${ev.event_type || ev.event} ${ma || '?'} (${idf || '?'})`);
         continue;
       }
       const dongDau = {};

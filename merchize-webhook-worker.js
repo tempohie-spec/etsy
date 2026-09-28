@@ -52,7 +52,7 @@ function noiDungTicket(ev) {
   const r = ev.resource || {};
   const msg = r.last_message || {};
   const dong = [
-    `💬 Ticket cập nhật: ${r.ticket_status || '?'}`,
+    `💬 ${ev.test ? '[TEST] ' : ''}Ticket cập nhật: ${r.ticket_status || '?'}`,
     `Đơn Merchize: ${(r.orders || []).join(', ') || '?'}`
   ];
   if ((r.category || []).length) dong.push(`Vấn đề: ${r.category.join(', ')}`);
@@ -66,7 +66,7 @@ function noiDungTelegram(ev) {
   if (String(ev.event_type).toUpperCase() === 'ORDER.ISSUE.UPDATED') return noiDungTicket(ev);
   const r = ev.resource || {};
   const dong = [
-    `⚠️ ${ev.event_type}`,
+    `⚠️ ${ev.test ? '[TEST] ' : ''}${ev.event_type}`,
     `Account: ${r.identifier || '?'}`,
     `Đơn Etsy: ${r.external_number || '?'}`,
     `Mã Merchize: ${r.code || '?'}`
@@ -104,6 +104,8 @@ async function nhanWebhook(request, env, ctx) {
     await ghiLanGoiCuoi(env, { ketQua: 'invalid json' });
     return json({ ok: false, error: 'invalid json' }, 400);
   }
+  // Tai lieu ghi "event_type" nhung Merchize that gui "event" -> chuan hoa ve event_type.
+  if (ev && !ev.event_type && ev.event) ev.event_type = ev.event;
   if (!cacSecretKey(env).includes(key)) {
     // Chi luu 4 ky tu dau cua key de doi chieu, khong luu ca key.
     await ghiLanGoiCuoi(env, {
@@ -137,7 +139,11 @@ async function layEvents(env) {
     const values = await Promise.all(list.keys.map((k) => env.EVENTS.get(k.name)));
     values.forEach((v) => {
       if (!v) return;
-      try { events.push(JSON.parse(v)); } catch (e) { /* bo qua ban ghi hong */ }
+      try {
+        const e = JSON.parse(v);
+        if (!e.event_type && e.event) e.event_type = e.event;
+        events.push(e);
+      } catch (e) { /* bo qua ban ghi hong */ }
     });
     cursor = list.list_complete ? null : list.cursor;
   } while (cursor);
