@@ -1164,6 +1164,28 @@ Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overla
 
 Kết quả: quét nhanh hơn rõ rệt với đơn hàng nhiều, mà không đánh đổi độ chính xác.
 
+## Sửa lỗi mất số 0 đầu ở postalCode
+
+Một số zipcode của Mỹ (và vài nước khác) có số 0 ở đầu, ví dụ `"01234"`. Nếu chỉ để nguyên,
+số 0 đầu có thể bị mất khi:
+
+1. **Dán (Ctrl+V) trực tiếp** dữ liệu TSV vào Excel/Google Sheets — dán văn bản thuần không
+   mang theo kiểu ô, nên Excel/Sheets tự đoán đây là SỐ và bỏ số 0 đầu (`"01234"` → `1234`).
+2. **Sửa tay lại ô đó** trong file `.xlsx` sau khi đã tải về — nếu cột không được đặt sẵn định
+   dạng Text, gõ lại số sẽ bị Excel tự chuyển về dạng số và mất số 0 đầu ngay lập tức.
+
+**File `.xlsx` tải về**: đã sửa triệt để — cột `postalCode` được đặt sẵn định dạng **Text**
+trong file, nên số 0 đầu luôn được giữ, kể cả khi bạn sửa tay lại sau này.
+
+**Dán (Ctrl+V) trực tiếp vào Google Sheets**: đây là giới hạn của Google Sheets, không sửa được
+từ phía script. Bản đầu có thử thêm dấu nháy đơn `'` trước zipcode (mẹo hay dùng với Excel), nhưng
+Google Sheets **không ẩn dấu nháy khi dán văn bản từ nguồn ngoài vào** (chỉ ẩn khi tự gõ trực
+tiếp) — dấu nháy lại hiện ra trước số, rối hơn, nên đã **bỏ mẹo này**.
+
+Cách xử lý đúng cho Google Sheets: chọn cột `postalCode` trong sheet của bạn → **Format → Number
+→ Plain text** (chỉ cần làm 1 lần cho cột đó). Sau đó mọi lần dán (không riêng gì từ script này)
+Sheets sẽ giữ nguyên chuỗi dán vào, không tự chuyển thành số nữa.
+
 ## Tự động chuyển chữ không phải Latin sang Latin
 
 Các trường `name`, `address1`, `address2`, `city`, `state` được tự động kiểm tra và chuyển sang
@@ -1189,10 +1211,12 @@ Xử lý theo 2 mức, tuỳ mức độ "mất thông tin" của việc chuyể
 
 Thêm 2 cột ở ĐẦU file Excel xuất ra:
 
-- **PrintingMethod**: mặc định là `DTF` cho mọi sản phẩm. Riêng sản phẩm có `title` chứa
-  **"Comfort Youth"** hoặc **"Bella Adult"** (không phân biệt hoa/thường) thì là `DTG`. Nếu 1
-  đơn có nhiều sản phẩm mà có **ít nhất 1** sản phẩm là `DTG`, thì **toàn bộ sản phẩm còn lại
-  trong CÙNG đơn đó** cũng được điền `DTG` theo (không in lẫn 2 phương pháp trong 1 đơn).
+- **PrintingMethod**: mặc định là `DTF` cho mọi sản phẩm. Là `DTG` nếu rơi vào 1 trong 2
+  trường hợp: (1) `title` chứa **"Comfort Youth"** hoặc **"Bella Adult"** (không phân biệt
+  hoa/thường), hoặc (2) đơn **không giao ở United States** (địa chỉ `country` khác
+  "United States"). Nếu 1 đơn có nhiều sản phẩm mà có **ít nhất 1** sản phẩm là `DTG`, thì
+  **toàn bộ sản phẩm còn lại trong CÙNG đơn đó** cũng được điền `DTG` theo (không in lẫn 2
+  phương pháp trong 1 đơn).
 - **Account**: luôn để trống, bạn tự điền tay.
 
 ## Quy đổi màu ghép ("A/B/C") theo loại áo
@@ -1226,19 +1250,43 @@ ví dụ áo Bella Canvas, Etsy ghi mảnh là `"Dark Heather"` nhưng tên chí
 lại là `"Dark Grey Heather"`. Nếu chỉ so khớp tên chính xác thì mảnh này sẽ không khớp được với
 bảng màu, script sẽ giữ nguyên `A/B/C` thay vì điền đúng màu.
 
-Đã thêm 1 bảng "bí danh" cho mỗi loại áo (`BI_DANH_MAU_...`, ngay dưới các bảng màu chính) để
-xử lý đúng trường hợp này: key là tên mà Etsy hiển thị, value là tên CHÍNH THỨC trong bảng màu —
-khớp được bí danh nào thì điền ra đúng tên chính thức đó, không điền nguyên văn tên Etsy ghi.
-Ví dụ đã có sẵn cho Bella Canvas Adult:
+Đã thêm 1 bảng "bí danh" cho mỗi loại áo để xử lý đúng trường hợp này: key là tên mà Etsy hiển
+thị, value là tên CHÍNH THỨC trong bảng màu — khớp được bí danh nào thì điền ra đúng tên chính
+thức đó, không điền nguyên văn tên Etsy ghi.
 
-```js
-const BI_DANH_MAU_BELLA_ADULT = {
-  'dark heather': 'Dark Grey Heather'
-};
-```
+**Sửa trực tiếp trên panel, không cần sửa code**: bấm nút **"🎨 Sửa quy đổi màu"** trong panel để
+mở hộp thoại sửa bí danh cho cả 6 loại áo. Mỗi ô là 1 loại áo, mỗi dòng 1 quy đổi dạng
+`Tên Etsy=Tên chính thức` (vd `Dark Heather=Dark Grey Heather`) — dòng trống hoặc không có dấu
+`=` sẽ bị bỏ qua. Bấm **"💾 Lưu"** để áp dụng ngay (không cần tải lại trang) và lưu lại qua
+`GM_setValue` nên vẫn còn sau khi đóng trình duyệt — cửa sổ **không tự đóng** sau khi lưu, để
+bạn tiếp tục sửa/kiểm tra ngay trong hộp thoại. Nút **"🗑️ Xoá hết"** xoá trắng tất cả các ô,
+cũng CHƯA lưu ngay — vẫn cần bấm "Lưu" nếu muốn áp dụng việc xoá đó.
 
-Gặp thêm trường hợp tương tự (tên Etsy ghi khác tên chính thức) thì thêm 1 dòng vào đúng bảng
-bí danh của loại áo đó, không cần sửa bảng màu chính hay logic so khớp.
+Phần "Tên Etsy" của 1 dòng có thể là:
+
+- **1 mảnh màu đơn** (vd `Dark Heather=Dark Grey Heather`) — áp dụng khi mảnh đó xuất hiện
+  trong chuỗi màu ghép `A/B/C`, dù đứng ở vị trí nào.
+- **Cả một tổ hợp nhiều màu, có dấu `/`** (vd `Blossom/Light Pink=Pink`) — áp dụng khi TOÀN BỘ
+  chuỗi Color của sản phẩm đúng bằng tổ hợp đó (khoảng trắng quanh dấu `/` không quan trọng,
+  `"Blossom / Light Pink"` và `"Blossom/Light Pink"` đều khớp). Cách này được kiểm tra TRƯỚC,
+  nên nếu vừa có bí danh cho cả tổ hợp vừa có bí danh cho từng mảnh riêng, bí danh cho **cả tổ
+  hợp** sẽ được ưu tiên dùng.
+
+Các bí danh mặc định (dùng làm giá trị khởi tạo lần đầu, trước khi bạn tự sửa):
+
+| Loại áo | Etsy ghi | Điền ra |
+|---|---|---|
+| Comfort Colors Adult | `Orange` | `Burnt Orange` |
+| Bella Canvas Adult | `Blue` | `Baby Blue` |
+| Bella Canvas Adult | `Dark Heather` | `Dark Grey Heather` |
+| Bella Canvas Youth | `Dark Heather` | `Dark Grey Heather` |
+| Toddler | `Violet` | `Lavender` |
+| Toddler | `Dark Heather` | `Vintage Smoke` |
+| Sweatshirt/Hoodie | `Blue` | `Light Blue` |
+| Sweatshirt/Hoodie | `Pink` | `Light Pink` |
+
+Gặp thêm trường hợp tương tự (tên Etsy ghi khác tên chính thức) thì mở panel, thêm 1 dòng vào
+đúng ô của loại áo đó rồi bấm Lưu — không cần sửa code.
 
 ## Tự động copy dữ liệu vào clipboard
 
@@ -1295,13 +1343,16 @@ tiền **ẩn** còn sót lại của đơn trước, dẫn tới Earnings bị 
    hiện đúng số tiền cũ, script sẽ đợi thêm cho tới khi nội dung thực sự cập nhật rồi mới đọc,
    thay vì chấp nhận ngay giá trị có thể vẫn là của đơn trước.
 
-## Sửa lỗi Earnings lệch 1-2 cent
+## Sửa lỗi Earnings bị lấy thấp hơn số thật (hiệu ứng đếm chạy)
 
 Etsy hiển thị số tiền "You earned $x.xx" bằng hiệu ứng **đếm chạy tăng dần** (count-up), không
-hiện ngay số cuối cùng. Nếu script đọc đúng lúc số đang chạy, nó có thể bắt trúng một bước trung
-gian lệch 1-2 cent so với số tiền thật. Đã sửa: sau khi tìm thấy một giá trị ứng viên, script đợi
-giá trị đó **giữ nguyên ổn định qua 2 lần kiểm tra liên tiếp** (~400ms) rồi mới chấp nhận là số
-tiền cuối cùng, thay vì lấy ngay lần đọc đầu tiên.
+hiện ngay số cuối cùng. Nếu script đọc đúng lúc số đang chạy, nó sẽ bắt trúng một bước trung
+gian — luôn **NHỎ HƠN** số tiền thật (vì đếm từ 0 tăng dần lên). Script đã có cơ chế đợi giá trị
+**giữ nguyên ổn định một khoảng thời gian liên tục** rồi mới chấp nhận, nhưng thời gian chờ ban
+đầu (300ms) vẫn chưa đủ: hiệu ứng đếm có kiểu **ease-out** (chạy chậm dần về cuối), nên có những
+bước GẦN cuối (chưa phải số cuối cùng) vẫn có thể đứng yên đủ 300ms trước khi nhảy tiếp, khiến
+script chấp nhận nhầm. Đã tăng thời gian chờ ổn định lên **1 giây (1000ms)** để chắc chắn hiệu
+ứng đã chạy xong hẳn — chậm hơn một chút nhưng đáng tin cậy hơn nhiều cho dữ liệu tiền bạc.
 
 ## Nút Dừng
 
