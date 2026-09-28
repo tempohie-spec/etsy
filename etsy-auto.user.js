@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.16
+// @version      9.17
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao Custom option (Add field > Text box) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.16';
+  const PHIEN_BAN = '9.17';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -543,6 +543,33 @@
     if (duoi === 'gif') return 'image/gif';
     if (duoi === 'webp') return 'image/webp';
     return 'image/jpeg';
+  }
+
+  // Anh bang size lay tu MAY TINH (thu vien 📐) duoc luu duoi dang "data: URL" (base64) ngay trong
+  // thu vien — khong phai link http(s) nen KHONG di qua GM_xmlhttpRequest/@connect nhu anh thuong.
+  function laDataUrl(url) {
+    return /^data:/i.test(url || '');
+  }
+
+  // "data:image/png;base64,...." -> "image/png". Dang tin cay hon laySoDuoiFile() (von doan qua
+  // duoi trong URL) vi day la mime THAT do chinh trinh duyet ghi luc doc file.
+  function mimeTuDataUrl(url) {
+    const m = /^data:([^;,]+)[;,]/.exec(url || '');
+    return m ? m[1] : '';
+  }
+
+  function duoiTheoMime(mime) {
+    if (mime === 'image/png') return 'png';
+    if (mime === 'image/gif') return 'gif';
+    if (mime === 'image/webp') return 'webp';
+    return 'jpg';
+  }
+
+  // Doc bytes tu 1 data: URL — KHONG can mang, fetch() xu ly data: URL hoan toan o phia trinh
+  // duyet (khong phai request that), nen dung duoc luon ca khi @connect chua cap quyen domain nao.
+  async function duLieuTuDataUrl(url) {
+    const res = await fetch(url);
+    return await res.arrayBuffer();
   }
 
   // Lam sach ten file (bo cac ky tu khong hop le tren Windows/Mac)
@@ -1934,8 +1961,11 @@
     }
   }
 
+  // Tra ve true/false de noi goi (dac biet luc them anh tu MAY TINH — chuoi base64 nang hon
+  // nhieu so voi 1 link URL) biet duoc co bi day quota luu tru hay khong ma canh bao ngay,
+  // thay vi tuong da luu xong nhung thuc ra mat trang khi tai lai.
   function luuThuVienBangSize(danhSach) {
-    luuGiaTri(KHOA_THU_VIEN_BANG_SIZE, JSON.stringify(danhSach));
+    return luuGiaTri(KHOA_THU_VIEN_BANG_SIZE, JSON.stringify(danhSach));
   }
 
   // Hop thoai lay nhanh link anh bang size TU CHINH TRANG LISTING DANG MO — khong can chay het
@@ -2071,6 +2101,10 @@
           tự đã sắp ở đây.
         </div>
         <div id="ea-bs-luoi" style="padding:10px 16px;overflow:auto;flex:1;"></div>
+        <div style="padding:10px 16px 0 16px;">
+          <button id="ea-bs-tumay" style="width:100%;padding:8px 12px;background:#fff;color:#7C3AED;border:1px dashed #7C3AED;border-radius:6px;font-weight:bold;cursor:pointer;font-size:12px;">📁 Thêm ảnh từ máy tính...</button>
+          <input id="ea-bs-file" type="file" accept="image/*" multiple style="display:none;">
+        </div>
         <div style="padding:10px 16px;border-top:1px solid #E5E7EB;display:flex;gap:8px;">
           <input id="ea-bs-input" type="text" placeholder="Dán link ảnh (https://...)" style="flex:1;padding:8px 10px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;">
           <button id="ea-bs-dan" title="Dán link vừa copy từ Clipboard hệ thống" style="padding:8px 12px;background:#fff;color:#7C3AED;border:1px solid #7C3AED;border-radius:6px;font-weight:bold;cursor:pointer;white-space:nowrap;">📋 Dán</button>
@@ -2090,21 +2124,25 @@
       function ve() {
         if (!danhSach.length) {
           luoi.innerHTML = `<div style="padding:24px 8px;text-align:center;color:#9CA3AF;font-size:12px;">
-            Chưa có ảnh bảng size nào. Dán link vào ô dưới rồi bấm "Thêm".
+            Chưa có ảnh bảng size nào. Thêm từ máy tính hoặc dán link vào ô dưới rồi bấm "Thêm".
           </div>`;
           return;
         }
         luoi.innerHTML = danhSach
-          .map(
-            (a, i) => `
+          .map((a, i) => {
+            const laAnhTuMay = laDataUrl(a.url);
+            const nhan = laAnhTuMay
+              ? `📁 ${(a.ten || 'ảnh từ máy tính').replace(/</g, '&lt;')}`
+              : a.url.replace(/</g, '&lt;');
+            return `
           <div style="display:flex;align-items:center;gap:8px;padding:6px;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:6px;">
             <img src="${a.url.replace(/"/g, '&quot;')}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;flex-shrink:0;background:#F3F4F6;" loading="lazy" onerror="this.style.opacity='.25'">
-            <div style="flex:1;min-width:0;font-size:11px;color:#374151;word-break:break-all;">${a.url.replace(/</g, '&lt;')}</div>
+            <div style="flex:1;min-width:0;font-size:11px;color:#374151;word-break:break-all;">${nhan}</div>
             <button data-act="len" data-i="${i}" title="Lên" ${i === 0 ? 'disabled' : ''} style="width:24px;height:24px;border:1px solid #D1D5DB;border-radius:4px;background:#fff;cursor:pointer;flex-shrink:0;">↑</button>
             <button data-act="xuong" data-i="${i}" title="Xuống" ${i === danhSach.length - 1 ? 'disabled' : ''} style="width:24px;height:24px;border:1px solid #D1D5DB;border-radius:4px;background:#fff;cursor:pointer;flex-shrink:0;">↓</button>
             <button data-act="xoa" data-i="${i}" title="Xoá" style="width:24px;height:24px;border:1px solid #FCA5A5;border-radius:4px;background:#FEF2F2;color:#DC2626;cursor:pointer;flex-shrink:0;">✕</button>
-          </div>`
-          )
+          </div>`;
+          })
           .join('');
       }
       ve();
@@ -2162,6 +2200,61 @@
         oInput.value = chuoi;
         themTuO();
       };
+
+      // Doc 1 File thanh data: URL (base64) — day la cach DUY NHAT de luu duoc anh tu may tinh
+      // vao thu vien dung chung (GM_setValue), vi luu tru chi nhan duoc chuoi, khong nhan File/Blob.
+      function docFileThanhDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = () => reject(fr.error || new Error('Không đọc được file'));
+          fr.readAsDataURL(file);
+        });
+      }
+
+      // Gioi han kich thuoc 1 anh khi them tu may — anh bang size la anh chup man hinh/thiet ke,
+      // hiem khi can qua vai MB; chan som de tranh 1 file qua nang lam day quota luu tru dung chung
+      // (GM_setValue/localStorage thuong chi vai MB) roi lam HONG ca thu vien cho nhung anh khac.
+      const GIOI_HAN_ANH_TU_MAY_MB = 8;
+
+      hop.querySelector('#ea-bs-tumay').onclick = () => hop.querySelector('#ea-bs-file').click();
+      hop.querySelector('#ea-bs-file').addEventListener('change', async (e) => {
+        const cacFile = [...e.target.files].filter((f) => f.type.startsWith('image/'));
+        e.target.value = ''; // cho phep chon lai dung file do lan sau (change moi tu bao)
+        if (!cacFile.length) return;
+
+        let soDaThem = 0;
+        const boQua = [];
+        for (const file of cacFile) {
+          if (file.size > GIOI_HAN_ANH_TU_MAY_MB * 1024 * 1024) {
+            boQua.push(`${file.name} (quá ${GIOI_HAN_ANH_TU_MAY_MB}MB)`);
+            continue;
+          }
+          try {
+            const dataUrl = await docFileThanhDataUrl(file);
+            danhSach.push({ url: dataUrl, ten: file.name });
+            soDaThem++;
+          } catch (err) {
+            boQua.push(`${file.name} (${err.message})`);
+          }
+        }
+
+        const daLuu = luuThuVienBangSize(danhSach);
+        ve();
+
+        if (!daLuu) {
+          hienThongBao(
+            '❌ Không lưu được thư viện — có thể đã đầy bộ nhớ lưu trữ (ảnh từ máy tính khá nặng). ' +
+              'Hãy bớt ảnh hoặc dùng ảnh nhỏ hơn.',
+            '#DC2626',
+            9000
+          );
+        } else if (boQua.length) {
+          hienThongBao(`✅ Đã thêm ${soDaThem} ảnh. Bỏ qua ${boQua.length}: ${boQua.join(', ')}`, '#F59E0B', 8000);
+        } else if (soDaThem) {
+          hienThongBao(`✅ Đã thêm ${soDaThem} ảnh từ máy tính vào thư viện`, '#16A34A');
+        }
+      });
 
       const dong = () => {
         lop.remove();
@@ -2473,6 +2566,17 @@
   // ---- Tai anh ve thanh File de nhoi vao o upload ----
 
   async function taiAnhThanhFile(url, ten, baoDangThuLai) {
+    // Anh bang size tu may tinh: data: URL, doc thang tai cho khong qua GM_xmlhttpRequest/retry
+    // (khong phai request mang, khong bao gio "treo" hay can @connect).
+    if (laDataUrl(url)) {
+      const duLieu = await duLieuTuDataUrl(url);
+      const mime = mimeTuDataUrl(url);
+      const duoi = duoiTheoMime(mime);
+      const file = new File([duLieu], `${lamSachTenFile(ten)}.${duoi}`, { type: mime || laMimeTheoDuoi(duoi) });
+      console.log(`[Etsy Auto] Ảnh ${file.name}: ${(file.size / 1024).toFixed(0)} KB`);
+      return file;
+    }
+
     const duLieu = await taiMotAnhVoiRetry(url, 2, baoDangThuLai);
     const duoi = laySoDuoiFile(url);
     const file = new File([duLieu], `${lamSachTenFile(ten)}.${duoi}`, { type: laMimeTheoDuoi(duoi) });

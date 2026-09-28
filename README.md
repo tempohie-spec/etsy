@@ -519,6 +519,28 @@ Khi `Alt+V` có ảnh để upload: nếu thư viện đang có N ảnh, script 
 còn ít hơn số ảnh trong thư viện, script báo lỗi ngay từ đầu thay vì để bạn chọn ảnh sản phẩm rồi
 mới phát hiện không đủ chỗ.
 
+### Thêm ảnh bảng size từ máy tính, không chỉ từ link (v9.17)
+
+Trước v9.17, thư viện 📐 chỉ nhận **link URL** (dán vào ô hoặc bấm 📋 Dán) — ảnh bảng size tự thiết
+kế/chụp màn hình nằm sẵn trong máy tính, không có ở đâu trên mạng, thì không thêm vào được.
+
+Nút **📁 Thêm ảnh từ máy tính...** trong hộp thoại "Quản lý ảnh bảng size" mở hộp thoại chọn file hệ
+điều hành (chọn được nhiều ảnh cùng lúc). Mỗi ảnh được đọc bằng `FileReader.readAsDataURL()` thành
+chuỗi **base64 (`data:` URL)** rồi lưu thẳng vào thư viện — khác với ảnh dán link (chỉ lưu 1 chuỗi
+URL ngắn), ảnh từ máy tính lưu **toàn bộ nội dung ảnh** ngay trong thư viện, nên:
+
+- **Không cần `@connect`**: khi upload, script nhận ra `url` bắt đầu bằng `data:` thì đọc thẳng bằng
+  `fetch()` (không phải request mạng thật, trình duyệt xử lý ngay tại chỗ) thay vì qua
+  `GM_xmlhttpRequest` — không bị giới hạn domain như link dán tay.
+- **Giới hạn 8MB/ảnh** khi chọn từ máy — chặn sớm để tránh 1 ảnh quá nặng làm đầy bộ nhớ lưu trữ
+  dùng chung (`GM_setValue`, thường chỉ vài MB) và hỏng luôn cả thư viện. Ảnh bảng size thường là
+  ảnh chụp màn hình/thiết kế, hiếm khi cần vượt mức này.
+- Nếu lưu thất bại (hết chỗ lưu trữ), toast báo rõ ngay thay vì âm thầm mất ảnh mới thêm sau khi
+  tải lại trang.
+
+Danh sách hiện tên file gốc (kèm biểu tượng 📁) thay vì cả chuỗi base64 dài dằng dặc như link URL.
+Ảnh từ link và ảnh từ máy tính trộn chung 1 danh sách, sắp xếp bằng nút ↑/↓ như nhau.
+
 ### Lấy link ảnh bảng size ngay trên trang listing đang mở — nút 🔎 (v9.10)
 
 Cách thêm ảnh vào thư viện ở trên (v9.0) bắt bạn phải có sẵn link ảnh từ trước. Nhưng thường thì
