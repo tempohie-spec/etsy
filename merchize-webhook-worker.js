@@ -177,14 +177,22 @@ export default {
       }
       const coKV = !!env.EVENTS;
       const last = coKV ? await env.EVENTS.get('last:attempt') : null;
-      const cho = coKV ? (await env.EVENTS.list({ prefix: 'ev:' })).keys.length : 0;
+      const dsCho = coKV ? await layEvents(env) : [];
+      const cho = dsCho.length;
       return json({
         ok: true,
         kvEVENTS: coKV ? 'đã gắn' : 'CHƯA gắn binding EVENTS',
         soSecretKey: cacSecretKey(env).length,
         telegram: env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID ? 'đã khai báo' : 'CHƯA khai báo',
         thongBaoDangCho: cho,
-        lanGoiCuoi: last ? JSON.parse(last) : 'chưa có lần gọi nào từ Merchize'
+        lanGoiCuoi: last ? JSON.parse(last) : 'chưa có lần gọi nào từ Merchize',
+        // 20 thong bao moi nhat: loai su kien, ma don, luc nhan (khong hien du lieu khach hang).
+        danhSachCho: dsCho.slice(-20).map((e) => ({
+          event_type: e.event_type,
+          external_number: (e.resource || {}).external_number,
+          identifier: (e.resource || {}).identifier,
+          received: e.received
+        }))
       });
     }
 
