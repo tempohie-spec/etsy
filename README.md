@@ -1308,3 +1308,66 @@ tiền cuối cùng, thay vì lấy ngay lần đọc đầu tiên.
 Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),
 panel sẽ hiện thêm nút **"⏹ Dừng"**. Bấm nút này để dừng giữa chừng — script sẽ dừng sau khi xử
 lý xong đơn hiện tại, rồi vẫn xuất file Excel với dữ liệu đã lấy được đến thời điểm đó.
+
+# Google Sheets - Gửi đơn lên Merchize
+
+Userscript chạy trên Google Sheets (cùng kiểu với script "Import Cost/Earnings"): đọc đơn trên
+trang tính đang mở, tự tra Merchize SKU, gộp các dòng cùng orderNumber thành 1 đơn rồi gửi lên
+Merchize qua API `POST /order/external/orders`. Thay cho bước import file trên Merchize.
+
+- File script: [`merchize-order-sender.user.js`](merchize-order-sender.user.js)
+- Cài đặt: Violentmonkey → **Create a new script** → dán toàn bộ nội dung file → **Save**.
+- Base URL: `https://bo-group-1-2.merchize.com/zoi24ff/bo-api`
+
+## Cài đặt lần đầu
+
+1. Mở Google Sheet, bấm nút cam **Merchize** (kéo thả được) → dán **Access Token** (trang
+   API documents của Merchize, tab ACCESS TOKEN) → **Lưu token**. Token chỉ lưu trong
+   Violentmonkey trên máy này, không nằm trong Sheet hay GitHub.
+2. Bấm **1. Cập nhật catalog** để tải SKU của 7 loại áo. Bấm lại khi Merchize thêm màu mới.
+3. Ở **mỗi tab account**, bấm **Đánh dấu dòng cũ** một lần: các dòng đang có sẽ ghi "Cũ" ở cột
+   AC để không bị gửi lên Merchize lần nữa.
+
+## Dùng hàng ngày
+
+1. Copy đơn từ file Excel dán vào tab account như bình thường, dán link design vào cột F/G.
+2. Bấm **2. Kiểm tra**: điền SKU vào cột AB và liệt kê đơn lỗi, chưa gửi gì lên Merchize.
+3. Sửa lỗi nếu có, bấm **3. Gửi đơn lên Merchize**.
+
+Đơn chờ gửi = dòng có orderNumber (cột C) và cột AC còn trống. Dòng tổng màu xanh (không có
+orderNumber) bị bỏ qua.
+
+| Cột | Nội dung |
+|---|---|
+| AB | Merchize SKU tự tra |
+| AC | `Đã gửi` / `Cũ` / `Lỗi: ...` |
+| AD | Mã đơn Merchize (ID nội bộ, dùng khi hỏi hỗ trợ). Mã đơn Etsy gửi lên thành External number |
+
+Đơn bị lỗi: sửa dữ liệu rồi **xoá ô AC** của các dòng đơn đó để gửi lại. Gửi lại đơn đã bị
+cancel: thêm hậu tố chữ vào orderNumber (vd `4181764944a`) vì Merchize không nhận trùng
+External number.
+
+## Quy tắc tra SKU
+
+| Title (viết kiểu nào cũng được) | Mã Merchize |
+|---|---|
+| Bella Adult | 3001US |
+| Bella Youth | 301YUS |
+| Comfort Adult | 1717US |
+| Comfort Youth | 9018US |
+| Toddler | 301TUS |
+| Sweatshirt Adult | 1800US |
+| Hoodie Adult | 1850US |
+
+SKU = mã sản phẩm + màu (cột I) + size (cột J) tra trong catalog. Màu ghép `A/B` (vd
+`Pepper/Dark Heather`) sẽ thử từng mảnh, chỉ nhận khi đúng 1 mảnh khớp. `XXL` được hiểu là `2XL`.
+Mã màu/size của Merchize khác nhau theo từng sản phẩm nên không tự sinh SKU mà luôn tra catalog.
+
+## Dữ liệu gửi lên
+
+- `order_id` = orderNumber, `identifier` = cột Account (trống thì dùng tên tab).
+- `shipping_info` từ cột N-V; country "United States" tự đổi thành `US`.
+- Mỗi dòng là 1 item: `image` = mockUpFront (D), `design_front`/`design_back` = link ở F/G (chỉ
+  nhận ô bắt đầu bằng `http`), `printing_method` = cột A (DTG/DTF), `quantity` = cột K.
+- Không gửi nếu thiếu: tên/địa chỉ/city/postalCode, quốc gia không nhận ra, thiếu mockUp, thiếu
+  cả 2 link design, hoặc không tra được SKU.
