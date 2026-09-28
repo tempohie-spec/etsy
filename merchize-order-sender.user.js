@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.3
+// @version      1.4
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.3';
+  const SCRIPT_VERSION = '1.4';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -88,18 +88,10 @@
   }
 
   const BI_DANH_SIZE = { XXL: '2XL', XXXL: '3XL', XXXXL: '4XL', XXXXXL: '5XL' };
-  // Bo khoang trang, "-" va "/" de "5-6T" tren Etsy khop "5/6T" trong catalog Merchize.
   function chuanHoaSize(s) {
-    const v = str(s).toUpperCase().replace(/[\s\-\/]+/g, '');
+    const v = str(s).toUpperCase().replace(/\s+/g, '');
     return BI_DANH_SIZE[v] || v;
   }
-
-  // Ten mau tren Etsy khac ten chinh thuc trong catalog Merchize, theo tung ma san pham.
-  // key = ten tren Etsy, value = ten trong catalog (viet thuong).
-  const BI_DANH_MAU = {
-    '3001US': { 'dark heather': 'dark grey heather', 'purple': 'team purple' },
-    '301YUS': { 'dark heather': 'dark grey heather', 'purple': 'team purple' }
-  };
 
   function laLink(v) {
     return /^https?:\/\//i.test(str(v));
@@ -252,17 +244,10 @@
     const sp = catalog.products[maSp];
     if (!sp) return { loi: `catalog chưa có ${maSp}, bấm "Cập nhật catalog"` };
     const s = chuanHoaSize(size);
-    // Chuan hoa lai key catalog (catalog luu tu ban cu van dung duoc, khong can cap nhat lai).
-    const bang = {};
-    Object.keys(sp.variants).forEach((k) => {
-      const i = k.lastIndexOf('|');
-      bang[k.slice(0, i) + '|' + chuanHoaSize(k.slice(i + 1))] = sp.variants[k];
-    });
-    const biDanh = BI_DANH_MAU[maSp] || {};
+    const bang = sp.variants;
     const khopMap = new Map();
     [color, ...str(color).split('/')].map(str).filter(Boolean).forEach((goc) => {
-      let m = chuanHoaMau(goc);
-      if (!bang[m + '|' + s] && biDanh[m]) m = biDanh[m];
+      const m = chuanHoaMau(goc);
       if (bang[m + '|' + s] && !khopMap.has(m)) khopMap.set(m, goc);
     });
     const khop = Array.from(khopMap.keys());
