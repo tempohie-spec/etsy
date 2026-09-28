@@ -245,18 +245,33 @@ function taoBoGhi(duLieu) {
   };
 }
 
+// Ghi 1 lo. O bi khoa (Protected range) thi bo o do ra roi ghi lai phan con lai, toi da 8 lan.
+async function ghiLo(env, dem, valueInputOption, data, biKhoa) {
+  let conLai = data;
+  for (let lan = 0; lan < 8 && conLai.length; lan++) {
+    try {
+      await sheetsFetch(env, dem, '/values:batchUpdate', {
+        method: 'POST', body: JSON.stringify({ valueInputOption, data: conLai })
+      });
+      return;
+    } catch (e) {
+      const m = String(e.message).match(/Invalid data\[(\d+)\][^"]*protected/i);
+      if (!m || !conLai[Number(m[1])]) throw e;
+      biKhoa.push(conLai[Number(m[1])].range);
+      conLai = conLai.filter((_, i) => i !== Number(m[1]));
+    }
+  }
+}
+
 async function ghiSheet(env, dem, boGhi) {
   const doi = (m) => Array.from(m.entries()).map(([range, v]) => ({ range, values: [[v]] }));
+  const biKhoa = [];
   // RAW cho chu (tracking dai khong bi doi thanh so), USER_ENTERED cho cost (de la so).
-  if (boGhi.text.size) {
-    await sheetsFetch(env, dem, '/values:batchUpdate', {
-      method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: doi(boGhi.text) })
-    });
-  }
-  if (boGhi.so.size) {
-    await sheetsFetch(env, dem, '/values:batchUpdate', {
-      method: 'POST', body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: doi(boGhi.so) })
-    });
+  if (boGhi.text.size) await ghiLo(env, dem, 'RAW', doi(boGhi.text), biKhoa);
+  if (boGhi.so.size) await ghiLo(env, dem, 'USER_ENTERED', doi(boGhi.so), biKhoa);
+  if (biKhoa.length) {
+    await baoLoiHeThong(env, dem, `Không ghi được ${biKhoa.length} ô vì đang bị khoá (Protected range): ` +
+      biKhoa.slice(0, 10).join(', ') + '. Thêm email service account vào quyền sửa của vùng bảo vệ đó.').catch(() => {});
   }
 }
 

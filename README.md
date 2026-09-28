@@ -1482,6 +1482,9 @@ xem ở Worker → **Observability** (hoặc **Logs**) trên Cloudflare.
    → tải về file `.json`. Giữ bí mật file này.
 5. Copy email của service account (dạng `merchize-worker@<project>.iam.gserviceaccount.com`).
 6. Mở Google Sheet → **Share** → dán email đó → quyền **Editor** → bỏ tick "Notify" → **Share**.
+   Nếu Sheet có vùng bảo vệ (**Data** → **Protect sheets and ranges**), mở từng vùng →
+   **Change permissions** → **Custom** → thêm email service account, nếu không Worker sẽ bỏ qua
+   các ô bị khoá và báo Telegram.
 7. Lấy **SPREADSHEET_ID** từ link Sheet: `https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit`.
 
 ## Bước 3: Tạo Worker và KV trên Cloudflare
