@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      4.0
+// @version      4.1
 // @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
 // @grant        GM_setValue
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '4.0';
+  const SCRIPT_VERSION = '4.1';
 
   // Manual overrides if the automatic substring match picks the wrong
   // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -608,8 +608,8 @@
     #at-panel .pause{background:#d97706;color:#fff}
     #at-panel .stop{background:#dc2626;color:#fff}
     #at-status{font:12px monospace;opacity:.8;margin-top:4px}
-    #at-sheet-import input[type="text"]{width:100%;box-sizing:border-box;margin-top:4px;
-      font:11px monospace;background:#1a1a1a;color:#e5e7eb;
+    #at-sheet-import textarea{width:100%;box-sizing:border-box;margin-top:4px;
+      font:11px monospace;background:#1a1a1a;color:#e5e7eb;resize:vertical;
       border:1px solid #333;border-radius:4px;padding:5px}
     .at-sheet-url-label{font-size:11px;opacity:.8;margin-top:8px;display:block}
     #at-sheet-info{font:11px monospace;opacity:.75;margin-top:4px;white-space:pre-wrap}
@@ -629,8 +629,8 @@
     <button class="pause" id="at-pause">Pause</button>
     <button class="stop" id="at-stop">Stop</button>
     <div id="at-sheet-import">
-      <label class="at-sheet-url-label">Link Google Sheet (Share: Anyone with the link — Viewer)</label>
-      <input type="text" id="at-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/..." />
+      <label class="at-sheet-url-label">Link Google Sheet (mỗi link 1 dòng, share "Anyone with the link" — Viewer)</label>
+      <textarea id="at-sheet-url" rows="3" placeholder="https://docs.google.com/spreadsheets/d/...&#10;https://docs.google.com/spreadsheets/d/..."></textarea>
       <button class="start" id="at-sheet-url-load">Tải từ link Sheet</button>
       <div id="at-sheet-info"></div>
     </div>
@@ -658,81 +658,116 @@
     if (el) el.textContent = text;
   }
 
-  // Loads sheet data straight from a Google Sheets link (see parseSheetCsv
-  // above for the "Anyone with the link" requirement). Remembers the URL in
-  // localStorage so Start can quietly re-fetch the latest data on every run
-  // without needing it re-entered.
-  async function loadSheetFromUrl(url) {
-    const info = document.getElementById('at-sheet-info');
+  // Fetches + parses a single sheet URL. Returns { ok:true, ...parseSheetCsv
+  // result } or { ok:false, error } — never throws, so the caller can keep
+  // going through a list of URLs even if one of them fails.
+  async function fetchOneSheet(url) {
     const parsed = extractSheetIdAndGid(url);
     if (!parsed) {
-      if (info) info.textContent = 'Link Google Sheet không hợp lệ — cần dạng .../spreadsheets/d/<id>/...';
-      log('Sheet URL load failed: could not parse sheet id.');
-      return false;
+      return { ok: false, error: 'link không hợp lệ (cần dạng .../spreadsheets/d/<id>/...)' };
     }
 
     const exportUrl = `https://docs.google.com/spreadsheets/d/${parsed.sheetId}/export?format=csv&gid=${parsed.gid}`;
-    if (info) info.textContent = 'Đang tải dữ liệu từ Google Sheet...';
-    log('Fetching Sheet from URL...');
-
     let text;
     try {
       text = await gmFetchText(exportUrl);
     } catch (e) {
-      if (info) info.textContent = `Không tải được Sheet: ${e.message}`;
-      log('Sheet URL fetch failed:', e.message);
-      return false;
+      return { ok: false, error: `không tải được (${e.message})` };
     }
 
     if (/^\s*<(!DOCTYPE|html)/i.test(text)) {
-      if (info)
-        info.textContent =
-          'Google trả về trang đăng nhập thay vì dữ liệu — Sheet chưa được share công khai.\n' +
-          '-> Vào Share trên Google Sheet, đổi thành "Anyone with the link" (Viewer), rồi thử lại.';
-      log('Sheet URL fetch failed: got HTML back (sheet likely not public).');
-      return false;
+      return { ok: false, error: 'chưa share công khai (Share -> Anyone with the link -> Viewer)' };
     }
 
     const result = parseSheetCsv(text);
     if (!result.ok) {
-      const header = result.header || [];
       const missing = [];
       if (result.colOrder === -1) missing.push('ORDER CODE');
       if (result.colTracking === -1) missing.push('TRACKING');
-      if (info)
-        info.textContent =
-          `Thiếu cột: ${missing.join(', ')}.\n` +
-          `Dòng đầu đọc được ${header.length} cột: ${header.join(' | ') || '(rỗng)'}`;
-      log('Sheet URL parse failed, missing column(s):', missing.join(', '));
-      return false;
+      return { ok: false, error: `thiếu cột ${missing.join(', ')}` };
     }
     if (result.count === 0) {
-      if (info)
-        info.textContent = `Đọc được ${result.rowCount} dòng nhưng không đơn nào có TRACKING để nạp.`;
-      log(`Sheet URL: ${result.rowCount} row(s) read, 0 with tracking.`);
+      return { ok: false, error: `đọc được ${result.rowCount} dòng nhưng không đơn nào có TRACKING` };
+    }
+    return result;
+  }
+
+  // Loads and merges sheet data from one or more Google Sheets links (one
+  // per line — see fetchOneSheet/parseSheetCsv above for the "Anyone with
+  // the link" requirement). A later sheet's entry for the same order code
+  // overwrites an earlier one; order ids are kept in first-appearance order
+  // across all sheets combined. Remembers the URLs in localStorage so Start
+  // can quietly re-fetch the latest data on every run without re-entering
+  // them. Keeps going through every URL even if some fail, and only reports
+  // total failure if NONE of them produced usable data.
+  async function loadSheetsFromUrls(urlsText) {
+    const info = document.getElementById('at-sheet-info');
+    const urls = (urlsText || '')
+      .split(/\r?\n/)
+      .map((u) => u.trim())
+      .filter(Boolean);
+
+    if (!urls.length) {
+      if (info) info.textContent = 'Dán ít nhất 1 link Google Sheet.';
       return false;
     }
 
-    sheetMap = result.map;
-    sheetMapByName = result.mapByName;
-    sheetOrder = result.order;
-    localStorage.setItem('at_sheet_url', url);
-    if (info) info.textContent = `Đã tải ${result.count} đơn từ link Sheet.`;
-    log(`Sheet URL: loaded ${result.count} order(s).`);
+    if (info) info.textContent = `Đang tải dữ liệu từ ${urls.length} link Sheet...`;
+
+    const combinedMap = {};
+    const combinedMapByName = {};
+    const combinedOrder = [];
+    const errors = [];
+    let okCount = 0;
+
+    for (const url of urls) {
+      log('Fetching Sheet:', url);
+      const result = await fetchOneSheet(url);
+      if (!result.ok) {
+        log('  failed:', result.error);
+        errors.push(`${url}\n  -> ${result.error}`);
+        continue;
+      }
+      okCount++;
+      log(`  loaded ${result.count} order(s).`);
+      for (const orderId of result.order) {
+        if (!(orderId in combinedMap)) combinedOrder.push(orderId);
+        combinedMap[orderId] = result.map[orderId];
+      }
+      Object.assign(combinedMapByName, result.mapByName);
+    }
+
+    if (!okCount) {
+      if (info) info.textContent = `Không tải được link nào.\n${errors.join('\n')}`;
+      log('All Sheet URLs failed to load.');
+      return false;
+    }
+
+    sheetMap = combinedMap;
+    sheetMapByName = combinedMapByName;
+    sheetOrder = combinedOrder;
+    localStorage.setItem('at_sheet_urls', urlsText);
+
+    let msg = `Đã tải ${combinedOrder.length} đơn từ ${okCount}/${urls.length} link.`;
+    if (errors.length) msg += `\nLỗi:\n${errors.join('\n')}`;
+    if (info) info.textContent = msg;
+    log(`Sheet URLs: loaded ${combinedOrder.length} order(s) from ${okCount}/${urls.length} link(s).`);
     return true;
   }
 
   const sheetUrlInput = document.getElementById('at-sheet-url');
-  if (sheetUrlInput) sheetUrlInput.value = localStorage.getItem('at_sheet_url') || '';
+  if (sheetUrlInput) {
+    sheetUrlInput.value = localStorage.getItem('at_sheet_urls') || localStorage.getItem('at_sheet_url') || '';
+  }
 
   document.getElementById('at-sheet-url-load').addEventListener('click', () => {
-    const url = sheetUrlInput ? sheetUrlInput.value.trim() : '';
-    if (!url) {
+    const urlsText = sheetUrlInput ? sheetUrlInput.value : '';
+    if (!urlsText.trim()) {
       const info = document.getElementById('at-sheet-info');
       if (info) info.textContent = 'Dán link Google Sheet vào ô trước.';
       return;
     }
-    loadSheetFromUrl(url);
+    loadSheetsFromUrls(urlsText);
   });
 
   function setPauseButtonLabel() {
@@ -755,12 +790,12 @@
       }
       return;
     }
-    const url = sheetUrlInput ? sheetUrlInput.value.trim() : '';
-    if (!url) {
+    const urlsText = sheetUrlInput ? sheetUrlInput.value : '';
+    if (!urlsText.trim()) {
       log('Chưa có link Google Sheet — dán link vào ô rồi bấm Start lại.');
       return;
     }
-    if (!(await loadSheetFromUrl(url))) {
+    if (!(await loadSheetsFromUrls(urlsText))) {
       return;
     }
     runAll();
