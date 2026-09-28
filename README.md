@@ -990,13 +990,13 @@ tracking**. Log sẽ ghi rõ `found (by customer name)` khi khớp qua tên thay
 2. Copy link của sheet (bất kỳ dạng link Share/Address bar nào có `/spreadsheets/d/<id>/` là dùng
    được — link kèm `#gid=...` sẽ tự chọn đúng tab/sheet con).
 3. Dán vào ô "Link Google Sheet" trong panel — **có thể dán nhiều link, mỗi link 1 dòng** (VD nếu
-   bạn tách tracking ra nhiều sheet riêng theo tháng/xưởng). Script tải và gộp dữ liệu từ tất cả
-   các link lại thành 1 danh sách trước khi so khớp; nếu 1 link lỗi (không public, thiếu cột...)
-   script vẫn tiếp tục với các link còn lại và báo rõ link nào lỗi, chỉ báo lỗi hẳn khi **không**
-   link nào tải được. Từ lần **Start** đầu tiên trở đi, script tự tải lại dữ liệu mới nhất từ các
-   link đó mỗi khi chạy — không cần dán lại, kể cả sau khi tracking trong sheet được cập nhật
-   thêm. Nút **"Tải từ link Sheet"** dùng để kiểm tra trước (xem đọc được bao nhiêu đơn) mà chưa
-   cần chạy ngay.
+   bạn tách tracking ra nhiều sheet riêng theo tháng/xưởng). Ngay dưới ô nhập có dòng đếm tự động
+   (VD "3 dòng — 3 link Sheet hợp lệ") để biết ngay có đang tách đúng mỗi link 1 dòng hay không,
+   không cần bấm nút nào để kiểm tra. Script tải và gộp dữ liệu từ tất cả các link lại thành 1
+   danh sách trước khi so khớp; nếu 1 link lỗi (không public, thiếu cột...) script vẫn tiếp tục
+   với các link còn lại và báo rõ link nào lỗi, chỉ báo lỗi hẳn khi **không** link nào tải được.
+   Bấm **Start** là script tự tải dữ liệu mới nhất từ các link đó rồi mới chạy — không cần dán lại,
+   kể cả sau khi tracking trong sheet được cập nhật thêm.
 4. Script tải trực tiếp bản CSV của từng sheet (có đủ header thật), nên tự dò cột theo **tên cột**
    (`ORDER CODE`, `FULL NAME`, `TRACKING`, `DVVC`) thay vì đoán vị trí cố định — không phụ thuộc
    thứ tự cột hay sheet có ô xuống dòng (Alt+Enter) trong tên/địa chỉ. Nếu cùng 1 mã đơn xuất hiện

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      4.1
+// @version      4.2
 // @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
 // @grant        GM_setValue
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '4.1';
+  const SCRIPT_VERSION = '4.2';
 
   // Manual overrides if the automatic substring match picks the wrong
   // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -612,6 +612,7 @@
       font:11px monospace;background:#1a1a1a;color:#e5e7eb;resize:vertical;
       border:1px solid #333;border-radius:4px;padding:5px}
     .at-sheet-url-label{font-size:11px;opacity:.8;margin-top:8px;display:block}
+    #at-sheet-url-count{font-size:11px;opacity:.7;margin-top:3px}
     #at-sheet-info{font:11px monospace;opacity:.75;margin-top:4px;white-space:pre-wrap}
     .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
       border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
@@ -631,7 +632,7 @@
     <div id="at-sheet-import">
       <label class="at-sheet-url-label">Link Google Sheet (mỗi link 1 dòng, share "Anyone with the link" — Viewer)</label>
       <textarea id="at-sheet-url" rows="3" placeholder="https://docs.google.com/spreadsheets/d/...&#10;https://docs.google.com/spreadsheets/d/..."></textarea>
-      <button class="start" id="at-sheet-url-load">Tải từ link Sheet</button>
+      <div id="at-sheet-url-count"></div>
       <div id="at-sheet-info"></div>
     </div>
     <div id="at-log" class="at-log"></div>
@@ -760,15 +761,28 @@
     sheetUrlInput.value = localStorage.getItem('at_sheet_urls') || localStorage.getItem('at_sheet_url') || '';
   }
 
-  document.getElementById('at-sheet-url-load').addEventListener('click', () => {
-    const urlsText = sheetUrlInput ? sheetUrlInput.value : '';
-    if (!urlsText.trim()) {
-      const info = document.getElementById('at-sheet-info');
-      if (info) info.textContent = 'Dán link Google Sheet vào ô trước.';
+  // Live line-count so it's obvious each pasted link actually landed on its
+  // own line (a paste that silently collapses everything onto one line
+  // would otherwise look identical to the eye) instead of needing to click
+  // a separate "load" button just to find out.
+  function updateSheetUrlCount() {
+    const countEl = document.getElementById('at-sheet-url-count');
+    if (!countEl || !sheetUrlInput) return;
+    const lines = sheetUrlInput.value
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (!lines.length) {
+      countEl.textContent = '';
       return;
     }
-    loadSheetsFromUrls(urlsText);
-  });
+    const validCount = lines.filter((l) => extractSheetIdAndGid(l)).length;
+    let text = `${lines.length} dòng — ${validCount} link Sheet hợp lệ`;
+    if (validCount !== lines.length) text += `, ${lines.length - validCount} dòng không phải link Sheet`;
+    countEl.textContent = text;
+  }
+  updateSheetUrlCount();
+  if (sheetUrlInput) sheetUrlInput.addEventListener('input', updateSheetUrlCount);
 
   function setPauseButtonLabel() {
     const btn = document.getElementById('at-pause');
