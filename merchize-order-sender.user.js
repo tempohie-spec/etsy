@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.2
+// @version      1.3
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
-// @connect      bo-group-1-2.merchize.com
+// @connect      merchize.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -16,8 +16,10 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.2';
-  const MERCHIZE_BASE_URL = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
+  const SCRIPT_VERSION = '1.3';
+  // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
+  // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
+  const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
 
   // Dung chung OAuth Client ID voi script "Import Cost/Earnings" (da khai bao san
   // https://docs.google.com trong Authorized JavaScript origins).
@@ -136,18 +138,36 @@
   }
 
   // ============ GOI MERCHIZE API (GM_xmlhttpRequest de khong bi CORS chan) ============
-  function layToken() {
-    return str(GM_getValue('mz_access_token', ''));
+  // { "ten tab": { baseUrl, token } }
+  function docCacStore() {
+    try { return JSON.parse(GM_getValue('mz_stores', '{}')) || {}; } catch (e) { return {}; }
   }
 
-  function merchizeRequest(method, path, body) {
-    const token = layToken();
-    if (!token) return Promise.reject(new Error('Chưa nhập Access Token Merchize.'));
+  function layStore(tenTab) {
+    const st = docCacStore()[tenTab];
+    return st && st.baseUrl && st.token ? st : null;
+  }
+
+  function luuStore(tenTab, baseUrl, token) {
+    const all = docCacStore();
+    all[tenTab] = { baseUrl, token };
+    GM_setValue('mz_stores', JSON.stringify(all));
+  }
+
+  // Nhan ca Base URL lan 1 Request URL day du copy tu tab Network (vd
+  // ".../zoi24ff/bo-api/order/orders/..."), cat lai toi "/bo-api".
+  function chuanHoaBaseUrl(v) {
+    const m = str(v).match(/^(https:\/\/[a-z0-9.-]+\.merchize\.com\/[^/?#]+\/bo-api)/i);
+    return m ? m[1] : '';
+  }
+
+  function merchizeRequest(store, method, path, body) {
+    if (!store) return Promise.reject(new Error('Tab này chưa cài store Merchize (Base URL + Access Token).'));
     return new Promise((resolve, reject) => {
       GM_xmlhttpRequest({
         method,
-        url: MERCHIZE_BASE_URL + path,
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        url: store.baseUrl + path,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + store.token },
         data: body ? JSON.stringify(body) : undefined,
         timeout: 60000,
         onload: (res) => {
@@ -174,12 +194,17 @@
     try { return JSON.parse(GM_getValue('mz_catalog', 'null')); } catch (e) { return null; }
   }
 
+  // Catalog la cua chung Merchize (giong nhau moi store) nen chi can token cua tab dang mo.
   async function capNhatCatalog(statusEl) {
+    log(statusEl, '⏳ Đang đọc tab đang mở...');
+    const { title } = await layTrangTinhDangMo();
+    const store = layStore(title);
+    if (!store) throw new Error(`Tab "${title}" chưa cài store Merchize.`);
     log(statusEl, '⏳ Đang tải catalog Merchize...');
     const products = [];
     for (let page = 1; page <= 10; page++) {
       const q = `?limit=50&page=${page}&search=${encodeURIComponent(MA_SAN_PHAM.join(','))}`;
-      const { json } = await merchizeRequest('GET', '/product/catalog' + q);
+      const { json } = await merchizeRequest(store, 'GET', '/product/catalog' + q);
       if (!json.success) throw new Error('Tải catalog lỗi: ' + (json.message || 'không rõ'));
       const list = (json.data && json.data.products) || [];
       products.push(...list);
@@ -469,10 +494,11 @@
   async function kiemTraHoacGui(statusEl, guiThat) {
     const catalog = docCatalogDaLuu();
     if (!catalog) throw new Error('Chưa có catalog. Bấm "Cập nhật catalog" trước.');
-    if (guiThat && !layToken()) throw new Error('Chưa nhập Access Token Merchize.');
 
     log(statusEl, '⏳ Đang đọc trang tính...');
     const { spreadsheetId, title } = await layTrangTinhDangMo();
+    const store = layStore(title);
+    if (guiThat && !store) throw new Error(`Tab "${title}" chưa cài store Merchize (Base URL + Access Token).`);
     const rows = await docTrangTinh(spreadsheetId, title);
     const donList = gomDon(rows).map((d) => ({ ...d, ...dungDon(d, catalog, title) }));
     if (donList.length === 0) return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
@@ -500,7 +526,7 @@
       return [`Không có đơn hợp lệ để gửi (${coLoi.length} đơn lỗi):`, ...dongLoi].join('\n');
     }
     const ok = W.confirm(
-      `Gửi ${hopLe.length} đơn trong trang "${title}" lên Merchize?` +
+      `Gửi ${hopLe.length} đơn trong trang "${title}" lên store Merchize:\n${store.baseUrl}` +
       (coLoi.length ? `\n(${coLoi.length} đơn lỗi sẽ được đánh dấu, không gửi)` : '') +
       (hopLe.length > 30 ? '\n\nSố đơn khá nhiều. Nếu đây là đơn cũ, hãy bấm Hủy rồi dùng nút "Đánh dấu dòng cũ".' : '')
     );
@@ -523,7 +549,7 @@
       let trangThai;
       let maMerchize = '';
       try {
-        const { json } = await merchizeRequest('POST', '/order/external/orders', d.payload);
+        const { json } = await merchizeRequest(store, 'POST', '/order/external/orders', d.payload);
         if (json.success) {
           trangThai = STATUS_SENT;
           maMerchize = str(json.data && json.data._id);
@@ -609,11 +635,16 @@
     panel.appendChild(el('div', 'font-size:12px;color:#777;margin-bottom:10px;',
       'Chỉ làm việc trên trang tính đang mở. Đơn chờ gửi = dòng có orderNumber và cột AC còn trống.'));
 
-    const tokenLabel = el('div', 'font-size:12px;font-weight:bold;margin-bottom:4px;', 'Access Token Merchize');
-    const tokenInput = el('input', 'width:100%;box-sizing:border-box;padding:6px;margin-bottom:6px;border:1px solid #ccc;border-radius:4px;');
+    const oCss = 'width:100%;box-sizing:border-box;padding:6px;margin-bottom:6px;border:1px solid #ccc;border-radius:4px;';
+    const tokenLabel = el('div', 'font-size:12px;font-weight:bold;margin-bottom:4px;', 'Store Merchize của tab đang mở');
+    const storeInfo = el('div', 'font-size:11px;color:#777;margin-bottom:6px;', 'Bấm "Xem store của tab" để kiểm tra.');
+    const baseInput = el('input', oCss);
+    baseInput.placeholder = 'Base URL, vd ' + BASE_URL_GOI_Y;
+    const tokenInput = el('input', oCss);
     tokenInput.type = 'password';
-    tokenInput.placeholder = layToken() ? 'Đã lưu (dán token mới để thay)' : 'Dán Access Token vào đây';
-    const saveTokenBtn = nut('Lưu token', '#607d8b');
+    tokenInput.placeholder = 'Access Token của store này';
+    const saveTokenBtn = nut('Lưu store cho tab này', '#607d8b');
+    const viewStoreBtn = nut('Xem store của tab', '#90a4ae');
 
     const catalogInfo = el('div', 'font-size:11px;color:#999;margin:4px 0 6px;');
     function capNhatCatalogInfo() {
@@ -631,7 +662,7 @@
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [tokenLabel, tokenInput, saveTokenBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, oldBtn, statusEl]
+    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, oldBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
     document.body.appendChild(panel);
@@ -688,7 +719,7 @@
       if (show) repositionPanel();
     });
 
-    const tatCaNut = [saveTokenBtn, catalogBtn, checkBtn, sendBtn, oldBtn];
+    const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, oldBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -702,14 +733,32 @@
       }
     }
 
-    saveTokenBtn.addEventListener('click', () => {
-      const v = str(tokenInput.value);
-      if (!v) { log(statusEl, '⚠️ Chưa dán token.'); return; }
-      GM_setValue('mz_access_token', v);
+    async function xemStore() {
+      const { title } = await layTrangTinhDangMo();
+      const st = layStore(title);
+      storeInfo.textContent = st
+        ? `Tab "${title}": ${st.baseUrl} (đã có token)`
+        : `Tab "${title}": chưa cài store`;
+      baseInput.value = st ? st.baseUrl : '';
+      return storeInfo.textContent;
+    }
+
+    viewStoreBtn.addEventListener('click', () => chay(xemStore));
+    saveTokenBtn.addEventListener('click', () => chay(async () => {
+      const baseUrl = chuanHoaBaseUrl(baseInput.value);
+      if (!baseUrl) throw new Error('Base URL không đúng dạng https://....merchize.com/<store>/bo-api');
+      const { title } = await layTrangTinhDangMo();
+      const cu = layStore(title);
+      const token = str(tokenInput.value) || (cu && cu.token) || '';
+      if (!token) throw new Error('Chưa dán Access Token.');
+      if (cu && cu.baseUrl !== baseUrl && !str(tokenInput.value)) {
+        throw new Error('Đổi Base URL thì phải dán lại Access Token của store mới.');
+      }
+      luuStore(title, baseUrl, token);
       tokenInput.value = '';
-      tokenInput.placeholder = 'Đã lưu (dán token mới để thay)';
-      log(statusEl, '✅ Đã lưu Access Token (chỉ lưu trong Violentmonkey trên máy này).');
-    });
+      await xemStore();
+      return `Đã lưu store cho tab "${title}" (chỉ lưu trong Violentmonkey trên máy này).`;
+    }));
     catalogBtn.addEventListener('click', () => chay(() => capNhatCatalog(statusEl)));
     checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
     sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true)));

@@ -1317,15 +1317,22 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
 
 - File script: [`merchize-order-sender.user.js`](merchize-order-sender.user.js)
 - Cài đặt: Violentmonkey → **Create a new script** → dán toàn bộ nội dung file → **Save**.
-- Base URL: `https://bo-group-1-2.merchize.com/zoi24ff/bo-api`
+- Mỗi tab account là 1 store Merchize riêng, có **Base URL** và **Access Token** riêng, lưu theo
+  **tên tab** (đổi tên tab thì phải cài lại).
 
 ## Cài đặt lần đầu
 
-1. Mở Google Sheet, bấm nút cam **Merchize** (kéo thả được) → dán **Access Token** (trang
-   API documents của Merchize, tab ACCESS TOKEN) → **Lưu token**. Token chỉ lưu trong
-   Violentmonkey trên máy này, không nằm trong Sheet hay GitHub.
-2. Bấm **1. Cập nhật catalog** để tải SKU của 7 loại áo. Bấm lại khi Merchize thêm màu mới.
-3. Ở **mỗi tab account**, bấm **Đánh dấu dòng cũ** một lần: các dòng đang có sẽ ghi "Cũ" ở cột
+1. Mở Google Sheet, **mở tab account cần cài**, bấm nút cam **Merchize** (kéo thả được).
+2. Điền **Base URL** của store đó và dán **Access Token** (trang API documents của store, tab
+   ACCESS TOKEN) → **Lưu store cho tab này**. Làm lại cho từng tab account.
+   - Tìm Base URL: đăng nhập đúng store trên seller.merchize.com → F12 → Network → Fetch/XHR →
+     F5 → bấm 1 dòng bất kỳ → copy **Request URL** dán vào ô Base URL, script tự cắt tới
+     `/bo-api` (vd `https://bo-group-1-2.merchize.com/zoi24ff/bo-api`).
+   - Token chỉ lưu trong Violentmonkey trên máy này, không nằm trong Sheet hay GitHub.
+   - Bấm **Xem store của tab** để kiểm tra tab đang mở dùng store nào.
+3. Bấm **1. Cập nhật catalog** (catalog dùng chung cho mọi store, chỉ cần làm 1 lần).
+   Bấm lại khi Merchize thêm màu mới.
+4. Ở **mỗi tab account**, bấm **Đánh dấu dòng cũ** một lần: các dòng đang có sẽ ghi "Cũ" ở cột
    AC để không bị gửi lên Merchize lần nữa.
 
 ## Dùng hàng ngày
