@@ -1426,7 +1426,7 @@ Chạy 24/7, **không cần mở Sheet**:
 
 - **Webhook (real time):** Merchize gửi thông báo → Worker gửi Telegram (lỗi địa chỉ, lỗi import,
   ticket) và **ghi ngay vào Google Sheet** trong vài giây.
-- **Lịch mỗi giờ:** chạy lại thông báo chưa ghi được (đơn chưa có trong Sheet, lỗi tạm thời), và
+- **Lịch 30 phút/lần:** chạy lại thông báo chưa ghi được (đơn chưa có trong Sheet, lỗi tạm thời), và
   tra API tracking cho đơn 30 ngày gần nhất còn thiếu tracking để bù thông báo bị sót.
 
 - File code: [`merchize-webhook-worker.js`](merchize-webhook-worker.js)
@@ -1506,10 +1506,11 @@ giống lúc cài trong userscript):
 
 Biến `READ_KEY` của bản cũ không còn dùng, có thể xoá.
 
-## Bước 5: Bật lịch chạy mỗi giờ
+## Bước 5: Bật lịch chạy
 
 Worker → **Settings** → **Trigger Events** (hoặc **Triggers**) → **Add** → **Cron Triggers** →
-chọn **Hourly** hoặc nhập `0 * * * *` → **Add**.
+nhập `*/30 * * * *` (30 phút/lần, khuyên dùng) hoặc `0 * * * *` (mỗi giờ) → **Add**. Mỗi lần chạy
+tiếp nối danh sách đơn của lần trước nên đặt lịch nào cũng tra lần lượt hết.
 
 ## Bước 6: Cài webhook trên từng store Merchize
 

@@ -4,7 +4,7 @@
 // - POST /    : Merchize gui webhook. Kiem tra header "merchize-webhook-key", gui Telegram voi
 //               su kien loi/ticket, roi ghi ngay vao Google Sheet (tim dong theo ma don).
 //               Ghi loi hoac chua tim thay don thi luu KV de lich chay lai.
-// - Lich (Cron Trigger, vd moi gio):
+// - Lich (Cron Trigger, vd moi 30 phut hoac moi gio):
 //     1. Chay lai cac thong bao con cho trong KV.
 //     2. Tra API tracking cho don 30 ngay gan nhat chua co tracking -> dien tracking, ma RX, cost.
 //
@@ -491,7 +491,10 @@ async function chayLich(env) {
   }
   const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - dem.n);
   if (donLe.length && conLai) {
-    const batDau = (Math.floor(Date.now() / 3600000) * conLai) % donLe.length;
+    // Moi lan chay tiep noi vi tri lan truoc (luu KV), dat lich 30 phut hay 1 gio deu tra lan luot het.
+    const viTri = Number(await env.EVENTS.get('cron:vitri')) || 0;
+    const batDau = viTri % donLe.length;
+    await env.EVENTS.put('cron:vitri', String(batDau + Math.min(conLai, donLe.length)));
     for (let i = 0; i < Math.min(conLai, donLe.length); i++) {
       const { tab, store, ma, dong } = donLe[(batDau + i) % donLe.length];
       try {
