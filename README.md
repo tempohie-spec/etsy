@@ -1402,3 +1402,79 @@ Mã màu/size của Merchize khác nhau theo từng sản phẩm nên không t�
   nhận ô bắt đầu bằng `http`), `printing_method` = cột A (DTG/DTF), `quantity` = cột K.
 - Không gửi nếu thiếu: tên/địa chỉ/city/postalCode, quốc gia không nhận ra, thiếu mockUp, thiếu
   cả 2 link design, hoặc không tra được SKU.
+
+# Merchize Webhook - Cloudflare Worker
+
+Nhận thông báo từ Merchize (sai địa chỉ, lỗi import, tracking, cost...), lưu lại để userscript
+trên Google Sheets lấy về ghi vào Sheet, và gửi Telegram ngay với các sự kiện lỗi.
+
+- File code: [`merchize-webhook-worker.js`](merchize-webhook-worker.js)
+- Miễn phí (gói Free của Cloudflare: 100.000 request/ngày, KV 1.000 lượt ghi/ngày).
+- 1 Worker dùng chung cho mọi store.
+
+## Bước 1: Tạo bot Telegram
+
+1. Trong Telegram, nhắn cho **@BotFather** → gõ `/newbot` → đặt tên → nhận **Bot token** (dạng
+   `123456789:AA...`). Giữ bí mật token này.
+2. Mở bot vừa tạo, bấm **Start** và gửi 1 tin nhắn bất kỳ (vd `hi`).
+3. Mở trên trình duyệt: `https://api.telegram.org/bot<BOT_TOKEN>/getUpdates` (thay `<BOT_TOKEN>`),
+   tìm `"chat":{"id":123456789` → số đó là **Chat ID**.
+   - Muốn nhận trong nhóm: thêm bot vào nhóm, nhắn 1 tin trong nhóm rồi làm lại bước 3 (Chat ID
+     nhóm là số âm, vd `-100...`).
+
+## Bước 2: Tạo tài khoản và Worker trên Cloudflare
+
+1. Đăng ký tại https://dash.cloudflare.com/sign-up (chỉ cần email, không cần tên miền).
+2. Menu trái **Compute (Workers)** → **Workers & Pages** → **Create** → **Create Worker**
+   (mẫu "Hello World").
+3. Đặt tên `merchize-webhook` → **Deploy**. Bạn sẽ có URL dạng
+   `https://merchize-webhook.<tên-tài-khoản>.workers.dev`.
+4. Bấm **Edit code** → xoá hết code mẫu → dán toàn bộ nội dung file
+   [`merchize-webhook-worker.js`](merchize-webhook-worker.js) → **Deploy**.
+
+## Bước 3: Tạo bộ nhớ KV
+
+1. Menu trái **Storage & Databases** → **KV** → **Create** → đặt tên `merchize-events` → **Add**.
+2. Quay lại Worker `merchize-webhook` → tab **Bindings** → **Add binding** → **KV namespace**:
+   - Variable name: `EVENTS` (viết đúng chữ hoa)
+   - KV namespace: `merchize-events`
+   → **Add Binding**.
+
+## Bước 4: Khai báo biến bí mật
+
+Worker `merchize-webhook` → **Settings** → **Variables and Secrets** → **Add**, chọn Type
+**Secret** cho cả 4 biến:
+
+| Tên biến | Giá trị |
+|---|---|
+| `SECRET_KEYS` | Secret key webhook của các store (Merchize → Settings → Webhook), cách nhau dấu phẩy, vd `keyStore1,keyStore2,keyStore3` |
+| `READ_KEY` | Một chuỗi bí mật bạn tự đặt (dài, khó đoán). Sau này dán y hệt vào userscript trên Sheet |
+| `TELEGRAM_BOT_TOKEN` | Bot token ở bước 1 |
+| `TELEGRAM_CHAT_ID` | Chat ID ở bước 1 |
+
+→ **Deploy**. Thêm store mới thì sửa `SECRET_KEYS`, thêm key của store đó vào cuối.
+
+Kiểm tra: mở `https://merchize-webhook.<tên-tài-khoản>.workers.dev` trên trình duyệt, thấy
+`{"ok":true,"service":"merchize-webhook"}` là Worker đã chạy.
+
+## Bước 5: Cài webhook trên từng store Merchize
+
+Merchize → **Settings** → **Webhook** → **Add webhook**:
+
+- Enabled: bật
+- Endpoint: `https://merchize-webhook.<tên-tài-khoản>.workers.dev`
+- Events: **Order invalid address**, **Order importer error**, **Order changed tracking**,
+  **Order payment fulfillment cost**
+
+Làm lại cho từng store. Nhớ lấy Secret key của store đó khai báo vào `SECRET_KEYS`.
+
+## Worker làm gì
+
+| Đường dẫn | Việc |
+|---|---|
+| `POST /` | Merchize gửi vào. Sai `merchize-webhook-key` thì từ chối (401). Đúng thì lưu vào KV 30 ngày (trùng `event_id` chỉ ghi đè) và gửi Telegram nếu là sự kiện lỗi (`ORDER.INVALID.ADDRESS`, hoặc tên có chữ `INVALID`/`ERROR`) |
+| `GET /events` | Userscript lấy các thông báo chưa xử lý (header `x-read-key` = `READ_KEY`) |
+| `POST /events/ack` | Userscript báo đã ghi vào Sheet, xoá các thông báo đó khỏi KV |
+
+Phần userscript lấy thông báo về Sheet (ghi lỗi vào cột AC, mã `RX-...` vào cột AD, tracking,
+cost thật vào cột Y) sẽ làm tiếp sau khi có payload mẫu của các sự kiện còn lại.
