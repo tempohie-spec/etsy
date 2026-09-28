@@ -985,20 +985,25 @@ khớp. Khi có nhiều đơn cùng khớp (VD do mã đơn có hậu tố), scr
 tracking**. Log sẽ ghi rõ `found (by customer name)` khi khớp qua tên thay vì mã đơn.
 
 **Cách nạp dữ liệu:**
-1. Trên Google Sheet: **Share** → đổi chế độ chia sẻ thành **"Anyone with the link"** — quyền
-   **Viewer**. (Không cần cấp quyền Editor, chỉ cần xem được.)
+1. Trên (từng) Google Sheet: **Share** → đổi chế độ chia sẻ thành **"Anyone with the link"** —
+   quyền **Viewer**. (Không cần cấp quyền Editor, chỉ cần xem được.)
 2. Copy link của sheet (bất kỳ dạng link Share/Address bar nào có `/spreadsheets/d/<id>/` là dùng
    được — link kèm `#gid=...` sẽ tự chọn đúng tab/sheet con).
-3. Dán vào ô "Link Google Sheet" trong panel. Từ lần **Start** đầu tiên trở đi, script tự tải lại
-   dữ liệu mới nhất từ link đó mỗi khi chạy — không cần dán lại, kể cả sau khi tracking trong sheet
-   được cập nhật thêm. Nút **"Tải từ link Sheet"** dùng để kiểm tra trước (xem đọc được bao nhiêu
-   đơn) mà chưa cần chạy ngay.
-4. Script tải trực tiếp bản CSV của sheet (có đủ header thật), nên tự dò cột theo **tên cột**
+3. Dán vào ô "Link Google Sheet" trong panel — **có thể dán nhiều link, mỗi link 1 dòng** (VD nếu
+   bạn tách tracking ra nhiều sheet riêng theo tháng/xưởng). Script tải và gộp dữ liệu từ tất cả
+   các link lại thành 1 danh sách trước khi so khớp; nếu 1 link lỗi (không public, thiếu cột...)
+   script vẫn tiếp tục với các link còn lại và báo rõ link nào lỗi, chỉ báo lỗi hẳn khi **không**
+   link nào tải được. Từ lần **Start** đầu tiên trở đi, script tự tải lại dữ liệu mới nhất từ các
+   link đó mỗi khi chạy — không cần dán lại, kể cả sau khi tracking trong sheet được cập nhật
+   thêm. Nút **"Tải từ link Sheet"** dùng để kiểm tra trước (xem đọc được bao nhiêu đơn) mà chưa
+   cần chạy ngay.
+4. Script tải trực tiếp bản CSV của từng sheet (có đủ header thật), nên tự dò cột theo **tên cột**
    (`ORDER CODE`, `FULL NAME`, `TRACKING`, `DVVC`) thay vì đoán vị trí cố định — không phụ thuộc
-   thứ tự cột hay sheet có ô xuống dòng (Alt+Enter) trong tên/địa chỉ.
+   thứ tự cột hay sheet có ô xuống dòng (Alt+Enter) trong tên/địa chỉ. Nếu cùng 1 mã đơn xuất hiện
+   ở nhiều sheet, dữ liệu từ sheet dán **sau** sẽ ghi đè sheet dán trước.
 
 Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**. Bấm **Stop** sẽ xoá
-log trong panel (link Sheet đã lưu thì vẫn được giữ nguyên, không cần dán lại).
+log trong panel (các link Sheet đã lưu thì vẫn được giữ nguyên, không cần dán lại).
 
 Panel có thể **thu gọn / xổ ra**: bấm vào dòng tiêu đề "Etsy Auto Tracking" để đóng panel lại chỉ
 còn thanh tiêu đề, bấm lại để mở ra như cũ. Trạng thái thu gọn và vị trí kéo thả đều được nhớ qua
