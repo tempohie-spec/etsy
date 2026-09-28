@@ -1329,7 +1329,8 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
      F5 → bấm 1 dòng bất kỳ → copy **Request URL** dán vào ô Base URL, script tự cắt tới
      `/bo-api` (vd `https://bo-group-1-2.merchize.com/zoi24ff/bo-api`).
    - Token chỉ lưu trong Violentmonkey trên máy này, không nằm trong Sheet hay GitHub.
-   - Bấm **Xem store của tab** để kiểm tra tab đang mở dùng store nào.
+   - Khi panel đang mở, dòng trạng thái tự đổi theo tab đang chọn: **✅ đã có token** (kèm Base
+     URL) hoặc **❌ chưa có token**. Nút **Xem store của tab** dùng khi dòng này chưa hiện.
 3. Bấm **1. Cập nhật catalog** (catalog dùng chung cho mọi store, chỉ cần làm 1 lần).
    Bấm lại khi Merchize thêm màu mới.
 4. Ở **mỗi tab account**, bấm **Đánh dấu dòng cũ** một lần: các dòng đang có sẽ ghi "Cũ" ở cột

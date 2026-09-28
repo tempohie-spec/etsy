@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.8
+// @version      1.9
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.8';
+  const SCRIPT_VERSION = '1.9';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -437,12 +437,28 @@
     return m[1];
   }
 
+  function gidHienTai() {
+    const m = location.hash.match(/gid=(\d+)/);
+    return m ? Number(m[1]) : 0;
+  }
+
+  // gid -> ten tab, ghi lai moi lan doc qua API de doi tab khong can goi API/dang nhap lai.
+  const tenTabTheoGid = {};
+
+  // Ten tab dang mo, lay NGAY (khong goi API): uu tien chu tren thanh tab duoi day cua Sheets,
+  // khong thay thi dung bang gid -> ten da luu. Tra ve '' neu chua biet.
+  function tenTabNhanh() {
+    const dom = document.querySelector('.docs-sheet-active-tab .docs-sheet-tab-name');
+    const ten = dom ? str(dom.textContent) : '';
+    return ten || tenTabTheoGid[gidHienTai()] || '';
+  }
+
   async function layTrangTinhDangMo() {
     const spreadsheetId = getSpreadsheetId();
-    const m = location.hash.match(/gid=(\d+)/);
-    const gid = m ? Number(m[1]) : 0;
+    const gid = gidHienTai();
     const data = await sheetsApiFetch(`${spreadsheetId}?fields=sheets.properties`, { method: 'GET' });
     const props = (data.sheets || []).map((s) => s.properties);
+    props.forEach((p) => { tenTabTheoGid[p.sheetId] = p.title; });
     const active = props.find((p) => p.sheetId === gid) || props[0];
     if (!active) throw new Error('Không tìm thấy trang tính đang mở.');
     return { spreadsheetId, title: active.title };
@@ -776,7 +792,7 @@
 
     const oCss = 'width:100%;box-sizing:border-box;padding:6px;margin-bottom:6px;border:1px solid #ccc;border-radius:4px;';
     const tokenLabel = el('div', 'font-size:12px;font-weight:bold;margin-bottom:4px;', 'Store Merchize của tab đang mở');
-    const storeInfo = el('div', 'font-size:11px;color:#777;margin-bottom:6px;', 'Bấm "Xem store của tab" để kiểm tra.');
+    const storeInfo = el('div', 'font-size:12px;font-weight:bold;margin-bottom:6px;', '');
     const baseInput = el('input', oCss);
     baseInput.placeholder = 'Base URL, vd ' + BASE_URL_GOI_Y;
     const tokenInput = el('input', oCss);
@@ -856,7 +872,11 @@
       if (dragMoved) { dragMoved = false; return; }
       const show = panel.style.display === 'none';
       panel.style.display = show ? 'block' : 'none';
-      if (show) repositionPanel();
+      if (show) {
+        repositionPanel();
+        tabDaHien = null;
+        capNhatStoreTheoTab();
+      }
     });
 
     const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn];
@@ -873,15 +893,40 @@
       }
     }
 
-    async function xemStore() {
-      const { title } = await layTrangTinhDangMo();
+    function hienStore(title) {
       const st = layStore(title);
       storeInfo.textContent = st
-        ? `Tab "${title}": ${st.baseUrl} (đã có token)`
-        : `Tab "${title}": chưa cài store`;
-      baseInput.value = st ? st.baseUrl : '';
+        ? `✅ Tab "${title}": đã có token\n${st.baseUrl}`
+        : `❌ Tab "${title}": chưa có token`;
+      storeInfo.style.whiteSpace = 'pre-wrap';
+      storeInfo.style.color = st ? '#2e7d32' : '#c62828';
+      if (document.activeElement !== baseInput) baseInput.value = st ? st.baseUrl : '';
       return storeInfo.textContent;
     }
+
+    async function xemStore() {
+      const { title } = await layTrangTinhDangMo();
+      return hienStore(title);
+    }
+
+    // Tu cap nhat dong trang thai store khi doi tab (kiem tra moi 0.5 giay khi panel dang mo).
+    let tabDaHien = null;
+    function capNhatStoreTheoTab() {
+      if (panel.style.display === 'none') return;
+      const ten = tenTabNhanh();
+      if (!ten) {
+        if (tabDaHien === null) {
+          storeInfo.textContent = 'Bấm "Xem store của tab" để kiểm tra.';
+          storeInfo.style.color = '#777';
+        }
+        return;
+      }
+      if (ten === tabDaHien) return;
+      tabDaHien = ten;
+      hienStore(ten);
+    }
+    setInterval(capNhatStoreTheoTab, 500);
+    window.addEventListener('hashchange', capNhatStoreTheoTab);
 
     viewStoreBtn.addEventListener('click', () => chay(xemStore));
     saveTokenBtn.addEventListener('click', () => chay(async () => {
