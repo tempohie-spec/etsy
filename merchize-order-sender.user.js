@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.0
+// @version      1.1
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.0';
+  const SCRIPT_VERSION = '1.1';
   const MERCHIZE_BASE_URL = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
 
   // Dung chung OAuth Client ID voi script "Import Cost/Earnings" (da khai bao san
@@ -61,7 +61,7 @@
   // Sweatshirt/hoodie tre em chua co trong bang -> tra ve null de bao loi, khong gui nham size nguoi lon.
   function xacDinhMaSanPham(title) {
     const t = String(title || '').toLowerCase().replace(/[^a-z]/g, '');
-    if (t.includes('toddler')) return '301TUS';
+    if (t.includes('toddler')) return '3321US';
     if (t.includes('sweatshirt') || t.includes('hoodie')) {
       if (t.includes('youth') || t.includes('kid')) return null;
       return t.includes('hoodie') ? '1850US' : '1800US';
@@ -72,7 +72,7 @@
     if (t.includes('bella') && t.includes('adult')) return '3001US';
     return null;
   }
-  const MA_SAN_PHAM = ['3001US', '301YUS', '1717US', '9018US', '301TUS', '1800US', '1850US'];
+  const MA_SAN_PHAM = ['3001US', '301YUS', '1717US', '9018US', '3321US', '1800US', '1850US'];
 
   const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 

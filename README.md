@@ -1355,7 +1355,7 @@ External number.
 | Bella Youth | 301YUS |
 | Comfort Adult | 1717US |
 | Comfort Youth | 9018US |
-| Toddler | 301TUS |
+| Toddler | 3321US |
 | Sweatshirt Adult | 1800US |
 | Hoodie Adult | 1850US |
 
