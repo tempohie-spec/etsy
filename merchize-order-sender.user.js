@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.5
+// @version      1.6
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.5';
+  const SCRIPT_VERSION = '1.6';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -56,6 +56,8 @@
 
   // Bac gia goc Merchize dang ap dung cho store (tier1 = 0-999 don, tier2 = 1000-2999, tier3 = >3000).
   const TIER = 'tier1';
+  // Phu phi in them mat sau (moi san pham co link designBack), tinh theo tung cai.
+  const PHU_PHI_MAT_SAU = 4.5;
 
   const STATUS_SENT = 'Đã gửi';
   const STATUS_OLD = 'Cũ';
@@ -289,22 +291,30 @@
 
   // dong: [{ variant, pm, qty }]. Tong = gia goc tung san pham + phi ship: san pham co phi
   // "first item" cao nhat tinh first item, cac san pham con lai tinh "additional item".
-  // Tra ve so (lam tron 2 chu so) hoac chuoi loi.
+  // Tra ve { tong, chiTiet } hoac { loi }. chiTiet ghi ro gia goc + dong phi ship da chon
+  // (zone/country) de doi chieu khi so uoc tinh lech cost that.
   function uocTinhCost(dong, code) {
     const donVi = [];
     for (const d of dong) {
-      if (!d.variant) return 'catalog cũ, bấm "Cập nhật catalog"';
+      if (!d.variant) return { loi: 'catalog cũ, bấm "Cập nhật catalog"' };
       const gia = d.variant.gia[`${d.pm.toLowerCase()}_${TIER}`] ?? d.variant.gia[TIER];
-      if (typeof gia !== 'number' || isNaN(gia)) return `không có giá ${TIER} cho ${d.variant.sku}`;
+      if (typeof gia !== 'number' || isNaN(gia)) return { loi: `không có giá ${TIER} cho ${d.variant.sku}` };
       const phi = chonPhiShip(d.variant.ship, code);
-      if (!phi) return `không có phí ship tới ${code} cho ${d.variant.sku}`;
-      for (let i = 0; i < d.qty; i++) donVi.push({ gia, first: phi[2], add: phi[3] });
+      if (!phi) return { loi: `không có phí ship tới ${code} cho ${d.variant.sku}` };
+      const matSau = d.matSau ? PHU_PHI_MAT_SAU : 0;
+      for (let i = 0; i < d.qty; i++) donVi.push({ sku: d.variant.sku, gia, matSau, phi });
     }
-    if (donVi.length === 0) return 'đơn trống';
+    if (donVi.length === 0) return { loi: 'đơn trống' };
     let iMax = 0;
-    donVi.forEach((u, i) => { if (u.first > donVi[iMax].first) iMax = i; });
-    const tong = donVi.reduce((t, u, i) => t + u.gia + (i === iMax ? u.first : u.add), 0);
-    return Math.round(tong * 100) / 100;
+    donVi.forEach((u, i) => { if (u.phi[2] > donVi[iMax].phi[2]) iMax = i; });
+    let tong = 0;
+    const phan = donVi.map((u, i) => {
+      const ship = i === iMax ? u.phi[2] : u.phi[3];
+      tong += u.gia + u.matSau + ship;
+      return `${u.sku} ${u.gia}${u.matSau ? ` + mặt sau ${u.matSau}` : ''} + ship ${ship} (${u.phi[0]}/${u.phi[1] || 'all'}, ${i === iMax ? 'first' : 'additional'})`;
+    });
+    tong = Math.round(tong * 100) / 100;
+    return { tong, chiTiet: `${code}: ${phan.join(' | ')} = ${tong}` };
   }
 
   // ============ GOOGLE OAUTH + SHEETS API (giong script Import Cost/Earnings) ============
@@ -500,7 +510,10 @@
 
       const qty = parseInt(cell(r, COL.quantity), 10);
       const pm = cell(r, COL.printingMethod).toUpperCase();
-      dongCost.push({ variant: tra.variant || null, pm: pm || 'DTF', qty: qty > 0 ? qty : 1 });
+      dongCost.push({
+        variant: tra.variant || null, pm: pm || 'DTF', qty: qty > 0 ? qty : 1,
+        matSau: laLink(cell(r, COL.designFront)) && laLink(cell(r, COL.designBack))
+      });
       const item = {
         name: title,
         merchize_sku: tra.sku || '',
@@ -522,7 +535,11 @@
     return {
       loi,
       skus,
-      cost: country && !coLoiSku(loi) ? uocTinhCost(dongCost, country) : '',
+      ...(() => {
+        if (!country || coLoiSku(loi)) return { cost: '', chiTietCost: '' };
+        const kq = uocTinhCost(dongCost, country);
+        return kq.loi ? { cost: kq.loi, chiTietCost: '' } : { cost: kq.tong, chiTietCost: kq.chiTiet };
+      })(),
       payload: { order_id: don.orderNumber, identifier, shipping_info: shipping, items }
     };
   }
@@ -559,13 +576,21 @@
     const canDien = Array.from(donMap.values()).filter((d) => !cell(d.rows[0].r, COL.baseCost));
     const list = [];
     const loi = [];
+    const chiTiet = [];
     canDien.forEach((d) => {
       const kq = dungDon(d, catalog, title);
-      if (typeof kq.cost === 'number') list.push({ row: d.rows[0].rowNumber, cost: kq.cost });
-      else loi.push(`• ${d.orderNumber}: ${kq.cost || kq.loi.join('; ')}`);
+      if (typeof kq.cost === 'number') {
+        list.push({ row: d.rows[0].rowNumber, cost: kq.cost });
+        chiTiet.push(`• ${d.orderNumber} ${kq.chiTietCost}`);
+      } else {
+        loi.push(`• ${d.orderNumber}: ${kq.cost || kq.loi.join('; ')}`);
+      }
     });
     await ghiBaseCost(spreadsheetId, title, list);
-    return [`Đã điền Base Cost ước tính cho ${list.length}/${canDien.length} đơn "Đã gửi" còn trống cột Y.`, ...loi].join('\n');
+    return [
+      `Đã điền Base Cost ước tính cho ${list.length}/${canDien.length} đơn "Đã gửi" còn trống cột Y.`,
+      ...loi, 'Chi tiết:', ...chiTiet
+    ].join('\n');
   }
 
   // ============ 3 CHUC NANG CHINH ============

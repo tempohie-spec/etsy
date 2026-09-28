@@ -1364,7 +1364,11 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
 - Phí ship: `shipping_prices` theo quốc gia người nhận (đúng mã nước, rồi zone, rồi EU, rồi ROW).
   Sản phẩm có phí "first item" cao nhất tính first item, các sản phẩm/số lượng còn lại tính
   "additional item".
-- **Chỉ là ước tính**: chưa gồm phụ phí (in mặt sau, surcharge, thuế). Cost thật vẫn lấy bằng
+- Phụ phí in 2 mặt: **+4.5$ mỗi sản phẩm** có cả link designFront và designBack (hằng số
+  `PHU_PHI_MAT_SAU`).
+- Bảng kết quả của nút điền Base Cost ghi **chi tiết** từng đơn: giá gốc, phụ phí, dòng phí ship
+  đã chọn (zone/quốc gia, first/additional), để đối chiếu khi lệch cost thật.
+- **Chỉ là ước tính**: chưa gồm surcharge khác và thuế. Cost thật vẫn lấy bằng
   script **Import Cost/Earnings** như cũ, script đó sẽ ghi đè số ước tính khi có cost thật.
 - Catalog lưu từ bản cũ chưa có giá: bấm **1. Cập nhật catalog** lại một lần.
 
