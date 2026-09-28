@@ -1471,6 +1471,10 @@ Cost thật: 2 đơn (4179216794, 4181224261)
 
 Không có gì mới thì tin ghi `Không có giá trị mới để điền.` kèm số đơn đã tra / còn thiếu.
 
+Cuối tin có **số dư từng store** (lấy từ `GET <baseUrl>/billing/balance`, API nội bộ của trang
+seller Merchize, trường `data.amount`), dưới 50$ thì gắn `⚠️ sắp hết` (đổi mức ở hằng số
+`NGUONG_SO_DU`). Store nào không lấy được thì ghi lý do.
+
 **Chạy ngay không cần đợi lịch:** mở `https://merchize-webhook.<subdomain>.workers.dev/run?key=<SECRET_KEY>`
 (`<SECRET_KEY>` là 1 key bất kỳ trong `SECRET_KEYS`). Trang trả về số đơn đã tra / có tracking mới /
 cost mới, hoặc nội dung lỗi.

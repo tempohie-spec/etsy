@@ -22,6 +22,8 @@ const LUU_TOI_DA_GIAY = 30 * 24 * 3600;
 const SO_NGAY_CAP_NHAT = 10;
 // Goi Free cua Cloudflare cho toi da 50 request ra ngoai moi lan chay -> chua lai vai request.
 const GIOI_HAN_REQUEST = 45;
+// Canh bao khi so du store duoi muc nay (USD).
+const NGUONG_SO_DU = 50;
 
 // Vi tri cot (0-based) - giong userscript merchize-order-sender.user.js.
 const COL = {
@@ -566,7 +568,8 @@ async function chayLich(env, event) {
     }
     chuaRx.forEach(([ma, dong]) => donLe.push({ tab, store, ma, dong }));
   }
-  const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - dem.n);
+  // Chua lai request cho: ghi Sheet (2), Telegram (1), so du moi store (1/store).
+  const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - tabs.length - dem.n);
   if (donLe.length && conLai) {
     // Moi lan chay tiep noi vi tri lan truoc (luu KV), dat lich 30 phut hay 1 gio deu tra lan luot het.
     const viTri = Number(await env.EVENTS.get('cron:vitri')) || 0;
@@ -591,6 +594,28 @@ async function chayLich(env, event) {
 
   // Nhan Telegram sau MOI lan chay, ke ca khi khong co gi moi.
   const conThieu = Math.max(0, tongCanTra - thongKe.tracking.length);
+
+  // So du tung store: API noi bo cua trang seller Merchize (GET /billing/balance -> data.amount).
+  const soDu = {};
+  for (const tab of tabs) {
+    const store = stores[tab];
+    if (!store || !store.baseUrl || !store.token) continue;
+    try {
+      const res = await goi(dem, store.baseUrl.replace(/\/+$/, '') + '/billing/balance', {
+        headers: { Authorization: 'Bearer ' + store.token }
+      });
+      const data = await res.json().catch(() => null);
+      const amount = data && data.success && data.data ? Number(data.data.amount) : NaN;
+      soDu[tab] = isNaN(amount) ? `lỗi ${res.status}` : Math.round(amount * 100) / 100;
+    } catch (e) {
+      soDu[tab] = 'lỗi kết nối';
+    }
+  }
+  const dongSoDu = Object.keys(soDu).map((tab) => {
+    const v = soDu[tab];
+    if (typeof v !== 'number') return `• ${tab}: không lấy được (${v})`;
+    return `• ${tab}: $${v.toFixed(2)}${v < NGUONG_SO_DU ? ' ⚠️ sắp hết' : ''}`;
+  });
   const luc = (event && event.scheduledTime) || Date.now();
   const tiep = lanChayTiep(event && event.cron, luc);
   const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
@@ -601,12 +626,13 @@ async function chayLich(env, event) {
     thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
-    `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : '')
+    `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : ''),
+    dongSoDu.length ? 'Số dư:\n' + dongSoDu.join('\n') : ''
   ].filter(Boolean).join('\n'));
 
   return {
     tracking: thongKe.tracking.length, cost: thongKe.cost.length,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, conThieuTracking: conThieu
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, conThieuTracking: conThieu, soDu
   };
 }
 
