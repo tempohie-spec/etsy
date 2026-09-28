@@ -36,7 +36,8 @@ const THUE_NHAP_KHAU_CHAU_AU = 3.5;
 const NUOC_THUE_CHAU_AU = new Set(['AL', 'AD', 'AM', 'AT', 'AZ', 'BY', 'BE', 'BA', 'BG', 'HR', 'CY', 'CZ',
   'DK', 'EE', 'FI', 'FR', 'GE', 'DE', 'GR', 'HU', 'IS', 'IE', 'IT', 'KZ', 'XK', 'LV', 'LI', 'LT', 'LU',
   'MT', 'MD', 'MC', 'ME', 'NL', 'MK', 'NO', 'PL', 'PT', 'RO', 'SM', 'RS', 'SK', 'SI', 'ES', 'SE', 'CH',
-  'TR', 'UA', 'GB', 'VA']);
+  'TR', 'UA', 'VA']);
+  // UK (GB) co trong thong bao cua Merchize nhung thuc te khong bi thu (da doi chieu 4 don UK) -> bo ra.
 
 const SU_KIEN_TELEGRAM = new Set(['ORDER.INVALID.ADDRESS', 'ORDER.ISSUE.UPDATED']);
 

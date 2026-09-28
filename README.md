@@ -1371,8 +1371,9 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   `PHU_PHI_MAT_SAU`).
 - Bảng kết quả của nút điền Base Cost ghi **chi tiết** từng đơn: giá gốc, phụ phí, dòng phí ship
   đã chọn (zone/quốc gia, first/additional), để đối chiếu khi lệch cost thật.
-- Thuế nhập khẩu (từ 26/06/2026): **+3.5$ mỗi đơn** ship từ kho US tới 50 nước châu Âu (EU,
-  UK, Thụy Sĩ, Na Uy, Thổ Nhĩ Kỳ, Ukraine...), danh sách ở `NUOC_THUE_CHAU_AU`.
+- Thuế nhập khẩu (từ 26/06/2026): **+3.5$ mỗi đơn** ship từ kho US tới 49 nước châu Âu (EU,
+  Thụy Sĩ, Na Uy, Thổ Nhĩ Kỳ, Ukraine...), danh sách ở `NUOC_THUE_CHAU_AU`. **Không tính UK**: có
+  trong thông báo của Merchize nhưng thực tế đơn UK không bị thu (đã đối chiếu 4 đơn).
 - **Chỉ là ước tính**: chưa gồm các surcharge khác. Cost thật vẫn lấy bằng
   script **Import Cost/Earnings** như cũ, script đó sẽ ghi đè số ước tính khi có cost thật.
 - Catalog lưu từ bản cũ chưa có giá: bấm **1. Cập nhật catalog** lại một lần.
@@ -1451,7 +1452,7 @@ thông báo có gửi). Ticket tìm theo mã RX ở cột AD.
 
 Kết quả API tracking chỉ được nhận khi sản phẩm trong gói hàng khớp đơn (SKU cột AB, hoặc màu +
 size); không khớp (API trả nhầm đơn khác, vd đơn gửi lại có hậu tố) thì bỏ qua và báo Telegram.
-Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không phải đơn nào cũng bị thu (vd đơn UK).
+Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không phải đơn nào cũng bị thu (vd đơn UK không bị thu).
 
 Ghi Sheet thất bại (sai quyền, sai khoá...) thì thông báo được giữ lại để lịch chạy lại, và
 Telegram báo lỗi (tối đa 1 tin/giờ).
