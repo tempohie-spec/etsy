@@ -1462,6 +1462,10 @@ Cost thật: 2 đơn (4179216794, 4181224261)
 Đã tra 2 đơn. Lần chạy tiếp theo: 13:00
 ```
 
+**Chạy ngay không cần đợi lịch:** mở `https://merchize-webhook.<subdomain>.workers.dev/run?key=<SECRET_KEY>`
+(`<SECRET_KEY>` là 1 key bất kỳ trong `SECRET_KEYS`). Trang trả về số đơn đã tra / có tracking mới /
+cost mới, hoặc nội dung lỗi.
+
 Giờ theo giờ Việt Nam. Lịch `*/30 * * * *` chạy vào phút 00 và 30 mỗi giờ. Lịch sử các lần chạy
 xem ở Worker → **Observability** (hoặc **Logs**) trên Cloudflare.
 

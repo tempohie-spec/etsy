@@ -7,6 +7,7 @@
 // - Lich (Cron Trigger, vd moi 30 phut hoac moi gio):
 //     1. Chay lai cac thong bao con cho trong KV.
 //     2. Tra API tracking cho don 30 ngay gan nhat chua co tracking -> dien tracking, ma RX, cost.
+// - GET /run?key=<1 trong SECRET_KEYS>: chay lich ngay lap tuc.
 //
 // Bien moi truong (Settings > Variables and Secrets, loai Secret):
 //   SECRET_KEYS             Secret key webhook cua cac store, cach nhau dau phay
@@ -563,6 +564,10 @@ async function chayLich(env, event) {
       `Đã tra ${thongKe.daTra} đơn.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : '')
     ].filter(Boolean).join('\n'));
   }
+  return {
+    tracking: thongKe.tracking.length, cost: thongKe.cost.length,
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra
+  };
 }
 
 export default {
@@ -570,6 +575,16 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/') return nhanWebhook(request, env, ctx);
     if (request.method === 'GET' && url.pathname === '/') return json({ ok: true, service: 'merchize-webhook' });
+    // Chay lich ngay lap tuc: /run?key=<1 trong cac SECRET_KEYS>
+    if (request.method === 'GET' && url.pathname === '/run') {
+      const cacKey = str(env.SECRET_KEYS).split(',').map(str).filter(Boolean);
+      if (!cacKey.includes(url.searchParams.get('key') || '')) return json({ ok: false, error: 'invalid key' }, 401);
+      try {
+        return json({ ok: true, ketQua: await chayLich(env, null) });
+      } catch (e) {
+        return json({ ok: false, error: e.message }, 500);
+      }
+    }
     return json({ ok: false, error: 'not found' }, 404);
   },
 
