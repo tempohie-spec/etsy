@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.9
+// @version      1.10
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.9';
+  const SCRIPT_VERSION = '1.10';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -417,13 +417,17 @@
     });
   }
 
-  async function sheetsApiFetch(path, options = {}) {
+  // Token Google chi song ~1 gio: gap 401 thi xin token moi (am tham) roi goi lai 1 lan.
+  async function sheetsApiFetch(path, options = {}, daThuLai = false) {
     const token = await ensureAccessToken();
     const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${path}`, {
       ...options,
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(options.headers || {}) }
     });
-    if (res.status === 401) accessToken = null;
+    if (res.status === 401) {
+      accessToken = null;
+      if (!daThuLai) return sheetsApiFetch(path, options, true);
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Sheets API lỗi ${res.status}: ${body}`);
