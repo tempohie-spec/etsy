@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.1
+// @version      1.2
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.1';
+  const SCRIPT_VERSION = '1.2';
   const MERCHIZE_BASE_URL = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
 
   // Dung chung OAuth Client ID voi script "Import Cost/Earnings" (da khai bao san
@@ -86,10 +86,18 @@
   }
 
   const BI_DANH_SIZE = { XXL: '2XL', XXXL: '3XL', XXXXL: '4XL', XXXXXL: '5XL' };
+  // Bo khoang trang, "-" va "/" de "5-6T" tren Etsy khop "5/6T" trong catalog Merchize.
   function chuanHoaSize(s) {
-    const v = str(s).toUpperCase().replace(/\s+/g, '');
+    const v = str(s).toUpperCase().replace(/[\s\-\/]+/g, '');
     return BI_DANH_SIZE[v] || v;
   }
+
+  // Ten mau tren Etsy khac ten chinh thuc trong catalog Merchize, theo tung ma san pham.
+  // key = ten tren Etsy, value = ten trong catalog (viet thuong).
+  const BI_DANH_MAU = {
+    '3001US': { 'dark heather': 'dark grey heather', 'purple': 'team purple' },
+    '301YUS': { 'dark heather': 'dark grey heather', 'purple': 'team purple' }
+  };
 
   function laLink(v) {
     return /^https?:\/\//i.test(str(v));
@@ -219,10 +227,22 @@
     const sp = catalog.products[maSp];
     if (!sp) return { loi: `catalog chưa có ${maSp}, bấm "Cập nhật catalog"` };
     const s = chuanHoaSize(size);
-    const cacManh = [color, ...str(color).split('/')].map(chuanHoaMau).filter(Boolean);
-    const khop = Array.from(new Set(cacManh.filter((m) => sp.variants[m + '|' + s])));
+    // Chuan hoa lai key catalog (catalog luu tu ban cu van dung duoc, khong can cap nhat lai).
+    const bang = {};
+    Object.keys(sp.variants).forEach((k) => {
+      const i = k.lastIndexOf('|');
+      bang[k.slice(0, i) + '|' + chuanHoaSize(k.slice(i + 1))] = sp.variants[k];
+    });
+    const biDanh = BI_DANH_MAU[maSp] || {};
+    const khopMap = new Map();
+    [color, ...str(color).split('/')].map(str).filter(Boolean).forEach((goc) => {
+      let m = chuanHoaMau(goc);
+      if (!bang[m + '|' + s] && biDanh[m]) m = biDanh[m];
+      if (bang[m + '|' + s] && !khopMap.has(m)) khopMap.set(m, goc);
+    });
+    const khop = Array.from(khopMap.keys());
     if (khop.length === 1) {
-      return { sku: sp.variants[khop[0] + '|' + s], productTitle: sp.title, mau: khop[0] };
+      return { sku: bang[khop[0] + '|' + s], productTitle: sp.title, mauGui: khopMap.get(khop[0]) };
     }
     if (khop.length > 1) return { loi: `màu "${color}" khớp nhiều màu trong catalog ${maSp}` };
     return { loi: `${maSp} không có màu "${color}" size "${size}"` };
@@ -408,7 +428,7 @@
       const size = cell(r, COL.size);
       const tra = traSku(catalog, title, color, size);
       // Mau ghep "A/B" da tra ra 1 mau cu the -> gui dung manh do thay vi ca chuoi goc.
-      const mauGui = [color, ...color.split('/')].map(str).find((m) => tra.mau && chuanHoaMau(m) === tra.mau) || color;
+      const mauGui = tra.mauGui || color;
       skus.push(tra.sku || '');
       if (tra.loi) loi.push(tra.loi + vt);
 

@@ -1360,7 +1360,9 @@ External number.
 | Hoodie Adult | 1850US |
 
 SKU = mã sản phẩm + màu (cột I) + size (cột J) tra trong catalog. Màu ghép `A/B` (vd
-`Pepper/Dark Heather`) sẽ thử từng mảnh, chỉ nhận khi đúng 1 mảnh khớp. `XXL` được hiểu là `2XL`.
+`Pepper/Dark Heather`) sẽ thử từng mảnh, chỉ nhận khi đúng 1 mảnh khớp. `XXL` được hiểu là `2XL`,
+`5-6T` được hiểu là `5/6T`. Tên màu trên Etsy khác tên trong catalog thì khai báo ở `BI_DANH_MAU`
+(hiện có: Bella `Purple` = `Team Purple`, `Dark Heather` = `Dark Grey Heather`).
 Mã màu/size của Merchize khác nhau theo từng sản phẩm nên không tự sinh SKU mà luôn tra catalog.
 
 ## Dữ liệu gửi lên
