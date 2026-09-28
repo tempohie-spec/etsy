@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.6
+// @version      1.7
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.6';
+  const SCRIPT_VERSION = '1.7';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -277,6 +277,27 @@
   const NUOC_EU = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE',
     'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
 
+  // Phi ship lay tu file catalog Excel cua Merchize (tab US) - khop voi cost that. KHONG dung
+  // shipping_prices cua API vi API tra ve 0 cho zone US/EU (da doi chieu voi don that).
+  // [first item, additional item] theo zone US / EU / ROW.
+  const PHI_SHIP = {
+    '1717US': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
+    '3001US': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
+    '301YUS': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
+    '3321US': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
+    '9018US': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
+    '1800US': { US: [7.59, 2.99], EU: [14.99, 10], ROW: [14.99, 10] },
+    '1850US': { US: [8, 2.99], EU: [14.99, 10], ROW: [14.99, 10] }
+  };
+
+  // Tra ve dang [zone, country, first, additional] giong 1 dong shipping_prices.
+  function phiShipTheoBang(sku, code) {
+    const bang = PHI_SHIP[str(sku).slice(0, 6)];
+    if (!bang) return null;
+    const zone = code === 'US' ? 'US' : NUOC_EU.has(code) ? 'EU' : 'ROW';
+    return bang[zone] ? [zone, 'bảng', bang[zone][0], bang[zone][1]] : null;
+  }
+
   // ship: [[to_zone, to_country, first_item, additional_item], ...]. Uu tien dong ghi dung ma
   // nuoc, roi toi zone trung ma nuoc (vd "CA"), roi EU, cuoi cung ROW.
   function chonPhiShip(ship, code) {
@@ -299,7 +320,7 @@
       if (!d.variant) return { loi: 'catalog cũ, bấm "Cập nhật catalog"' };
       const gia = d.variant.gia[`${d.pm.toLowerCase()}_${TIER}`] ?? d.variant.gia[TIER];
       if (typeof gia !== 'number' || isNaN(gia)) return { loi: `không có giá ${TIER} cho ${d.variant.sku}` };
-      const phi = chonPhiShip(d.variant.ship, code);
+      const phi = phiShipTheoBang(d.variant.sku, code) || chonPhiShip(d.variant.ship, code);
       if (!phi) return { loi: `không có phí ship tới ${code} cho ${d.variant.sku}` };
       const matSau = d.matSau ? PHU_PHI_MAT_SAU : 0;
       for (let i = 0; i < d.qty; i++) donVi.push({ sku: d.variant.sku, gia, matSau, phi });

@@ -1361,7 +1361,9 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
 
 - Giá gốc: `tiers` trong catalog theo cột A (`dtg_tier1` / `dtf_tier1`). Đổi bậc giá ở hằng số
   `TIER` nếu store lên tier2/tier3.
-- Phí ship: `shipping_prices` theo quốc gia người nhận (đúng mã nước, rồi zone, rồi EU, rồi ROW).
+- Phí ship: bảng `PHI_SHIP` trong code, lấy từ file catalog Excel của Merchize (zone US / EU /
+  ROW), vì `shipping_prices` của API trả về 0 cho US/EU. Sản phẩm không có trong bảng mới dùng
+  số của API. Merchize đổi phí ship thì sửa bảng này.
   Sản phẩm có phí "first item" cao nhất tính first item, các sản phẩm/số lượng còn lại tính
   "additional item".
 - Phụ phí in 2 mặt: **+4.5$ mỗi sản phẩm** có cả link designFront và designBack (hằng số
