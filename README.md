@@ -965,7 +965,7 @@ GM_setValue là kho riêng của từng trình duyệt, nên Copy ở Chrome th�
 và "Chỉ điền giá" ưu tiên đọc Clipboard, không có mới dùng dữ liệu đã lưu trong trình duyệt. Lần đầu trình duyệt
 có thể hỏi quyền đọc Clipboard: bấm Cho phép. Không Copy thứ khác vào Clipboard giữa lúc Copy và Dán.
 
-# Etsy Auto Tracking — Tự động điền tracking từ Merchize
+# Etsy Auto Tracking — Tự động điền tracking từ Google Sheet
 
 Userscript thứ hai trong repo này, độc lập với script phía trên.
 
@@ -975,88 +975,44 @@ Userscript thứ hai trong repo này, độc lập với script phía trên.
 ## Chức năng
 
 Tự động hoàn tất các đơn Etsy chưa có tracking bằng cách lấy tracking number + shipping carrier
-tương ứng từ 1 trong 2 nguồn — chọn trong panel trên tab Etsy:
+tương ứng từ **1 link Google Sheet** — không cần copy/paste thủ công mỗi lần.
 
-**Khớp đơn theo 2 bước**: mỗi đơn Etsy được so khớp trước tiên theo **mã đơn** (order id ↔
-external order number bên Merchize, hoặc cột ORDER CODE bên Sheet). Nếu không tìm thấy mã trùng,
-script tự **thử lại bằng tên khách nhận hàng** (tên trong mục "Ship to" của đơn Etsy, so với tên
-khách trong dữ liệu Merchize/Sheet) trước khi kết luận là không khớp. Log sẽ ghi rõ
-`found (by customer name)` khi khớp qua tên thay vì mã đơn.
+**Khớp đơn theo 2 bước**: mỗi đơn Etsy được so khớp trước tiên theo **mã đơn** (order id ↔ cột
+ORDER CODE bên Sheet, kể cả các mã có hậu tố 1 chữ cái như `...342a` — trường hợp đơn bị huỷ rồi
+làm lại dưới mã mới). Nếu không tìm thấy mã trùng, script tự **thử lại bằng tên khách nhận hàng**
+(tên trong mục "Ship to" của đơn Etsy, so với cột FULL NAME bên Sheet) trước khi kết luận là không
+khớp. Khi có nhiều đơn cùng khớp (VD do mã đơn có hậu tố), script ưu tiên chọn đơn nào **có sẵn
+tracking**. Log sẽ ghi rõ `found (by customer name)` khi khớp qua tên thay vì mã đơn.
 
-- **Merchize (tab)**: lấy trực tiếp từ trang quản lý fulfillment
-  [Merchize](https://seller.merchize.com). Cần mở **cả 2 tab cùng lúc**:
-  1. Tab Etsy: `Orders → Sold` (`https://www.etsy.com/your/orders/sold*`)
-  2. Tab Merchize: danh sách "All orders" — `seller.merchize.com/a/orders`
+**Cách nạp dữ liệu:**
+1. Trên Google Sheet: **Share** → đổi chế độ chia sẻ thành **"Anyone with the link"** — quyền
+   **Viewer**. (Không cần cấp quyền Editor, chỉ cần xem được.)
+2. Copy link của sheet (bất kỳ dạng link Share/Address bar nào có `/spreadsheets/d/<id>/` là dùng
+   được — link kèm `#gid=...` sẽ tự chọn đúng tab/sheet con).
+3. Dán vào ô "Link Google Sheet" trong panel. Từ lần **Start** đầu tiên trở đi, script tự tải lại
+   dữ liệu mới nhất từ link đó mỗi khi chạy — không cần dán lại, kể cả sau khi tracking trong sheet
+   được cập nhật thêm. Nút **"Tải từ link Sheet"** dùng để kiểm tra trước (xem đọc được bao nhiêu
+   đơn) mà chưa cần chạy ngay.
+4. Script tải trực tiếp bản CSV của sheet (có đủ header thật), nên tự dò cột theo **tên cột**
+   (`ORDER CODE`, `FULL NAME`, `TRACKING`, `DVVC`) thay vì đoán vị trí cố định — không phụ thuộc
+   thứ tự cột hay sheet có ô xuống dòng (Alt+Enter) trong tên/địa chỉ.
 
-  Trên tab Merchize có badge "AutoTrack: listening" xác nhận đang lắng nghe. Ở trang này, mã
-  tracking không nằm sẵn trong HTML mà chỉ hiện trong tooltip khi hover vào icon ở cột
-  **Tracking** (✓ xanh = đã có tracking, ✗ đỏ = chưa có) — script tự giả lập việc hover đó để đọc
-  tracking + nhận diện carrier qua domain của link tracking (USPS, DHL eCommerce, UPS, FedEx,
-  Canada Post). Carrier từ domain lạ sẽ để trống và bên Etsy sẽ tự chọn "Other".
+Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**. Bấm **Stop** sẽ xoá
+log trong panel (link Sheet đã lưu thì vẫn được giữ nguyên, không cần dán lại).
 
-- **Dán từ Sheet**: khi dùng 1 sheet riêng (VD Google Sheets) để theo dõi tracking. Có 2 cách nạp
-  dữ liệu, chọn 1 trong 2:
-
-  **A. Dán link Google Sheet (khuyên dùng — không cần copy/paste thủ công mỗi lần):**
-  1. Trên Google Sheet: **Share** → đổi chế độ chia sẻ thành **"Anyone with the link"** — quyền
-     **Viewer**. (Không cần cấp quyền Editor, chỉ cần xem được.)
-  2. Copy link của sheet (bất kỳ dạng link Share/Address bar nào có `/spreadsheets/d/<id>/` là
-     dùng được — link kèm `#gid=...` sẽ tự chọn đúng tab/sheet con).
-  3. Dán vào ô "Link Google Sheet" trong panel. Từ lần **Start** đầu tiên trở đi, script tự tải
-     lại dữ liệu mới nhất từ link đó mỗi khi chạy — không cần copy/paste lại nữa, kể cả sau khi
-     tracking trong sheet được cập nhật thêm. Nút **"Tải từ link Sheet"** dùng để kiểm tra trước
-     (xem đọc được bao nhiêu đơn) mà chưa cần chạy ngay.
-  4. Cách này tải trực tiếp bản CSV của sheet (có đủ header thật), nên script tự dò cột theo
-     **tên cột** (`ORDER CODE`, `FULL NAME`, `TRACKING`, `DVVC`) thay vì đoán vị trí cố định —
-     không phụ thuộc thứ tự cột.
-
-  **B. Dán trực tiếp dữ liệu (không cần share sheet ra ngoài):** Bôi đen **chỉ các dòng dữ liệu**
-  (KHÔNG cần dòng header), Ctrl+C, dán (Ctrl+V) vào ô textarea trong panel rồi bấm **Nạp dữ liệu
-  đã dán**.
-
-  Vì không có header ở cách B, script quy ước vị trí cột cố định theo đúng layout của sheet gốc
-  (chỉnh hằng số `ORDER_CODE_COLUMN_INDEX` / `FULL_NAME_COLUMN_INDEX` ở đầu file nếu sheet của
-  bạn khác layout):
-  - Cột đầu tiên (`ORDER DATE`) — dùng để nhận diện điểm bắt đầu 1 đơn (dạng ngày/tháng/năm,
-    VD `5/8/26`), không lấy dữ liệu.
-  - Cột thứ 2 = **ORDER CODE**, phải khớp với order id của Etsy.
-  - Cột thứ 5 = **FULL NAME**, dùng làm dữ liệu khớp dự phòng theo tên khách (xem mục "Khớp đơn
-    theo 2 bước" ở trên).
-  - Cột **cuối cùng** của mỗi dòng = **carrier (DVVC)**.
-  - Cột **áp chót** = **TRACKING**.
-
-  Nếu 1 ô trong sheet có xuống dòng thủ công (Alt+Enter) — VD tên/địa chỉ bị wrap — khi copy nó
-  sẽ tràn xuống nhiều dòng vật lý; script tự nhận biết dòng nào thực sự là "đơn mới" (bắt đầu
-  bằng ngày tháng) và tự ghép các dòng còn lại vào đúng đơn đó, không cần bạn chỉnh sửa gì thêm.
-  (Cách A không gặp vấn đề này vì Google tự đóng gói CSV đúng chuẩn.)
-
-  Không cần mở tab Merchize ở chế độ Sheet (cả 2 cách).
-
-  Ở chế độ này, vòng lặp chạy theo **thứ tự đơn trên trang Etsy** (giống hệt chế độ Merchize):
-  quét toàn bộ đơn đang hiển thị trên trang Etsy trước, sau đó với mỗi đơn mới kiểm tra xem có
-  khớp mã đơn nào trong dữ liệu Sheet đã nạp hay không — nếu không khớp thì bỏ qua, nếu khớp thì
-  lấy tracking + DVVC (đã lấy sẵn khi nạp dữ liệu) để điền và Complete order.
-
-Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**. Bấm **Stop** cũng sẽ
-xoá nội dung ô dán Sheet và log trong panel (link Sheet đã lưu thì vẫn được giữ nguyên).
-
-Panel có thể **thu gọn / xổ ra**: bấm vào dòng tiêu đề (chữ "Etsy Auto Tracking" hoặc "Merchize
-AutoTrack") để đóng panel lại chỉ còn thanh tiêu đề, bấm lại để mở ra như cũ. Trạng thái thu gọn
-và vị trí kéo thả đều được nhớ qua `localStorage`, giữ nguyên giữa các lần load lại trang. Kéo thả
-vẫn hoạt động bình thường (chỉ coi là "bấm" khi con trỏ gần như không di chuyển).
+Panel có thể **thu gọn / xổ ra**: bấm vào dòng tiêu đề "Etsy Auto Tracking" để đóng panel lại chỉ
+còn thanh tiêu đề, bấm lại để mở ra như cũ. Trạng thái thu gọn và vị trí kéo thả đều được nhớ qua
+`localStorage`, giữ nguyên giữa các lần load lại trang. Kéo thả vẫn hoạt động bình thường (chỉ coi
+là "bấm" khi con trỏ gần như không di chuyển).
 
 ## Logic xử lý (theo từng đơn trên trang Etsy)
 
-1. Dò mã đơn Etsy (order id trong link `?order_id=...`).
-2. **Trước khi mở bất kỳ ô nhập nào**, tra cứu mã đơn này theo nguồn dữ liệu đang chọn:
-   - *Merchize*: gửi mã đơn sang tab Merchize, tab đó quét các dòng `tr.OrderExtendPackagesRow`
-     đang hiển thị, so khớp với `External order number` (`td.OrderCodeCell code`) — không cần gõ
-     vào ô tìm kiếm.
-   - *Sheet*: tra trực tiếp trong dữ liệu đã dán/nạp, so khớp theo cột `ORDER CODE`.
-   - Nếu **không tìm thấy** mã khớp → bỏ qua đơn này hoàn toàn, không đụng vào Update
-     progress/Complete order bên Etsy.
+1. Quét toàn bộ đơn đang hiển thị trên trang Etsy (order id trong link `?order_id=...`).
+2. **Trước khi mở bất kỳ ô nhập nào**, tra cứu mã đơn này trong dữ liệu Sheet đã tải:
+   - Nếu **không tìm thấy** mã khớp (kể cả thử theo tên khách) → bỏ qua đơn này hoàn toàn, không
+     đụng vào Update progress/Complete order bên Etsy.
    - Nếu **tìm thấy** → có tracking number + tên carrier (VD: `USPS`, `DHL eCommerce`).
-3. Chỉ khi có kết quả, tab Etsy mới: bấm **Update progress → Complete order** để mở modal, sau đó:
+3. Chỉ khi có kết quả, mới bấm **Update progress → Complete order** để mở modal, sau đó:
    - Chọn carrier trong dropdown bằng cách so khớp text (VD: `DHL eCommerce` → chọn `DHL`).
    - Nếu không có carrier tương ứng trong dropdown → chọn **Other** rồi gõ tay tên carrier gốc
      (VD: `USPS` → Other → gõ `USPS`).
@@ -1066,18 +1022,13 @@ vẫn hoạt động bình thường (chỉ coi là "bấm" khi con trỏ gần 
    chạy (bấm lại Start để tiếp tục), hoặc **Stop** để huỷ hẳn — lần Start sau sẽ quét lại từ đầu
    danh sách đơn hiện có trên trang.
 
-## Cơ chế giao tiếp giữa 2 tab
-
-Vì Etsy và Merchize là 2 domain khác nhau, script dùng `GM_setValue` / `GM_getValue` /
-`GM_addValueChangeListener` (bộ nhớ dùng chung của Violentmonkey cho cùng 1 script, không phụ
-thuộc domain) để tab Etsy gửi yêu cầu tra cứu và tab Merchize trả kết quả về — không cần
-`GM_xmlhttpRequest` hay mở tab ẩn.
-
 ## Ghi chú
 
 - Danh sách carrier trong dropdown "Shipping carrier" khác nhau tuỳ tài khoản Etsy; có thể chỉnh
   `CARRIER_ALIASES` ở đầu file nếu việc so khớp tự động (`matchCarrierOption`) chọn sai carrier.
-- Mở Console (F12) để xem log `[AutoTrack]` khi debug — có log riêng ở cả 2 tab.
+- Mở Console (F12) để xem log `[AutoTrack]` khi debug.
+- Nếu Google trả về trang đăng nhập thay vì dữ liệu, sheet chưa được share công khai — xem lại
+  bước 1 ở trên (Share → Anyone with the link → Viewer).
 
 
 ---

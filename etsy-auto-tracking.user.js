@@ -1,14 +1,11 @@
 // ==UserScript==
-// @name         Etsy Auto Tracking (from Merchize)
+// @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      3.6
-// @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
+// @version      4.0
+// @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
-// @match        https://seller.merchize.com/a/orders*
 // @grant        GM_setValue
 // @grant        GM_getValue
-// @grant        GM_deleteValue
-// @grant        GM_addValueChangeListener
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @connect      docs.google.com
@@ -19,30 +16,20 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '3.6';
-
-  // ---------------------------------------------------------------------
-  // Shared cross-tab protocol (GM storage is shared per-script regardless
-  // of which domain/tab is reading/writing it).
-  //   AT_REQUEST  = { orderId, ts }                      set by Etsy tab
-  //   AT_RESPONSE = { orderId, found, tracking, carrier, ts }  set by Merchize tab
-  // ---------------------------------------------------------------------
-
-  const REQ_KEY = 'AT_REQUEST';
-  const RES_KEY = 'AT_RESPONSE';
+  const SCRIPT_VERSION = '4.0';
 
   // Manual overrides if the automatic substring match picks the wrong
-  // carrier option. Key = lowercase Merchize carrier text (or part of it),
-  // value = exact text of the Etsy <option> to pick. Leave empty if the
-  // automatic matching (see matchCarrierOption) works fine for your shop.
+  // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
+  // appears in the sheet, value = exact text of the Etsy <option> to pick.
+  // Leave empty if the automatic matching (see matchCarrierOption) works
+  // fine for your shop.
   const CARRIER_ALIASES = {
     // 'dhl ecommerce': 'DHL',
   };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // Shared by the order-code-first / customer-name-fallback matching used on
-  // both the Merchize side and the Sheet data source.
+  // Used by the order-code-first / customer-name-fallback order matching.
   function normalizeName(s) {
     return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
@@ -71,11 +58,11 @@
     uiLog(text);
   }
 
-  // Make `panel` draggable by its `handle` element, remembering position
-  // (per tab type) in localStorage so it persists across page reloads.
-  // `onTap` (optional) fires when the handle was clicked WITHOUT being
-  // dragged (moved less than a few px) — used to toggle collapse/expand
-  // without that also firing on the tail end of a drag.
+  // Make `panel` draggable by its `handle` element, remembering position in
+  // localStorage so it persists across page reloads. `onTap` (optional)
+  // fires when the handle was clicked WITHOUT being dragged (moved less
+  // than a few px) — used to toggle collapse/expand without that also
+  // firing on the tail end of a drag.
   function makeDraggable(panel, handle, storageKey, onTap) {
     let dragging = false;
     let moved = false;
@@ -152,211 +139,6 @@
     desc.set.call(el, value);
   }
 
-  // ===================================================================
-  //  MERCHIZE TAB
-  // ===================================================================
-  if (location.hostname === 'seller.merchize.com') {
-    // The main "All orders" list (https://seller.merchize.com/a/orders) uses
-    // a different TrackingColumn than the old Shipment Status tab: it does
-    // NOT carry the tracking number in static HTML. Instead:
-    //   <td class="TrackingColumn text-center">
-    //     <div class="TooltipStatusOrderStyle Left-Custom">
-    //       <div id="TrackingOrderTooltip_<id>" class="TooltipHelp">
-    //         <i class="fas fa-check text-success" title="Completed"></i>   <- has tracking
-    //         <i class="fas fa-times text-danger" title="Missing"></i>     <- no tracking yet
-    //       </div>
-    //     </div>
-    //     <span class="badge ...">pre_transit</span>
-    //   </td>
-    // The actual tracking number/link only renders into the DOM (a Bootstrap
-    // tooltip) once you hover the icon — confirmed to appear instantly, no
-    // network request. So: find the row by its external order number
-    // (td.OrderCodeCell code — same as before), check the icon, and if it's
-    // the "has tracking" one, simulate a hover to force the tooltip's
-    // <a class="TrackingFulfillmentTooltipLink" href="...carrier's tracking URL...">
-    // to mount, read it, then un-hover.
-
-    function rowHasTracking(row) {
-      const cell = row.querySelector('td.TrackingColumn');
-      return !!(cell && cell.querySelector('i.fa-check.text-success'));
-    }
-
-    // Merchize doesn't allow two orders with the same code, so a cancelled
-    // order that gets redone shows up as a second row with a trailing
-    // letter appended to the same code (e.g. "...342" cancelled/no tracking
-    // -> "...342a" redone/has tracking). An exact-code match alone can pick
-    // the cancelled one and stop there, missing the actual tracking sitting
-    // right next to it — so this gathers every candidate row (exact code,
-    // code+letter-suffix, or matching customer name) and prefers whichever
-    // one actually has tracking, regardless of which candidate matched first.
-    function findMerchizeRow(orderId, customerName) {
-      const codeCandidates = [];
-      const codeEls = document.querySelectorAll('td.OrderCodeCell code');
-      for (const codeEl of codeEls) {
-        const code = codeEl.textContent.trim();
-        if (code === orderId) {
-          codeCandidates.push(codeEl.closest('tr'));
-        } else if (code.startsWith(orderId) && /^[a-zA-Z]$/.test(code.slice(orderId.length))) {
-          codeCandidates.push(codeEl.closest('tr'));
-        }
-      }
-      let pick = codeCandidates.find((r) => rowHasTracking(r));
-      if (pick) return pick;
-      if (codeCandidates.length) return codeCandidates[0]; // no tracking anywhere yet, but a real match
-
-      // Fallback: order code (and its lettered variants) didn't match
-      // anything on this page — try the shipping recipient's name instead
-      // (td.ShippingAddressOrderColumn .FullName; the element also nests a
-      // .TooltipContent with the email, so only its direct text nodes are
-      // the actual name).
-      if (!customerName) return null;
-      const target = normalizeName(customerName);
-      if (!target) return null;
-      const nameCandidates = [];
-      const nameEls = document.querySelectorAll('.ShippingAddressOrderColumn .FullName');
-      for (const nameEl of nameEls) {
-        let text = '';
-        nameEl.childNodes.forEach((n) => {
-          if (n.nodeType === Node.TEXT_NODE) text += n.textContent;
-        });
-        if (normalizeName(text) === target) nameCandidates.push(nameEl.closest('tr'));
-      }
-      pick = nameCandidates.find((r) => rowHasTracking(r));
-      return pick || nameCandidates[0] || null;
-    }
-
-    // Carrier can only be inferred from the tracking URL's domain here (the
-    // tooltip has no separate carrier text) — extend this if your shop uses
-    // other carriers whose domains aren't covered yet.
-    function carrierFromTrackingUrl(url) {
-      if (/usps\.com/i.test(url)) return 'USPS';
-      if (/dhlglobalmail\.com/i.test(url)) return 'DHL eCommerce';
-      if (/\bups\.com/i.test(url)) return 'UPS';
-      if (/fedex\.com/i.test(url)) return 'FedEx';
-      if (/canadapost/i.test(url)) return 'Canada Post';
-      if (/auspost\.com\.au/i.test(url)) return 'Australia Post';
-      return ''; // unrecognized domain -> leave blank (Etsy side falls back to "Other")
-    }
-
-    async function readTrackingViaHover(row) {
-      const trackingCell = row.querySelector('td.TrackingColumn');
-      if (!trackingCell) return { found: false };
-      if (!trackingCell.querySelector('i.fa-check.text-success')) return { found: false };
-
-      const trigger = trackingCell.querySelector('.TooltipHelp');
-      if (!trigger) return { found: false };
-
-      trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-
-      let result = { found: false };
-      try {
-        await waitFor(() => document.querySelector('a.TrackingFulfillmentTooltipLink'), {
-          timeout: 2000,
-          interval: 30,
-          desc: 'tracking tooltip',
-        });
-        const link = document.querySelector('a.TrackingFulfillmentTooltipLink');
-        if (link) {
-          result = {
-            found: true,
-            tracking: link.textContent.trim(),
-            carrier: carrierFromTrackingUrl(link.href || ''),
-          };
-        }
-      } catch (e) {
-        // Tooltip never appeared -> treat as no tracking available.
-      } finally {
-        trigger.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
-        trigger.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-        await sleep(30);
-      }
-      return result;
-    }
-
-    async function handleRequest(orderId, customerName) {
-      log('Lookup requested for order', orderId, customerName ? `(name: "${customerName}")` : '(no name sent)');
-      const row = findMerchizeRow(orderId, customerName);
-      if (!row) {
-        log('  -> not found on this page (tried order code + name)');
-        GM_setValue(RES_KEY, { orderId, found: false, ts: Date.now() });
-        return;
-      }
-      const result = await readTrackingViaHover(row);
-      if (result.found) {
-        log('  -> found', { tracking: result.tracking, carrier: result.carrier });
-        GM_setValue(RES_KEY, {
-          orderId,
-          found: true,
-          tracking: result.tracking,
-          carrier: result.carrier,
-          ts: Date.now(),
-        });
-      } else {
-        log('  -> no tracking yet');
-        GM_setValue(RES_KEY, { orderId, found: false, ts: Date.now() });
-      }
-    }
-
-    GM_addValueChangeListener(REQ_KEY, (name, oldVal, newVal) => {
-      if (!newVal || !newVal.orderId) return;
-      handleRequest(newVal.orderId, newVal.customerName); // async, fire-and-forget
-    });
-
-    // Small floating panel so you know the helper is alive on this tab, with
-    // a short rolling log of lookups it has answered. Draggable via its title bar.
-    GM_addStyle(`
-      #at-panel{position:fixed;bottom:16px;right:16px;z-index:999999;
-        background:#111;color:#fff;font:13px sans-serif;padding:10px 12px;
-        border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:240px}
-      .at-drag-handle{cursor:pointer;user-select:none;padding-bottom:6px;margin-bottom:6px;
-        border-bottom:1px solid rgba(255,255,255,.15);display:flex;align-items:center;
-        justify-content:space-between}
-      #at-panel.at-collapsed .at-drag-handle{padding-bottom:0;margin-bottom:0;border-bottom:none}
-      #at-panel.at-collapsed > *:not(.at-drag-handle){display:none}
-      #at-toggle-icon-merchize{opacity:.6;font-size:10px;margin-left:8px}
-      .at-version{opacity:.5;font-weight:400;font-size:10px}
-      #at-status{font:12px monospace;opacity:.8}
-      .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
-        border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
-      .at-log-line{white-space:pre-wrap;word-break:break-word;
-        border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}
-      .at-log-line:last-child{border-bottom:none}
-    `);
-
-    const panel = document.createElement('div');
-    panel.id = 'at-panel';
-    panel.innerHTML = `
-      <div class="at-drag-handle"><strong>Merchize AutoTrack <span class="at-version">v${SCRIPT_VERSION}</span></strong><span id="at-toggle-icon-merchize">▾</span></div>
-      <div id="at-status">Listening...</div>
-      <div id="at-log" class="at-log"></div>
-    `;
-    document.body.appendChild(panel);
-
-    const MERCHIZE_PANEL_COLLAPSED_KEY = 'at_panel_collapsed_merchize';
-    function applyMerchizeCollapsedUI() {
-      const collapsed = localStorage.getItem(MERCHIZE_PANEL_COLLAPSED_KEY) === '1';
-      panel.classList.toggle('at-collapsed', collapsed);
-      const icon = document.getElementById('at-toggle-icon-merchize');
-      if (icon) icon.textContent = collapsed ? '▸' : '▾';
-    }
-    applyMerchizeCollapsedUI();
-
-    makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_merchize', () => {
-      const collapsed = localStorage.getItem(MERCHIZE_PANEL_COLLAPSED_KEY) === '1';
-      localStorage.setItem(MERCHIZE_PANEL_COLLAPSED_KEY, collapsed ? '0' : '1');
-      applyMerchizeCollapsedUI();
-    });
-
-    log('Merchize helper loaded.');
-
-    return; // nothing else to do on this domain
-  }
-
-  // ===================================================================
-  //  ETSY TAB
-  // ===================================================================
-
   const RUN_KEY = 'AT_RUNNING';
   const PAUSE_KEY = 'AT_PAUSED';
 
@@ -392,10 +174,8 @@
   }
 
   // Shipping recipient's name, used as a fallback match key when an order
-  // code doesn't turn up a match on the tracking source (Merchize / Sheet).
-  // Prefers the "Ship to" summary name (the actual shipping recipient, which
-  // is what Merchize/Sheet data keys on) over the buyer's account name shown
-  // at the top of the order (can differ, e.g. "Avery H" vs "Avery Howard").
+  // code doesn't turn up a match in the Sheet data (e.g. a cancelled order
+  // redone under a different code keeps the same shipping name).
   function getOrderCustomerName(row) {
     // Prefer the "Ship to" summary name (the actual shipping recipient) — a
     // <div class="text-body-smaller strong"> beneath the Ship to accordion.
@@ -586,107 +366,19 @@
     if (cancelBtn) cancelBtn.click();
   }
 
-  async function requestMerchizeLookup(orderId, customerName) {
-    GM_deleteValue(RES_KEY);
-    GM_setValue(REQ_KEY, { orderId, customerName, ts: Date.now() });
-    try {
-      return await waitFor(
-        () => {
-          const r = GM_getValue(RES_KEY);
-          return r && r.orderId === orderId ? r : null;
-        },
-        { timeout: 15000, interval: 300, desc: 'Merchize response for ' + orderId }
-      );
-    } catch (e) {
-      log('  no response from Merchize tab (is it open on the Orders list?)', e.message);
-      return { orderId, found: false };
-    }
-  }
-
   // ---------------------------------------------------------------------
-  // Alternative data source: paste a copy of the tracking sheet's DATA ROWS
-  // ONLY (no header) — select the range in Google Sheets, Ctrl+C, paste into
-  // the textarea — instead of relying on the Merchize tab.
-  //
-  // No header means columns can't be matched by name, so this uses a fixed
-  // positional convention instead (adjust the constants below if your sheet
-  // is laid out differently):
-  //   - column index 1 (the 2nd column) = ORDER CODE
-  //   - the LAST column of each row     = carrier (DVVC)
-  //   - the 2nd-to-last column          = TRACKING
-  //
-  // The tricky part: a cell with a manual line break (Alt+Enter) — e.g. a
-  // wrapped name or address — copies as a literal newline embedded in the
-  // clipboard text, which would otherwise look like "the next row" to a
-  // naive line-by-line parser. To handle that, a line only starts a NEW row
-  // if its first cell looks like a date (matches column 0 / ORDER DATE);
-  // any other line is treated as a continuation and glued onto the row
-  // being built (its first cell merges into the previous row's last cell,
-  // the rest become new cells) — this keeps every column correctly aligned
-  // by the time a row is complete.
-  // ---------------------------------------------------------------------
-
-  let dataSource = localStorage.getItem('at_data_source') || 'merchize';
-  let sheetMap = null; // orderId -> { tracking, carrier }
-  let sheetMapByName = null; // normalized customer name -> { tracking, carrier } (fallback)
-  let sheetOrder = null; // order ids, in the order they appear in the pasted sheet
-
-  const ORDER_CODE_COLUMN_INDEX = 1;
-  const FULL_NAME_COLUMN_INDEX = 4;
-  const ROW_START_DATE_RE = /^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}$/;
-
-  function parseSheetPaste(text) {
-    const rawLines = text.split(/\r?\n/);
-    const rows = [];
-    let current = null;
-
-    for (const rawLine of rawLines) {
-      if (rawLine.trim() === '') continue; // skip blank separator lines
-      const cells = rawLine.split('\t');
-      const looksLikeRowStart = ROW_START_DATE_RE.test((cells[0] || '').trim());
-
-      if (looksLikeRowStart) {
-        if (current) rows.push(current);
-        current = cells.slice();
-      } else if (current) {
-        // Continuation line from a wrapped cell: glue its first field onto
-        // the row's last cell so far, append the rest as new cells.
-        current[current.length - 1] += '\n' + cells[0];
-        for (let i = 1; i < cells.length; i++) current.push(cells[i]);
-      }
-      // A line before any row has started (e.g. a stray header) is ignored.
-    }
-    if (current) rows.push(current);
-
-    if (!rows.length) return { ok: false, rowCount: 0 };
-
-    const map = {};
-    const mapByName = {}; // normalized FULL NAME -> { tracking, carrier } (fallback)
-    const order = []; // unique order ids, first-appearance order
-    let count = 0;
-    for (const cells of rows) {
-      if (cells.length < ORDER_CODE_COLUMN_INDEX + 3) continue; // not enough columns
-      const orderId = (cells[ORDER_CODE_COLUMN_INDEX] || '').trim();
-      const carrier = (cells[cells.length - 1] || '').trim();
-      const tracking = (cells[cells.length - 2] || '').trim();
-      if (!orderId || !tracking) continue; // order not shipped yet -> skip
-      if (!(orderId in map)) order.push(orderId);
-      map[orderId] = { tracking, carrier }; // last occurrence wins if duplicated
-      const name = normalizeName(cells[FULL_NAME_COLUMN_INDEX]);
-      if (name) mapByName[name] = { tracking, carrier };
-      count++;
-    }
-    return { ok: true, map, mapByName, order, count, rowCount: rows.length };
-  }
-
-  // ---------------------------------------------------------------------
-  // Load sheet data straight from a Google Sheets link (no copy/paste),
+  // Load tracking data straight from a Google Sheets link (no copy/paste),
   // via the CSV export endpoint. Requires the sheet's sharing set to
   // "Anyone with the link" (Viewer) — otherwise Google serves an HTML
-  // sign-in page instead of CSV, which is detected and reported.
-  // Unlike the header-less paste flow, this always includes the real
-  // header row, so columns are matched by name instead of fixed position.
+  // sign-in page instead of CSV, which is detected and reported. The CSV
+  // export always includes the real header row, so columns are matched by
+  // name (ORDER CODE / FULL NAME / TRACKING / DVVC) instead of guessing a
+  // fixed position.
   // ---------------------------------------------------------------------
+
+  let sheetMap = null; // orderId -> { tracking, carrier }
+  let sheetMapByName = null; // normalized customer name -> { tracking, carrier } (fallback)
+  let sheetOrder = null; // order ids, in the order they appear in the sheet
 
   function extractSheetIdAndGid(url) {
     const idMatch = (url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -713,8 +405,7 @@
 
   // Minimal RFC4180-ish CSV parser: handles quoted fields with embedded
   // commas, real newlines, and escaped "" quotes — which is exactly how
-  // Google's CSV export represents a wrapped multi-line cell (properly
-  // quoted, unlike the raw-paste case parseSheetPaste has to work around).
+  // Google's CSV export represents a wrapped multi-line cell.
   function parseCsv(text) {
     const rows = [];
     let row = [];
@@ -792,52 +483,38 @@
     return { ok: true, map, mapByName, order, count, rowCount: rows.length - 1 };
   }
 
-  async function lookupTracking(orderId, customerName) {
-    if (dataSource === 'sheet') {
-      if (!sheetMap) return { orderId, found: false };
-      let entry = sheetMap[orderId];
-      let byName = false;
-      if (!entry && customerName && sheetMapByName) {
-        entry = sheetMapByName[normalizeName(customerName)];
-        byName = !!entry;
-      }
-      return entry
-        ? { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName }
-        : { orderId, found: false };
+  function lookupTracking(orderId, customerName) {
+    if (!sheetMap) return { orderId, found: false };
+    let entry = sheetMap[orderId];
+    let byName = false;
+    if (!entry && customerName && sheetMapByName) {
+      entry = sheetMapByName[normalizeName(customerName)];
+      byName = !!entry;
     }
-    return requestMerchizeLookup(orderId, customerName);
+    return entry
+      ? { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName }
+      : { orderId, found: false };
   }
 
   // Returns true if a real "open modal / fill / submit" attempt happened
   // (used by runAll to decide how long to pause before the next order —
   // a quick skip shouldn't cost the same settle time as a real completion).
   async function processOrder(orderId) {
-    const sourceLabel = dataSource === 'sheet' ? 'Sheet' : 'Merchize';
-
     // Fetch the row first — completing an order re-renders the list (see
-    // findRowByOrderId), and we now also need the customer name off of it
-    // as a fallback match key in case the order code itself doesn't match.
+    // findRowByOrderId), and we also need the customer name off of it as a
+    // fallback match key in case the order code itself doesn't match.
     const row = await waitForRow(orderId);
     if (!row) {
       return false; // order no longer on page -> skip silently
     }
     const customerName = getOrderCustomerName(row);
 
-    log(
-      'Checking order',
-      orderId,
-      customerName ? `(name: "${customerName}")` : '(no name found)',
-      'against',
-      sourceLabel,
-      '...'
-    );
+    log('Checking order', orderId, customerName ? `(name: "${customerName}")` : '(no name found)', '...');
 
-    // Look up the tracking source FIRST. Only open the "Complete order"
-    // modal at all if we actually have tracking data to put into it.
-    const result = await lookupTracking(orderId, customerName);
+    const result = lookupTracking(orderId, customerName);
 
     if (!result.found) {
-      log(`  not found in ${sourceLabel} -> skipped (no modal opened)`);
+      log('  not found in Sheet -> skipped (no modal opened)');
       return false;
     }
     log(result.byName ? '  found (by customer name):' : '  found:', result.tracking, '/', result.carrier);
@@ -863,12 +540,12 @@
     GM_setValue(PAUSE_KEY, false);
     setStatus('Running...');
 
-    // Always driven by the Etsy page: scan every order currently shown on
-    // this page first, then check each one against the selected data source
-    // (Merchize tab or the loaded Sheet data) for a match.
-    if (dataSource === 'sheet' && (!sheetOrder || !sheetOrder.length)) {
-      log('Chưa có dữ liệu Sheet — bấm "Nạp dữ liệu Sheet" trước.');
+    if (!sheetMap) {
+      log('Chưa có dữ liệu Sheet — dán link Google Sheet rồi bấm Start.');
     }
+
+    // Always driven by the Etsy page: scan every order currently shown on
+    // this page first, then check each one against the loaded Sheet data.
     const orderIds = getOrderIds();
     log(`Found ${orderIds.length} order(s) on this page.`);
 
@@ -902,8 +579,7 @@
         attempted = true;
       }
       // Only pay the full "let the page settle" pause after a real
-      // open-modal/fill/submit attempt; a quick non-match skip (common when
-      // scanning a large sheet against a much shorter page) doesn't need it.
+      // open-modal/fill/submit attempt; a quick non-match skip doesn't need it.
       await sleep(attempted ? 2000 : 150);
     }
 
@@ -932,16 +608,10 @@
     #at-panel .pause{background:#d97706;color:#fff}
     #at-panel .stop{background:#dc2626;color:#fff}
     #at-status{font:12px monospace;opacity:.8;margin-top:4px}
-    .at-source{margin-top:8px;font:12px sans-serif}
-    .at-source label{display:block;margin-top:2px;cursor:pointer}
-    #at-sheet-import textarea{width:100%;box-sizing:border-box;margin-top:6px;
-      font:10px monospace;resize:vertical;background:#1a1a1a;color:#e5e7eb;
-      border:1px solid #333;border-radius:4px;padding:4px}
     #at-sheet-import input[type="text"]{width:100%;box-sizing:border-box;margin-top:4px;
       font:11px monospace;background:#1a1a1a;color:#e5e7eb;
       border:1px solid #333;border-radius:4px;padding:5px}
     .at-sheet-url-label{font-size:11px;opacity:.8;margin-top:8px;display:block}
-    .at-sheet-or{text-align:center;font-size:10px;opacity:.5;margin:6px 0}
     #at-sheet-info{font:11px monospace;opacity:.75;margin-top:4px;white-space:pre-wrap}
     .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
       border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
@@ -958,17 +628,10 @@
     <button class="start" id="at-start">Start</button>
     <button class="pause" id="at-pause">Pause</button>
     <button class="stop" id="at-stop">Stop</button>
-    <div class="at-source">
-      <label><input type="radio" name="at-source" value="merchize"> Nguồn: Merchize (tab)</label>
-      <label><input type="radio" name="at-source" value="sheet"> Nguồn: dán từ Sheet</label>
-    </div>
     <div id="at-sheet-import">
       <label class="at-sheet-url-label">Link Google Sheet (Share: Anyone with the link — Viewer)</label>
       <input type="text" id="at-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/..." />
       <button class="start" id="at-sheet-url-load">Tải từ link Sheet</button>
-      <div class="at-sheet-or">— hoặc dán trực tiếp —</div>
-      <textarea id="at-sheet-paste" rows="3" placeholder="Bôi đen các dòng dữ liệu trong Sheet (KHÔNG cần dòng header), Ctrl+C, rồi dán (Ctrl+V) vào đây"></textarea>
-      <button class="start" id="at-sheet-load">Nạp dữ liệu đã dán</button>
       <div id="at-sheet-info"></div>
     </div>
     <div id="at-log" class="at-log"></div>
@@ -995,74 +658,10 @@
     if (el) el.textContent = text;
   }
 
-  function applyDataSourceUI() {
-    panel.querySelectorAll('input[name="at-source"]').forEach((r) => {
-      r.checked = r.value === dataSource;
-    });
-    document.getElementById('at-sheet-import').style.display =
-      dataSource === 'sheet' ? 'block' : 'none';
-  }
-  applyDataSourceUI();
-
-  panel.querySelectorAll('input[name="at-source"]').forEach((r) => {
-    r.addEventListener('change', (e) => {
-      dataSource = e.target.value;
-      localStorage.setItem('at_data_source', dataSource);
-      applyDataSourceUI();
-      log('Data source ->', dataSource);
-    });
-  });
-
-  // Parses whatever is currently in the paste textarea and loads it into
-  // sheetMap/sheetOrder. Returns true if there's now usable sheet data to
-  // run with (either freshly parsed, or — when the textarea is empty —
-  // whatever was already loaded before), false otherwise. Shared by the
-  // "Nạp dữ liệu Sheet" button and by Start (so pasted data can be run
-  // directly without an extra click).
-  function loadSheetFromTextarea() {
-    const text = document.getElementById('at-sheet-paste').value;
-    const info = document.getElementById('at-sheet-info');
-
-    if (!text.trim()) {
-      // Nothing new pasted — keep whatever was already loaded, if any.
-      return !!sheetMap;
-    }
-
-    const result = parseSheetPaste(text);
-    if (!result.ok) {
-      if (info)
-        info.textContent =
-          'Không dò được dòng đơn nào.\n' +
-          '-> Mỗi đơn phải bắt đầu bằng cột ORDER DATE dạng ngày/tháng/năm (VD: 5/8/26).';
-      log('Sheet import failed: no rows detected.');
-      return false;
-    }
-    if (result.count === 0) {
-      if (info)
-        info.textContent =
-          `Đọc được ${result.rowCount} dòng đơn nhưng không đơn nào có TRACKING để nạp ` +
-          `(có thể các đơn chưa có tracking, hoặc thiếu cột mã đơn/tracking ở cuối mỗi dòng).`;
-      log(`Sheet import: ${result.rowCount} row(s) read, 0 with tracking.`);
-      return false;
-    }
-
-    sheetMap = result.map;
-    sheetMapByName = result.mapByName;
-    sheetOrder = result.order;
-    if (info) info.textContent = `Đã nạp ${result.count} đơn từ Sheet.`;
-    log(`Sheet import: loaded ${result.count} order(s).`);
-    return true;
-  }
-
-  document.getElementById('at-sheet-load').addEventListener('click', () => {
-    loadSheetFromTextarea();
-  });
-
   // Loads sheet data straight from a Google Sheets link (see parseSheetCsv
-  // above for the "Anyone with the link" requirement). Returns true/false
-  // like loadSheetFromTextarea. Remembers the URL in localStorage so Start
-  // can quietly re-fetch the latest data on every run without needing it
-  // re-pasted.
+  // above for the "Anyone with the link" requirement). Remembers the URL in
+  // localStorage so Start can quietly re-fetch the latest data on every run
+  // without needing it re-entered.
   async function loadSheetFromUrl(url) {
     const info = document.getElementById('at-sheet-info');
     const parsed = extractSheetIdAndGid(url);
@@ -1142,9 +741,11 @@
   }
 
   // Start: begins a brand-new run (fresh scan of the current order list) if
-  // idle, or resumes if currently paused. Pause: temporarily halts the loop
-  // in place — same in-progress list, same position, nothing re-scanned.
-  // Stop: cancels the run entirely; the next Start rescans from the top.
+  // idle, or resumes if currently paused. Always re-fetches the latest data
+  // from the Sheet link first (so tracking added since the last run is
+  // picked up automatically). Pause: temporarily halts the loop in place —
+  // same in-progress list, same position, nothing re-scanned. Stop: cancels
+  // the run entirely; the next Start rescans from the top.
   document.getElementById('at-start').addEventListener('click', async () => {
     if (GM_getValue(RUN_KEY)) {
       if (GM_getValue(PAUSE_KEY)) {
@@ -1154,15 +755,13 @@
       }
       return;
     }
-    if (dataSource === 'sheet') {
-      const url = sheetUrlInput ? sheetUrlInput.value.trim() : '';
-      // A Sheet link takes priority (auto re-fetches the latest data on
-      // every run); falls back to whatever's pasted in the textarea.
-      const ok = url ? await loadSheetFromUrl(url) : loadSheetFromTextarea();
-      if (!ok) {
-        log('Không có dữ liệu Sheet hợp lệ để chạy — dán link hoặc dữ liệu vào ô rồi bấm Start lại.');
-        return;
-      }
+    const url = sheetUrlInput ? sheetUrlInput.value.trim() : '';
+    if (!url) {
+      log('Chưa có link Google Sheet — dán link vào ô rồi bấm Start lại.');
+      return;
+    }
+    if (!(await loadSheetFromUrl(url))) {
+      return;
     }
     runAll();
   });
@@ -1179,12 +778,11 @@
     setPauseButtonLabel();
     setStatus('Stopping...');
 
-    // Wipe the pasted-sheet textarea and the on-page log per user request.
-    const paste = document.getElementById('at-sheet-paste');
-    if (paste) paste.value = '';
+    // Wipe the on-page log per earlier request (the Sheet link itself is
+    // kept, same as before, so Start doesn't need it re-entered).
     const logBox = document.getElementById('at-log');
     if (logBox) logBox.innerHTML = '';
   });
 
-  log('Etsy helper loaded. Open the Merchize Orders list (seller.merchize.com/a/orders) too, then click Start.');
+  log('Etsy helper loaded. Dán link Google Sheet rồi bấm Start.');
 })();
