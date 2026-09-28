@@ -187,11 +187,14 @@ export default {
         thongBaoDangCho: cho,
         lanGoiCuoi: last ? JSON.parse(last) : 'chưa có lần gọi nào từ Merchize',
         // 20 thong bao moi nhat: loai su kien, ma don, luc nhan (khong hien du lieu khach hang).
-        danhSachCho: dsCho.slice(-20).map((e) => ({
+        danhSachCho: dsCho.slice(-20).map((e) => (e.event_type ? {
           event_type: e.event_type,
           external_number: (e.resource || {}).external_number,
           identifier: (e.resource || {}).identifier,
           received: e.received
+        } : {
+          // Thong bao khong co event_type: hien nguyen noi dung de tim ten truong dung.
+          khongCoEventType: JSON.stringify(e).slice(0, 1500)
         }))
       });
     }
