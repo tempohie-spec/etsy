@@ -398,8 +398,10 @@ function tomTatApiTracking(goiHang) {
   return kq;
 }
 
+// Tra ve { tracking, cost }: co ghi tracking moi / cost moi hay khong (de bao cao).
 function apDungKetQuaApi(tab, dong, kq, boGhi) {
-  if (!kq.coGoi) return;
+  const kqGhi = { tracking: false, cost: false };
+  if (!kq.coGoi) return kqGhi;
   const r0 = dong[0].row;
   let cost = kq.cost;
   if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(r0, COL.country)))) cost += THUE_NHAP_KHAU_CHAU_AU;
@@ -414,9 +416,27 @@ function apDungKetQuaApi(tab, dong, kq, boGhi) {
       boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
     }
   });
+  kqGhi.tracking = kq.tracking.length > 0;
   if (cost > 0 && Number(cell(r0, COL.baseCost).replace(/[^0-9.\-]/g, '')) !== cost) {
     boGhi.dat(tab, dong[0].rowNumber, COL.baseCost, cost, true);
+    kqGhi.cost = true;
   }
+  return kqGhi;
+}
+
+// Gio Viet Nam (UTC+7) dang HH:MM.
+function gioVN(ms) {
+  const d = new Date(ms + 7 * 3600000);
+  return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+}
+
+// Lan chay tiep theo tu bieu thuc cron dang "*/N * * * *" hoac "0 * * * *". Khong doan duoc thi ''.
+function lanChayTiep(cron, luc) {
+  const m = str(cron).match(/^\*\/(\d+) \* \* \* \*$/);
+  const phut = m ? Number(m[1]) : /^0 \* \* \* \*$/.test(str(cron)) ? 60 : 0;
+  if (!phut) return '';
+  const buoc = phut * 60000;
+  return gioVN(Math.floor(luc / buoc) * buoc + buoc);
 }
 
 async function merchizeFetch(dem, store, method, path, body) {
@@ -447,8 +467,14 @@ function donCanTra(rows) {
   return Array.from(map.entries());
 }
 
-async function chayLich(env) {
+async function chayLich(env, event) {
   const dem = taoBoDem();
+  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0 };
+  const ghiNhan = (ma, kq) => {
+    thongKe.daTra++;
+    if (kq.tracking) thongKe.tracking.push(ma);
+    if (kq.cost) thongKe.cost.push(ma);
+  };
   const stores = docCauHinhStores(env);
   const tabs = Object.keys(stores);
   const duLieu = await docCacTab(env, dem, tabs);
@@ -462,7 +488,9 @@ async function chayLich(env) {
     if (!v) continue;
     let ev;
     try { ev = JSON.parse(v); } catch (e) { daXong.push(k.name); continue; }
-    if (apDungSuKien(ev, duLieu, boGhi) !== 'chuaThay') daXong.push(k.name);
+    const kqSk = apDungSuKien(ev, duLieu, boGhi);
+    if (kqSk !== 'chuaThay') daXong.push(k.name);
+    if (kqSk === 'xong') thongKe.cho++;
   }
 
   // 2. Tra API tracking. Don da co ma RX: gop 50 don/1 request. Don chua co ma RX: tra tung don,
@@ -483,7 +511,7 @@ async function chayLich(env) {
         phan.forEach(([, dong]) => {
           const rx = cell(dong[0].row, COL.merchizeId);
           const cua = goiHang.filter((g) => str(g.name).replace(/-F\d+$/i, '') === rx);
-          apDungKetQuaApi(tab, dong, tomTatApiTracking(cua), boGhi);
+          ghiNhan(cell(dong[0].row, COL.orderNumber), apDungKetQuaApi(tab, dong, tomTatApiTracking(cua), boGhi));
         });
       } catch (e) { /* loi tam thoi, lan sau tra lai */ }
     }
@@ -499,13 +527,27 @@ async function chayLich(env) {
       const { tab, store, ma, dong } = donLe[(batDau + i) % donLe.length];
       try {
         const goiHang = await merchizeFetch(dem, store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma));
-        apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi);
+        ghiNhan(ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi));
       } catch (e) { /* bo qua, lan sau tra lai */ }
     }
   }
 
   await ghiSheet(env, dem, boGhi);
   await Promise.all(daXong.map((k) => env.EVENTS.delete(k)));
+
+  // Chi nhan Telegram khi co cap nhat moi, tranh 48 tin/ngay.
+  if (thongKe.tracking.length || thongKe.cost.length || thongKe.cho) {
+    const luc = (event && event.scheduledTime) || Date.now();
+    const tiep = lanChayTiep(event && event.cron, luc);
+    const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
+    await guiTelegram(env, dem, [
+      `🔄 Cập nhật tự động lúc ${gioVN(luc)}`,
+      thongKe.tracking.length ? `Tracking mới: ${thongKe.tracking.length} đơn (${ds(thongKe.tracking)})` : '',
+      thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
+      thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
+      `Đã tra ${thongKe.daTra} đơn.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : '')
+    ].filter(Boolean).join('\n'));
+  }
 }
 
 export default {
@@ -517,6 +559,6 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(chayLich(env).catch((e) => baoLoiHeThong(env, taoBoDem(), 'Lịch chạy lỗi: ' + e.message)));
+    ctx.waitUntil(chayLich(env, event).catch((e) => baoLoiHeThong(env, taoBoDem(), 'Lịch chạy lỗi: ' + e.message)));
   }
 };

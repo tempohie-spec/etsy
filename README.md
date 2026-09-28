@@ -1452,6 +1452,19 @@ thông báo có gửi). Ticket tìm theo mã RX ở cột AD.
 Ghi Sheet thất bại (sai quyền, sai khoá...) thì thông báo được giữ lại để lịch chạy lại, và
 Telegram báo lỗi (tối đa 1 tin/giờ).
 
+Sau mỗi lần lịch chạy **có cập nhật mới**, Telegram gửi 1 tin tóm tắt (lần nào không có gì mới
+thì không nhắn), vd:
+
+```
+🔄 Cập nhật tự động lúc 12:30
+Tracking mới: 1 đơn (4179216794)
+Cost thật: 2 đơn (4179216794, 4181224261)
+Đã tra 2 đơn. Lần chạy tiếp theo: 13:00
+```
+
+Giờ theo giờ Việt Nam. Lịch `*/30 * * * *` chạy vào phút 00 và 30 mỗi giờ. Lịch sử các lần chạy
+xem ở Worker → **Observability** (hoặc **Logs**) trên Cloudflare.
+
 ## Bước 1: Tạo bot Telegram
 
 1. Trong Telegram, nhắn cho **@BotFather** → gõ `/newbot` → đặt tên → nhận **Bot token**.
