@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.13
+// @version      1.14
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -17,7 +17,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.13';
+  const SCRIPT_VERSION = '1.14';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -826,6 +826,46 @@
     ].filter(Boolean).join('\n');
   }
 
+  // ============ TRA THU 1 DON QUA API TRACKING (XEM DU LIEU THAT) ============
+  // Tai lieu API /order/external/orders/tracking khong ghi ten truong chua so tracking, nen
+  // truoc het hien nguyen du lieu that cua 1 don de xac dinh dung truong roi moi tu dong dien.
+  async function traThu1Don(statusEl) {
+    const { title } = await layTrangTinhDangMo();
+    const store = layStore(title);
+    if (!store) throw new Error(`Tab "${title}" chưa cài store Merchize.`);
+    const ma = str(W.prompt(`Nhập mã đơn Etsy (orderNumber) cần tra trong store của tab "${title}":`, ''));
+    if (!ma) return 'Đã hủy.';
+    log(statusEl, `⏳ Đang tra đơn ${ma}...`);
+    const { status, json } = await merchizeRequest(store, 'GET',
+      '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma));
+    if (!json.success) return `Merchize trả về ${status}: ${json.message || JSON.stringify(json).slice(0, 500)}`;
+    const goi = Array.isArray(json.data) ? json.data : [];
+    // Liet ke moi truong co chu "track" o bat ky cap nao de biet ten truong that.
+    const truongTracking = [];
+    (function quet(o, duong) {
+      if (!o || typeof o !== 'object') return;
+      Object.keys(o).forEach((k) => {
+        const p = duong ? duong + '.' + k : k;
+        if (/track/i.test(k)) truongTracking.push(`${p} = ${JSON.stringify(o[k])}`);
+        quet(o[k], p);
+      });
+    })(goi, 'data');
+    const tomTat = goi.map((g, i) => {
+      const cost = (g.items || []).reduce((t, it) => t + (Number(it.fulfillment_cost) || 0), 0);
+      return `• Gói ${i + 1}: ${g.name || '?'} | ${g.status || '?'} | has_tracking=${g.has_tracking} | ` +
+        `tổng fulfillment_cost items=${Math.round(cost * 100) / 100}, shipping_cost=${g.shipping_cost}`;
+    });
+    return [
+      `Đơn ${ma}: ${goi.length} gói hàng.`,
+      ...tomTat,
+      'Các trường liên quan tracking:',
+      ...(truongTracking.length ? truongTracking : ['(không có trường nào chứa chữ "track")']),
+      '',
+      'Dữ liệu gốc:',
+      JSON.stringify(json.data, null, 1).slice(0, 6000)
+    ].join('\n');
+  }
+
   // ============ 3 CHUC NANG CHINH ============
   async function kiemTraHoacGui(statusEl, guiThat) {
     const catalog = docCatalogDaLuu();
@@ -1011,10 +1051,11 @@
     whKey.placeholder = cfgWh && cfgWh.readKey ? 'READ_KEY đã lưu (dán mới để thay)' : 'READ_KEY';
     const whSaveBtn = nut('Lưu cài đặt Worker', '#607d8b');
     const whBtn = nut('Lấy thông báo Merchize', '#e65100');
+    const apiTestBtn = nut('Tra thử 1 đơn qua API (xem dữ liệu)', '#795548');
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, whLabel, whUrl, whKey, whSaveBtn, whBtn, statusEl]
+    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, whLabel, whUrl, whKey, whSaveBtn, whBtn, apiTestBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
     document.body.appendChild(panel);
@@ -1075,7 +1116,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, whSaveBtn, whBtn];
+    const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, whSaveBtn, whBtn, apiTestBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1156,6 +1197,7 @@
       return 'Đã lưu cài đặt Worker.';
     }));
     whBtn.addEventListener('click', () => chay(() => layThongBaoWebhook(statusEl)));
+    apiTestBtn.addEventListener('click', () => chay(() => traThu1Don(statusEl)));
     oldBtn.addEventListener('click', () => chay(() => danhDauDongCu(statusEl)));
   }
 
