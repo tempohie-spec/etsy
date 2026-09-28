@@ -589,30 +589,20 @@ async function chayLich(env, event) {
   await ghiSheet(env, dem, boGhi);
   await Promise.all(daXong.map((k) => env.EVENTS.delete(k)));
 
-  // Chi nhan Telegram khi co cap nhat moi, tranh 48 tin/ngay.
-  if (thongKe.tracking.length || thongKe.cost.length || thongKe.cho) {
-    const luc = (event && event.scheduledTime) || Date.now();
-    const tiep = lanChayTiep(event && event.cron, luc);
-    const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
-    await guiTelegram(env, dem, [
-      `🔄 Cập nhật tự động lúc ${gioVN(luc)}`,
-      thongKe.tracking.length ? `Tracking mới: ${thongKe.tracking.length} đơn (${ds(thongKe.tracking)})` : '',
-      thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
-      thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
-      `Đã tra ${thongKe.daTra} đơn.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : '')
-    ].filter(Boolean).join('\n'));
-  }
-
-  // Bao 1 lan khi tat ca don trong SO_NGAY_CAP_NHAT ngay da co tracking; con don thieu thi mo lai co.
+  // Nhan Telegram sau MOI lan chay, ke ca khi khong co gi moi.
   const conThieu = Math.max(0, tongCanTra - thongKe.tracking.length);
-  if (conThieu === 0) {
-    if (!(await env.EVENTS.get('cron:dudon'))) {
-      await env.EVENTS.put('cron:dudon', '1');
-      await guiTelegram(env, dem, `✅ Tất cả đơn trong ${SO_NGAY_CAP_NHAT} ngày gần nhất đã có tracking.`);
-    }
-  } else if (await env.EVENTS.get('cron:dudon')) {
-    await env.EVENTS.delete('cron:dudon');
-  }
+  const luc = (event && event.scheduledTime) || Date.now();
+  const tiep = lanChayTiep(event && event.cron, luc);
+  const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
+  const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho;
+  await guiTelegram(env, dem, [
+    `🔄 Cập nhật tự động lúc ${gioVN(luc)}`,
+    thongKe.tracking.length ? `Tracking mới: ${thongKe.tracking.length} đơn (${ds(thongKe.tracking)})` : '',
+    thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
+    thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
+    coMoi ? '' : 'Không có giá trị mới để điền.',
+    `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : '')
+  ].filter(Boolean).join('\n'));
 
   return {
     tracking: thongKe.tracking.length, cost: thongKe.cost.length,

@@ -1460,23 +1460,20 @@ Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không ph
 Ghi Sheet thất bại (sai quyền, sai khoá...) thì thông báo được giữ lại để lịch chạy lại, và
 Telegram báo lỗi (tối đa 1 tin/giờ).
 
-Sau mỗi lần lịch chạy **có cập nhật mới**, Telegram gửi 1 tin tóm tắt (lần nào không có gì mới
-thì không nhắn), vd:
+Sau **mỗi lần** lịch chạy (kể cả khi không có gì mới), Telegram gửi 1 tin tóm tắt, vd:
 
 ```
 🔄 Cập nhật tự động lúc 12:30
 Tracking mới: 1 đơn (4179216794)
 Cost thật: 2 đơn (4179216794, 4181224261)
-Đã tra 2 đơn. Lần chạy tiếp theo: 13:00
+Đã tra 2 đơn, còn 5 đơn thiếu tracking. Lần chạy tiếp theo: 13:00
 ```
+
+Không có gì mới thì tin ghi `Không có giá trị mới để điền.` kèm số đơn đã tra / còn thiếu.
 
 **Chạy ngay không cần đợi lịch:** mở `https://merchize-webhook.<subdomain>.workers.dev/run?key=<SECRET_KEY>`
 (`<SECRET_KEY>` là 1 key bất kỳ trong `SECRET_KEYS`). Trang trả về số đơn đã tra / có tracking mới /
 cost mới, hoặc nội dung lỗi.
-
-Khi **tất cả đơn trong 10 ngày gần nhất đã có tracking**, Telegram báo 1 lần
-`✅ Tất cả đơn trong 10 ngày gần nhất đã có tracking.` (không nhắn lặp lại; có đơn mới thiếu
-tracking thì lần sau lại báo).
 
 Giờ theo giờ Việt Nam. Lịch `*/30 * * * *` chạy vào phút 00 và 30 mỗi giờ. Lịch sử các lần chạy
 xem ở Worker → **Observability** (hoặc **Logs**) trên Cloudflare.
