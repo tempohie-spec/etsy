@@ -1417,111 +1417,103 @@ có webhook, và bù các thông báo webhook bị sót.
   cộng thêm 3.5$ thuế nhập khẩu nếu nước nhận thuộc danh sách châu Âu (API không tính khoản này;
   đã đối chiếu: đơn 4181224261 API 37.58 + 3.5 = 41.08 đúng cost thật).
 - Đơn chưa được Merchize xử lý (chưa có gói hàng) thì bỏ qua, lần sau tra lại.
+- Worker đã tự làm việc này mỗi giờ (xem phần Worker bên dưới); nút này dùng khi muốn cập nhật
+  ngay.
 
-Nút **Tra thử 1 đơn qua API** hiện nguyên dữ liệu API của 1 đơn để đối chiếu.
+# Merchize Webhook - Cloudflare Worker (tự ghi vào Google Sheet)
 
-# Merchize Webhook - Cloudflare Worker
+Chạy 24/7, **không cần mở Sheet**:
 
-Nhận thông báo từ Merchize (sai địa chỉ, lỗi import, tracking, cost...), lưu lại để userscript
-trên Google Sheets lấy về ghi vào Sheet, và gửi Telegram ngay với các sự kiện lỗi.
+- **Webhook (real time):** Merchize gửi thông báo → Worker gửi Telegram (lỗi địa chỉ, lỗi import,
+  ticket) và **ghi ngay vào Google Sheet** trong vài giây.
+- **Lịch mỗi giờ:** chạy lại thông báo chưa ghi được (đơn chưa có trong Sheet, lỗi tạm thời), và
+  tra API tracking cho đơn 30 ngày gần nhất còn thiếu tracking để bù thông báo bị sót.
 
 - File code: [`merchize-webhook-worker.js`](merchize-webhook-worker.js)
-- Miễn phí (gói Free của Cloudflare: 100.000 request/ngày, KV 1.000 lượt ghi/ngày).
-- 1 Worker dùng chung cho mọi store.
+- Miễn phí trên gói Free của Cloudflare. Giới hạn: tối đa 50 request ra ngoài mỗi lần chạy, nên
+  mỗi giờ tra khoảng 40 đơn chưa có mã RX (đơn đã có mã RX tra gộp 50 đơn/1 request), lần sau tra
+  tiếp các đơn còn lại.
 
-## Bước 1: Tạo bot Telegram
+## Ghi vào Sheet
 
-1. Trong Telegram, nhắn cho **@BotFather** → gõ `/newbot` → đặt tên → nhận **Bot token** (dạng
-   `123456789:AA...`). Giữ bí mật token này.
-2. Mở bot vừa tạo, bấm **Start** và gửi 1 tin nhắn bất kỳ (vd `hi`).
-3. Mở trên trình duyệt: `https://api.telegram.org/bot<BOT_TOKEN>/getUpdates` (thay `<BOT_TOKEN>`),
-   tìm `"chat":{"id":123456789` → số đó là **Chat ID**.
-   - Muốn nhận trong nhóm: thêm bot vào nhóm, nhắn 1 tin trong nhóm rồi làm lại bước 3 (Chat ID
-     nhóm là số âm, vd `-100...`).
+Tìm dòng trong các tab khai báo ở biến `STORES` theo mã đơn Etsy (cột C) và Account (cột B, nếu
+thông báo có gửi). Ticket tìm theo mã RX ở cột AD.
 
-## Bước 2: Tạo tài khoản và Worker trên Cloudflare
-
-1. Đăng ký tại https://dash.cloudflare.com/sign-up (chỉ cần email, không cần tên miền).
-2. Menu trái **Compute (Workers)** → **Workers & Pages** → **Create** → **Create Worker**
-   (mẫu "Hello World").
-3. Đặt tên `merchize-webhook` → **Deploy**. Bạn sẽ có URL dạng
-   `https://merchize-webhook.<tên-tài-khoản>.workers.dev`.
-4. Bấm **Edit code** → xoá hết code mẫu → dán toàn bộ nội dung file
-   [`merchize-webhook-worker.js`](merchize-webhook-worker.js) → **Deploy**.
-
-## Bước 3: Tạo bộ nhớ KV
-
-1. Menu trái **Storage & Databases** → **KV** → **Create** → đặt tên `merchize-events` → **Add**.
-2. Quay lại Worker `merchize-webhook` → tab **Bindings** → **Add binding** → **KV namespace**:
-   - Variable name: `EVENTS` (viết đúng chữ hoa)
-   - KV namespace: `merchize-events`
-   → **Add Binding**.
-
-## Bước 4: Khai báo biến bí mật
-
-Worker `merchize-webhook` → **Settings** → **Variables and Secrets** → **Add**, chọn Type
-**Secret** cho cả 4 biến:
-
-| Tên biến | Giá trị |
-|---|---|
-| `SECRET_KEYS` | Secret key webhook của các store (Merchize → Settings → Webhook), cách nhau dấu phẩy, vd `keyStore1,keyStore2,keyStore3` |
-| `READ_KEY` | Một chuỗi bí mật bạn tự đặt (dài, khó đoán). Sau này dán y hệt vào userscript trên Sheet |
-| `TELEGRAM_BOT_TOKEN` | Bot token ở bước 1 |
-| `TELEGRAM_CHAT_ID` | Chat ID ở bước 1 |
-
-→ **Deploy**. Thêm store mới thì sửa `SECRET_KEYS`, thêm key của store đó vào cuối.
-
-Kiểm tra: mở `https://merchize-webhook.<tên-tài-khoản>.workers.dev` trên trình duyệt, thấy
-`{"ok":true,"service":"merchize-webhook"}` là Worker đã chạy.
-
-Kiểm tra sâu hơn (thay `<READ_KEY>` bằng giá trị biến `READ_KEY`):
-
-- `.../status?key=<READ_KEY>`: xem đã gắn KV `EVENTS` chưa, có bao nhiêu Secret key, đã khai
-  báo Telegram chưa, số thông báo đang chờ, và **lần gọi gần nhất từ Merchize** (thời gian, loại
-  sự kiện, bị từ chối vì sai Secret key hay không).
-- `.../test-telegram?key=<READ_KEY>`: gửi 1 tin thử tới Telegram, báo lỗi cụ thể nếu sai token
-  hoặc Chat ID (vd `chat not found` = chưa bấm Start với bot hoặc sai Chat ID).
-
-## Bước 5: Cài webhook trên từng store Merchize
-
-Merchize → **Settings** → **Webhook** → **Add webhook**:
-
-- Enabled: bật
-- Endpoint: `https://merchize-webhook.<tên-tài-khoản>.workers.dev`
-- Events: **Order invalid address**, **Order importer error**, **Order changed tracking**,
-  **Order payment fulfillment cost**, **Order issue updated**
-
-Làm lại cho từng store. Nhớ lấy Secret key của store đó khai báo vào `SECRET_KEYS`.
-
-## Worker làm gì
-
-| Đường dẫn | Việc |
-|---|---|
-| `POST /` | Merchize gửi vào. Sai `merchize-webhook-key` thì từ chối (401). Đúng thì lưu vào KV 30 ngày (trùng `event_id` chỉ ghi đè) và gửi Telegram nếu là sự kiện lỗi (`ORDER.INVALID.ADDRESS`, hoặc tên có chữ `INVALID`/`ERROR`) |
-| `GET /events` | Userscript lấy các thông báo chưa xử lý (header `x-read-key` = `READ_KEY`) |
-| `POST /events/ack` | Userscript báo đã ghi vào Sheet, xoá các thông báo đó khỏi KV |
-
-## Bước 6: Lấy thông báo về Google Sheet (userscript Merchize v1.11)
-
-Trên Google Sheet, mở bảng **Merchize** → phần **Thông báo Merchize (Webhook)**: điền **Worker
-URL** và **READ_KEY** (giống biến `READ_KEY` trên Cloudflare) → **Lưu cài đặt Worker**. Sau đó
-mỗi lần muốn cập nhật, bấm **Lấy thông báo Merchize**.
-
-Script đọc các tab đã cài store, tìm dòng theo `external_number` (= orderNumber, cột C) và
-`identifier` (= cột Account hoặc tên tab), rồi ghi:
-
-| Sự kiện | Ghi vào Sheet |
+| Nguồn | Ghi vào |
 |---|---|
 | Order invalid address | AC = `Lỗi địa chỉ: <loại lỗi> - <chi tiết>` |
 | Order importer error | AC = `Lỗi import: <lỗi>` |
-| Order changed tracking | AC = `Có tracking`, AE = tracking number, AF = hãng vận chuyển |
-| Order payment fulfillment cost | Y (dòng đầu của đơn) = `price` (tổng cost thật), ghi đè số ước tính |
-| Order issue updated | AG = `<trạng thái ticket> [vấn đề]: <tin nhắn mới nhất>`, khớp theo mã `RX-...` ở cột AD |
-| Mọi sự kiện có mã Merchize | AD = mã `RX-...` thật |
+| Order changed tracking / API tracking | AC = `Có tracking` (dòng `Cũ` giữ nguyên), AE = tracking, AF = hãng vận chuyển |
+| Order payment fulfillment cost | Y (dòng đầu của đơn) = cost thật |
+| API tracking | Y = giá sản phẩm + phí ship (+3.5$ thuế nếu gửi đi châu Âu) |
+| Order issue updated | AG = `<trạng thái> [vấn đề]: <tin nhắn mới nhất>` |
+| Mọi nguồn có mã Merchize | AD = mã `RX-...` thật |
 
-- Từ v1.11, lúc gửi đơn cột AD để trống, chờ webhook điền mã `RX-...`.
-- Thông báo đã ghi xong mới bị xoá khỏi Worker. Thông báo chưa tìm thấy đơn được giữ lại (tối
-  đa 30 ngày) và báo trên bảng để kiểm tra.
-- Sửa xong đơn lỗi import thì xoá ô AC để gửi lại.
-- Ticket luôn được báo qua Telegram (trạng thái, vấn đề, tin nhắn mới nhất). Ticket của đơn chưa
-  có mã RX ở cột AD (đơn gửi trước khi có webhook) chỉ báo Telegram, không ghi vào Sheet.
+Ghi Sheet thất bại (sai quyền, sai khoá...) thì thông báo được giữ lại để lịch chạy lại, và
+Telegram báo lỗi (tối đa 1 tin/giờ).
+
+## Bước 1: Tạo bot Telegram
+
+1. Trong Telegram, nhắn cho **@BotFather** → gõ `/newbot` → đặt tên → nhận **Bot token**.
+2. Mở bot vừa tạo, bấm **Start** và gửi 1 tin nhắn bất kỳ.
+3. Mở `https://api.telegram.org/bot<BOT_TOKEN>/getUpdates`, tìm `"chat":{"id":...` → **Chat ID**.
+
+## Bước 2: Tạo Service Account Google (để Worker ghi vào Sheet)
+
+1. Vào https://console.cloud.google.com (đăng nhập tài khoản Google nào cũng được) → chọn
+   project có sẵn hoặc **New Project**.
+2. Ô tìm kiếm trên cùng gõ **Google Sheets API** → **Enable**.
+3. Menu **IAM & Admin** → **Service Accounts** → **Create service account** → đặt tên
+   `merchize-worker` → **Create and continue** → **Done** (bỏ qua phần cấp quyền).
+4. Bấm vào service account vừa tạo → tab **Keys** → **Add key** → **Create new key** → **JSON**
+   → tải về file `.json`. Giữ bí mật file này.
+5. Copy email của service account (dạng `merchize-worker@<project>.iam.gserviceaccount.com`).
+6. Mở Google Sheet → **Share** → dán email đó → quyền **Editor** → bỏ tick "Notify" → **Share**.
+7. Lấy **SPREADSHEET_ID** từ link Sheet: `https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit`.
+
+## Bước 3: Tạo Worker và KV trên Cloudflare
+
+1. **Compute** → **Workers & Pages** → **Create application** → **Start with Hello World!** →
+   tên `merchize-webhook` → **Deploy**.
+2. **Edit code** → xoá hết → dán toàn bộ [`merchize-webhook-worker.js`](merchize-webhook-worker.js)
+   → **Deploy**.
+3. **Storage & databases** → **Workers KV** → **Create** → tên `merchize-events`.
+4. Worker → tab **Bindings** → **Add binding** → **KV namespace** → Variable name `EVENTS`,
+   namespace `merchize-events`.
+
+## Bước 4: Khai báo biến bí mật
+
+Worker → **Settings** → **Variables and Secrets** → **Add**, Type **Secret**:
+
+| Tên biến | Giá trị |
+|---|---|
+| `SECRET_KEYS` | Secret key webhook của các store, cách nhau dấu phẩy |
+| `TELEGRAM_BOT_TOKEN` | Bot token ở bước 1 |
+| `TELEGRAM_CHAT_ID` | Chat ID ở bước 1 |
+| `GOOGLE_SERVICE_ACCOUNT` | Mở file `.json` ở bước 2 bằng Notepad, copy **toàn bộ** nội dung dán vào |
+| `SPREADSHEET_ID` | ID của Google Sheet ở bước 2 |
+| `STORES` | Danh sách tab account và store Merchize tương ứng, dạng JSON (xem dưới) |
+
+Mẫu `STORES` (tên tab phải **đúng từng ký tự**, kể cả khoảng trắng; Base URL và Access Token lấy
+giống lúc cài trong userscript):
+
+```json
+{
+  "ETSY_ US 04 (PAKISTAN 01)": { "baseUrl": "https://bo-group-1-2.merchize.com/zoi24ff/bo-api", "token": "ACCESS_TOKEN_STORE_1" },
+  "ETSY_ INDIA 02": { "baseUrl": "https://bo-group-1-2.merchize.com/yum7lr1/bo-api", "token": "ACCESS_TOKEN_STORE_2" }
+}
+```
+
+Biến `READ_KEY` của bản cũ không còn dùng, có thể xoá.
+
+## Bước 5: Bật lịch chạy mỗi giờ
+
+Worker → **Settings** → **Trigger Events** (hoặc **Triggers**) → **Add** → **Cron Triggers** →
+chọn **Hourly** hoặc nhập `0 * * * *` → **Add**.
+
+## Bước 6: Cài webhook trên từng store Merchize
+
+Merchize → **Settings** → **Webhook** → **Add webhook**: Endpoint = URL Worker, Events: **Order
+invalid address**, **Order importer error**, **Order changed tracking**, **Order payment
+fulfillment cost**, **Order issue updated**. Thử bằng **More action** → **Webhook simulator**
+(tin Telegram có chữ `[TEST]`).

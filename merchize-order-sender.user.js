@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.15
+// @version      1.16
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -9,7 +9,6 @@
 // @grant        GM_setValue
 // @grant        unsafeWindow
 // @connect      merchize.com
-// @connect      workers.dev
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -17,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.15';
+  const SCRIPT_VERSION = '1.16';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -652,181 +651,6 @@
     ].join('\n');
   }
 
-  // ============ LAY THONG BAO WEBHOOK TU CLOUDFLARE WORKER ============
-  // { url, readKey } - dung chung moi tab (1 Worker cho moi store).
-  function docCauHinhWebhook() {
-    try { return JSON.parse(GM_getValue('mz_webhook', 'null')); } catch (e) { return null; }
-  }
-
-  function workerRequest(cfg, method, path, body) {
-    return new Promise((resolve, reject) => {
-      GM_xmlhttpRequest({
-        method,
-        url: cfg.url.replace(/\/+$/, '') + path,
-        headers: { 'Content-Type': 'application/json', 'x-read-key': cfg.readKey },
-        data: body ? JSON.stringify(body) : undefined,
-        timeout: 60000,
-        onload: (res) => {
-          let json = null;
-          try { json = JSON.parse(res.responseText); } catch (e) { /* khong phai JSON */ }
-          if (res.status === 401) { reject(new Error('Worker từ chối - kiểm tra lại READ_KEY.')); return; }
-          if (!json || !json.ok) { reject(new Error(`Worker trả về ${res.status}.`)); return; }
-          resolve(json);
-        },
-        onerror: () => reject(new Error('Không kết nối được tới Worker.')),
-        ontimeout: () => reject(new Error('Worker không phản hồi.'))
-      });
-    });
-  }
-
-  const MO_TA_LOI_DIA_CHI = {
-    invalid: 'địa chỉ không hợp lệ',
-    inactive: 'địa chỉ không còn hoạt động',
-    missing_secondary: 'thiếu số căn hộ/phòng',
-    street_undefined: 'không xác định được tên đường',
-    vacant: 'địa chỉ bỏ trống',
-    zipcode_undefined: 'không xác định được ZIP code',
-    spelling: 'sai chính tả địa chỉ'
-  };
-
-  // Tu 1 thong bao -> nhung gi can ghi vao Sheet. null = loai su kien khong xu ly (van xoa khoi Worker).
-  function noiDungTuSuKien(ev) {
-    const r = ev.resource || {};
-    const loai = str(ev.event_type || ev.event).toUpperCase();
-    const co = { maRx: str(r.code || r.order_code) };
-    if (loai === 'ORDER.INVALID.ADDRESS') {
-      const mt = MO_TA_LOI_DIA_CHI[r.type_invalid] || str(r.type_invalid);
-      co.status = `Lỗi địa chỉ: ${mt}${r.message_invalid ? ' - ' + str(r.message_invalid) : ''}`;
-    } else if (loai === 'ORDER.IMPORTER.ERROR') {
-      co.status = `Lỗi import: ${str(r.error) || str(r.status)}`;
-    } else if (loai === 'ORDER.CHANGED.TRACKING') {
-      if (!str(r.tracking_number)) return co.maRx ? co : null;
-      co.status = 'Có tracking';
-      co.tracking = str(r.tracking_number);
-      co.carrier = str(r.tracking_company);
-    } else if (loai === 'ORDER.ISSUE.UPDATED') {
-      const msg = r.last_message || {};
-      const noiDung = str(msg.body_text || msg.body).replace(/\s+/g, ' ').slice(0, 300);
-      co.cacRx = (r.orders || []).map(str).filter(Boolean);
-      co.ticket = `${str(r.ticket_status) || '?'}${(r.category || []).length ? ' [' + r.category.join(', ') + ']' : ''}` +
-        (noiDung ? ': ' + noiDung : '');
-    } else if (loai === 'ORDER.PAYMENT.FULFILLMENT_COST') {
-      const gia = Number(r.price);
-      if (!isNaN(gia) && str(r.price) !== '') co.cost = Math.round(gia * 100) / 100;
-    } else {
-      return null;
-    }
-    return co;
-  }
-
-  async function layThongBaoWebhook(statusEl) {
-    const cfg = docCauHinhWebhook();
-    if (!cfg || !cfg.url || !cfg.readKey) throw new Error('Chưa cài Worker URL và READ_KEY.');
-    log(statusEl, '⏳ Đang lấy thông báo từ Worker...');
-    const { events } = await workerRequest(cfg, 'GET', '/events');
-    if (!events.length) return 'Không có thông báo mới.';
-
-    // Chi doc cac tab da cai store (tab account).
-    const spreadsheetId = getSpreadsheetId();
-    await layTrangTinhDangMo();
-    const cacTab = Object.values(tenTabTheoGid).filter((t) => layStore(t));
-    log(statusEl, `⏳ Đang đọc ${cacTab.length} tab account...`);
-    const duLieu = {};
-    for (const t of cacTab) duLieu[t] = await docTrangTinh(spreadsheetId, t);
-
-    const ghiText = [];
-    const ghiSo = [];
-    const daXuLy = [];
-    const khongKhop = [];
-    const tabCanTieuDe = new Set();
-    const tabCanTieuDeTicket = new Set();
-    let soDong = 0;
-
-    for (const ev of events) {
-      const co = noiDungTuSuKien(ev);
-      if (!co) { daXuLy.push(ev.id); continue; }
-      const r = ev.resource || {};
-      const ma = str(r.external_number);
-      const idf = str(r.identifier);
-      const tim = [];
-      if (co.cacRx) {
-        // Ticket: khop theo ma RX-... o cot AD (chi don da duoc webhook dien ma RX).
-        cacTab.forEach((t) => duLieu[t].forEach((row, i) => {
-          if (i > 0 && co.cacRx.includes(cell(row, COL.merchizeId))) tim.push({ t, rowNumber: i + 1 });
-        }));
-        if (tim.length === 0) {
-          // Da bao Telegram roi, khong giu lai de tranh bao mai tren bang.
-          khongKhop.push(`• Ticket ${co.cacRx.join(', ') || '?'}: chưa có mã RX trong cột AD (đã báo Telegram)`);
-          daXuLy.push(ev.id);
-          continue;
-        }
-      } else {
-        cacTab.forEach((t) => {
-          duLieu[t].forEach((row, i) => {
-            if (i === 0 || cell(row, COL.orderNumber) !== ma) return;
-            if (idf && idf !== t && idf !== cell(row, COL.account)) return;
-            tim.push({ t, rowNumber: i + 1 });
-          });
-        });
-      }
-      if (tim.length === 0) {
-        khongKhop.push(`• ${ev.event_type || ev.event} ${ma || '?'} (${idf || '?'})`);
-        continue;
-      }
-      const dongDau = {};
-      tim.forEach(({ t, rowNumber }) => {
-        const o = (cot) => `'${t}'!${cot}${rowNumber}`;
-        if (co.status) ghiText.push({ range: o('AC'), values: [[co.status]] });
-        if (co.maRx) ghiText.push({ range: o('AD'), values: [[co.maRx]] });
-        if (co.ticket) {
-          ghiText.push({ range: o('AG'), values: [[co.ticket]] });
-          tabCanTieuDeTicket.add(t);
-        }
-        if (co.tracking) {
-          ghiText.push({ range: o('AE'), values: [[co.tracking]] });
-          ghiText.push({ range: o('AF'), values: [[co.carrier]] });
-          tabCanTieuDe.add(t);
-        }
-        if (dongDau[t] === undefined || rowNumber < dongDau[t]) dongDau[t] = rowNumber;
-        soDong++;
-      });
-      if (typeof co.cost === 'number') {
-        Object.keys(dongDau).forEach((t) => ghiSo.push({ range: `'${t}'!Y${dongDau[t]}`, values: [[co.cost]] }));
-      }
-      daXuLy.push(ev.id);
-    }
-
-    tabCanTieuDeTicket.forEach((t) => {
-      if (!cell(duLieu[t][0] || [], COL.ticket)) ghiText.push({ range: `'${t}'!AG1`, values: [['Ticket']] });
-    });
-    tabCanTieuDe.forEach((t) => {
-      const h = duLieu[t][0] || [];
-      if (!cell(h, COL.tracking) && !cell(h, COL.carrier)) {
-        ghiText.push({ range: `'${t}'!AE1:AF1`, values: [TRACKING_HEADERS] });
-      }
-    });
-
-    // RAW cho chu (tracking dai khong bi doi thanh so), USER_ENTERED cho cost (de la so).
-    if (ghiText.length) {
-      await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
-        method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: ghiText })
-      });
-    }
-    if (ghiSo.length) {
-      await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
-        method: 'POST', body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: ghiSo })
-      });
-    }
-    // Chi xoa khoi Worker sau khi da ghi xong vao Sheet. Thong bao khong khop don nao giu lai (30 ngay).
-    if (daXuLy.length) await workerRequest(cfg, 'POST', '/events/ack', { ids: daXuLy });
-
-    return [
-      `Đã xử lý ${daXuLy.length}/${events.length} thông báo, cập nhật ${soDong} dòng.`,
-      khongKhop.length ? `${khongKhop.length} thông báo chưa tìm thấy đơn (giữ lại, lần sau lấy tiếp):` : '',
-      ...khongKhop
-    ].filter(Boolean).join('\n');
-  }
-
   // ============ CAP NHAT TRACKING + COST HANG LOAT QUA API ============
   // Chi xet don co Date Fulfill (cot W) trong SO_NGAY_CAP_NHAT ngay gan nhat va chua co tracking (AE).
   const SO_NGAY_CAP_NHAT = 30;
@@ -935,46 +759,6 @@
       loi.length ? `${loi.length} đơn lỗi:` : '',
       ...loi
     ].filter(Boolean).join('\n');
-  }
-
-  // ============ TRA THU 1 DON QUA API TRACKING (XEM DU LIEU THAT) ============
-  // Tai lieu API /order/external/orders/tracking khong ghi ten truong chua so tracking, nen
-  // truoc het hien nguyen du lieu that cua 1 don de xac dinh dung truong roi moi tu dong dien.
-  async function traThu1Don(statusEl) {
-    const { title } = await layTrangTinhDangMo();
-    const store = layStore(title);
-    if (!store) throw new Error(`Tab "${title}" chưa cài store Merchize.`);
-    const ma = str(W.prompt(`Nhập mã đơn Etsy (orderNumber) cần tra trong store của tab "${title}":`, ''));
-    if (!ma) return 'Đã hủy.';
-    log(statusEl, `⏳ Đang tra đơn ${ma}...`);
-    const { status, json } = await merchizeRequest(store, 'GET',
-      '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma));
-    if (!json.success) return `Merchize trả về ${status}: ${json.message || JSON.stringify(json).slice(0, 500)}`;
-    const goi = Array.isArray(json.data) ? json.data : [];
-    // Liet ke moi truong co chu "track" o bat ky cap nao de biet ten truong that.
-    const truongTracking = [];
-    (function quet(o, duong) {
-      if (!o || typeof o !== 'object') return;
-      Object.keys(o).forEach((k) => {
-        const p = duong ? duong + '.' + k : k;
-        if (/track/i.test(k)) truongTracking.push(`${p} = ${JSON.stringify(o[k])}`);
-        quet(o[k], p);
-      });
-    })(goi, 'data');
-    const tomTat = goi.map((g, i) => {
-      const cost = (g.items || []).reduce((t, it) => t + (Number(it.fulfillment_cost) || 0), 0);
-      return `• Gói ${i + 1}: ${g.name || '?'} | ${g.status || '?'} | has_tracking=${g.has_tracking} | ` +
-        `tổng fulfillment_cost items=${Math.round(cost * 100) / 100}, shipping_cost=${g.shipping_cost}`;
-    });
-    return [
-      `Đơn ${ma}: ${goi.length} gói hàng.`,
-      ...tomTat,
-      'Các trường liên quan tracking:',
-      ...(truongTracking.length ? truongTracking : ['(không có trường nào chứa chữ "track")']),
-      '',
-      'Dữ liệu gốc:',
-      JSON.stringify(json.data, null, 1).slice(0, 6000)
-    ].join('\n');
   }
 
   // ============ 3 CHUC NANG CHINH ============
@@ -1152,22 +936,11 @@
     const costBtn = nut('Điền Base Cost ước tính cho đơn đã gửi', '#00897b');
     const oldBtn = nut('Đánh dấu dòng cũ (dùng 1 lần mỗi tab)', '#9e9e9e');
 
-    const whLabel = el('div', 'font-size:12px;font-weight:bold;margin:8px 0 4px;border-top:1px solid #eee;padding-top:8px;', 'Thông báo Merchize (Webhook)');
-    const whUrl = el('input', oCss);
-    whUrl.placeholder = 'Worker URL, vd https://merchize-webhook.xxx.workers.dev';
-    const whKey = el('input', oCss);
-    whKey.type = 'password';
-    const cfgWh = docCauHinhWebhook();
-    if (cfgWh) whUrl.value = cfgWh.url;
-    whKey.placeholder = cfgWh && cfgWh.readKey ? 'READ_KEY đã lưu (dán mới để thay)' : 'READ_KEY';
-    const whSaveBtn = nut('Lưu cài đặt Worker', '#607d8b');
-    const whBtn = nut('Lấy thông báo Merchize', '#e65100');
     const apiBtn = nut('Cập nhật tracking + cost qua API', '#5d4037');
-    const apiTestBtn = nut('Tra thử 1 đơn qua API (xem dữ liệu)', '#795548');
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, whLabel, whUrl, whKey, whSaveBtn, whBtn, apiBtn, apiTestBtn, statusEl]
+    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, apiBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
     document.body.appendChild(panel);
@@ -1228,7 +1001,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, whSaveBtn, whBtn, apiBtn, apiTestBtn];
+    const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, apiBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1297,19 +1070,6 @@
     checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
     sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true)));
     costBtn.addEventListener('click', () => chay(() => dienBaseCost(statusEl)));
-    whSaveBtn.addEventListener('click', () => chay(async () => {
-      const url = str(whUrl.value).replace(/\/+$/, '');
-      if (!/^https:\/\/[a-z0-9.-]+\.workers\.dev$/i.test(url)) throw new Error('Worker URL phải có dạng https://....workers.dev');
-      const cu = docCauHinhWebhook();
-      const readKey = str(whKey.value) || (cu && cu.readKey) || '';
-      if (!readKey) throw new Error('Chưa dán READ_KEY.');
-      GM_setValue('mz_webhook', JSON.stringify({ url, readKey }));
-      whKey.value = '';
-      whKey.placeholder = 'READ_KEY đã lưu (dán mới để thay)';
-      return 'Đã lưu cài đặt Worker.';
-    }));
-    whBtn.addEventListener('click', () => chay(() => layThongBaoWebhook(statusEl)));
-    apiTestBtn.addEventListener('click', () => chay(() => traThu1Don(statusEl)));
     apiBtn.addEventListener('click', () => chay(() => capNhatQuaApi(statusEl)));
     oldBtn.addEventListener('click', () => chay(() => danhDauDongCu(statusEl)));
   }
