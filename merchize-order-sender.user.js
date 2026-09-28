@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.7
+// @version      1.8
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.7';
+  const SCRIPT_VERSION = '1.8';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -56,6 +56,13 @@
 
   // Bac gia goc Merchize dang ap dung cho store (tier1 = 0-999 don, tier2 = 1000-2999, tier3 = >3000).
   const TIER = 'tier1';
+  // Thue nhap khau (Import Duty) tu 26/06/2026: 3.5$ MOI KIEN HANG (moi don) ship tu kho US
+  // cua Merchize toi 50 nuoc/vung lanh tho chau Au duoi day.
+  const THUE_NHAP_KHAU_CHAU_AU = 3.5;
+  const NUOC_THUE_CHAU_AU = new Set(['AL', 'AD', 'AM', 'AT', 'AZ', 'BY', 'BE', 'BA', 'BG', 'HR', 'CY', 'CZ',
+    'DK', 'EE', 'FI', 'FR', 'GE', 'DE', 'GR', 'HU', 'IS', 'IE', 'IT', 'KZ', 'XK', 'LV', 'LI', 'LT', 'LU',
+    'MT', 'MD', 'MC', 'ME', 'NL', 'MK', 'NO', 'PL', 'PT', 'RO', 'SM', 'RS', 'SK', 'SI', 'ES', 'SE', 'CH',
+    'TR', 'UA', 'GB', 'VA']);
   // Phu phi in them mat sau (moi san pham co link designBack), tinh theo tung cai.
   const PHU_PHI_MAT_SAU = 4.5;
 
@@ -334,6 +341,11 @@
       tong += u.gia + u.matSau + ship;
       return `${u.sku} ${u.gia}${u.matSau ? ` + mặt sau ${u.matSau}` : ''} + ship ${ship} (${u.phi[0]}/${u.phi[1] || 'all'}, ${i === iMax ? 'first' : 'additional'})`;
     });
+    // Tat ca san pham hien dung deu la hang kho US (ma ...US) nen don toi cac nuoc tren deu chiu thue.
+    if (NUOC_THUE_CHAU_AU.has(code)) {
+      tong += THUE_NHAP_KHAU_CHAU_AU;
+      phan.push(`thuế nhập khẩu ${THUE_NHAP_KHAU_CHAU_AU}`);
+    }
     tong = Math.round(tong * 100) / 100;
     return { tong, chiTiet: `${code}: ${phan.join(' | ')} = ${tong}` };
   }

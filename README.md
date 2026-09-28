@@ -1370,7 +1370,9 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   `PHU_PHI_MAT_SAU`).
 - Bảng kết quả của nút điền Base Cost ghi **chi tiết** từng đơn: giá gốc, phụ phí, dòng phí ship
   đã chọn (zone/quốc gia, first/additional), để đối chiếu khi lệch cost thật.
-- **Chỉ là ước tính**: chưa gồm surcharge khác và thuế. Cost thật vẫn lấy bằng
+- Thuế nhập khẩu (từ 26/06/2026): **+3.5$ mỗi đơn** ship từ kho US tới 50 nước châu Âu (EU,
+  UK, Thụy Sĩ, Na Uy, Thổ Nhĩ Kỳ, Ukraine...), danh sách ở `NUOC_THUE_CHAU_AU`.
+- **Chỉ là ước tính**: chưa gồm các surcharge khác. Cost thật vẫn lấy bằng
   script **Import Cost/Earnings** như cũ, script đó sẽ ghi đè số ước tính khi có cost thật.
 - Catalog lưu từ bản cũ chưa có giá: bấm **1. Cập nhật catalog** lại một lần.
 
