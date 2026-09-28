@@ -1413,7 +1413,7 @@ có webhook, và bù các thông báo webhook bị sót.
 - AE / AF = `tracking_number` / `tracking_company` (nhiều gói thì nối bằng dấu phẩy); AC =
   `Có tracking` (dòng `Cũ` giữ nguyên `Cũ`).
 - AD = mã RX lấy từ tên gói (`RD-35688-45358-F1` → `RD-35688-45358`).
-- Y (dòng đầu của đơn) = cost thật = tổng `fulfillment_cost` × số lượng − giảm giá + `shipping_cost`,
+- Y (dòng đầu của đơn, **chỉ khi ô Y đang trống**) = tổng `fulfillment_cost` × số lượng − giảm giá + `shipping_cost`,
   cộng thêm 3.5$ thuế nhập khẩu nếu nước nhận thuộc danh sách châu Âu (API không tính khoản này;
   đã đối chiếu: đơn 4181224261 API 37.58 + 3.5 = 41.08 đúng cost thật).
 - Đơn chưa được Merchize xử lý (chưa có gói hàng) thì bỏ qua, lần sau tra lại.
@@ -1445,9 +1445,13 @@ thông báo có gửi). Ticket tìm theo mã RX ở cột AD.
 | Order importer error | AC = `Lỗi import: <lỗi>` |
 | Order changed tracking / API tracking | AC = `Có tracking` (dòng `Cũ` giữ nguyên), AE = tracking, AF = hãng vận chuyển |
 | Order payment fulfillment cost | Y (dòng đầu của đơn) = cost thật |
-| API tracking | Y = giá sản phẩm + phí ship (+3.5$ thuế nếu gửi đi châu Âu) |
+| API tracking | Y (chỉ khi ô Y trống) = giá sản phẩm + phí ship (+3.5$ thuế nếu gửi đi châu Âu) |
 | Order issue updated | AG = `<trạng thái> [vấn đề]: <tin nhắn mới nhất>` |
 | Mọi nguồn có mã Merchize | AD = mã `RX-...` thật |
+
+Kết quả API tracking chỉ được nhận khi sản phẩm trong gói hàng khớp đơn (SKU cột AB, hoặc màu +
+size); không khớp (API trả nhầm đơn khác, vd đơn gửi lại có hậu tố) thì bỏ qua và báo Telegram.
+Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không phải đơn nào cũng bị thu (vd đơn UK).
 
 Ghi Sheet thất bại (sai quyền, sai khoá...) thì thông báo được giữ lại để lịch chạy lại, và
 Telegram báo lỗi (tối đa 1 tin/giờ).

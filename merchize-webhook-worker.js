@@ -25,8 +25,8 @@ const GIOI_HAN_REQUEST = 45;
 
 // Vi tri cot (0-based) - giong userscript merchize-order-sender.user.js.
 const COL = {
-  account: 1, orderNumber: 2, country: 19, dateFulfill: 22, baseCost: 24,
-  status: 28, merchizeId: 29, tracking: 30, carrier: 31, ticket: 32
+  account: 1, orderNumber: 2, color: 8, size: 9, country: 19, dateFulfill: 22, baseCost: 24,
+  merchizeSku: 27, status: 28, merchizeId: 29, tracking: 30, carrier: 31, ticket: 32
 };
 const TEN_COT = { 24: 'Y', 28: 'AC', 29: 'AD', 30: 'AE', 31: 'AF', 32: 'AG' };
 const STATUS_OLD = 'Cũ';
@@ -399,8 +399,12 @@ async function nhanWebhook(request, env, ctx) {
 // ============ LICH CHAY (CRON) ============
 // Tu ket qua API tracking -> { maRx, tracking[], carrier[], cost } (cost chua gom thue chau Au).
 function tomTatApiTracking(goiHang) {
-  const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goiHang.length > 0 };
+  const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goiHang.length > 0, sanPham: [] };
   goiHang.forEach((g) => {
+    (g.items || []).forEach((it) => kq.sanPham.push({
+      sku: str(it.ffm_mapped_catalog_sku || it.sku).toUpperCase(),
+      mauSize: (str(it.color) + '|' + str(it.size)).toLowerCase().replace(/\s+/g, '')
+    }));
     if (!kq.maRx && g.name) kq.maRx = str(g.name).replace(/-F\d+$/i, '');
     if (str(g.tracking_number)) {
       kq.tracking.push(str(g.tracking_number));
@@ -414,10 +418,25 @@ function tomTatApiTracking(goiHang) {
   return kq;
 }
 
-// Tra ve { tracking, cost }: co ghi tracking moi / cost moi hay khong (de bao cao).
+// Goi hang API tra ve co dung la cua don nay khong: it nhat 1 dong co SKU (cot AB) hoac
+// mau + size trung voi san pham trong goi. API co the tra ve don khac (vd don gui lai co hau to).
+function khopSanPham(dong, kq) {
+  return dong.some(({ row }) => {
+    const sku = cell(row, COL.merchizeSku).toUpperCase();
+    const mauSize = (cell(row, COL.color) + '|' + cell(row, COL.size)).toLowerCase().replace(/\s+/g, '');
+    return kq.sanPham.some((sp) => (sku && sp.sku === sku) || sp.mauSize === mauSize);
+  });
+}
+
+// Tra ve { tracking, cost, lech }: co ghi tracking moi / cost moi hay khong, hoac goi hang khong
+// khop san pham cua don (bo qua, de bao cao).
 function apDungKetQuaApi(tab, dong, kq, boGhi) {
-  const kqGhi = { tracking: false, cost: false };
+  const kqGhi = { tracking: false, cost: false, lech: false };
   if (!kq.coGoi) return kqGhi;
+  if (!khopSanPham(dong, kq)) {
+    kqGhi.lech = true;
+    return kqGhi;
+  }
   const r0 = dong[0].row;
   let cost = kq.cost;
   if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(r0, COL.country)))) cost += THUE_NHAP_KHAU_CHAU_AU;
@@ -433,7 +452,9 @@ function apDungKetQuaApi(tab, dong, kq, boGhi) {
     }
   });
   kqGhi.tracking = kq.tracking.length > 0;
-  if (cost > 0 && Number(cell(r0, COL.baseCost).replace(/[^0-9.\-]/g, '')) !== cost) {
+  // Chi dien khi o Y dang trong: thue chau Au khong phai don nao cung bi thu (vd don UK), nen
+  // khong ghi de so da co (cost that tu file import / webhook fulfillment cost).
+  if (cost > 0 && !cell(r0, COL.baseCost)) {
     boGhi.dat(tab, dong[0].rowNumber, COL.baseCost, cost, true);
     kqGhi.cost = true;
   }
@@ -485,9 +506,10 @@ function donCanTra(rows) {
 
 async function chayLich(env, event) {
   const dem = taoBoDem();
-  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0 };
+  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, lech: [] };
   const ghiNhan = (ma, kq) => {
     thongKe.daTra++;
+    if (kq.lech) thongKe.lech.push(ma);
     if (kq.tracking) thongKe.tracking.push(ma);
     if (kq.cost) thongKe.cost.push(ma);
   };
@@ -552,7 +574,7 @@ async function chayLich(env, event) {
   await Promise.all(daXong.map((k) => env.EVENTS.delete(k)));
 
   // Chi nhan Telegram khi co cap nhat moi, tranh 48 tin/ngay.
-  if (thongKe.tracking.length || thongKe.cost.length || thongKe.cho) {
+  if (thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.lech.length) {
     const luc = (event && event.scheduledTime) || Date.now();
     const tiep = lanChayTiep(event && event.cron, luc);
     const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
@@ -561,12 +583,13 @@ async function chayLich(env, event) {
       thongKe.tracking.length ? `Tracking mới: ${thongKe.tracking.length} đơn (${ds(thongKe.tracking)})` : '',
       thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
       thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
+      thongKe.lech.length ? `Bỏ qua vì API trả về sản phẩm không khớp đơn: ${ds(thongKe.lech)}` : '',
       `Đã tra ${thongKe.daTra} đơn.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : '')
     ].filter(Boolean).join('\n'));
   }
   return {
     tracking: thongKe.tracking.length, cost: thongKe.cost.length,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, khongKhop: thongKe.lech
   };
 }
 

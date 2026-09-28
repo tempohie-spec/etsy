@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.16
+// @version      1.17
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.16';
+  const SCRIPT_VERSION = '1.17';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -663,8 +663,12 @@
   // Tu ket qua API -> { maRx, tracking, carrier, cost } (cost chua gom thue chau Au).
   // fulfillment_cost tinh theo 1 cai (da doi chieu don so luong 1), nhan voi quantity.
   function tomTatApiTracking(goi) {
-    const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goi.length > 0 };
+    const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goi.length > 0, sanPham: [] };
     goi.forEach((g) => {
+      (g.items || []).forEach((it) => kq.sanPham.push({
+        sku: str(it.ffm_mapped_catalog_sku || it.sku).toUpperCase(),
+        mauSize: (str(it.color) + '|' + str(it.size)).toLowerCase().replace(/\s+/g, '')
+      }));
       if (!kq.maRx && g.name) kq.maRx = str(g.name).replace(/-F\d+$/i, '');
       if (str(g.tracking_number)) {
         kq.tracking.push(str(g.tracking_number));
@@ -717,6 +721,16 @@
       if (!json.success) { loi.push(`• ${ma}: ${json.message || 'Merchize từ chối'}`); continue; }
       const kq = tomTatApiTracking(Array.isArray(json.data) ? json.data : []);
       if (!kq.coGoi) continue;
+      // API co the tra ve don khac (vd don gui lai co hau to): chi nhan khi SKU (AB) hoac mau + size khop.
+      const khop = dong.some(({ r }) => {
+        const sku = cell(r, COL.merchizeSku).toUpperCase();
+        const mauSize = (cell(r, COL.color) + '|' + cell(r, COL.size)).toLowerCase().replace(/\s+/g, '');
+        return kq.sanPham.some((sp) => (sku && sp.sku === sku) || sp.mauSize === mauSize);
+      });
+      if (!khop) {
+        loi.push(`• ${ma}: API trả về sản phẩm không khớp đơn, bỏ qua`);
+        continue;
+      }
 
       const r0 = dong[0].r;
       if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(r0, COL.country)))) kq.cost += THUE_NHAP_KHAU_CHAU_AU;
@@ -733,7 +747,8 @@
         }
       });
       if (kq.tracking.length) coTracking++;
-      if (kq.cost > 0) {
+      // Chi dien khi o Y trong: thue chau Au khong phai don nao cung bi thu (vd don UK).
+      if (kq.cost > 0 && !cell(r0, COL.baseCost)) {
         ghiSo.push({ range: `'${title}'!Y${dong[0].rowNumber}`, values: [[kq.cost]] });
         coCost++;
       }
