@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.31
+// @version      2.32
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -227,7 +227,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.31';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.32';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -866,7 +866,11 @@
   // 1-2 CENT so voi so tien that su. Vi vay bat buoc gia tri phai GIU NGUYEN ON DINH lien tuc
   // trong STABLE_WINDOW_MS roi moi chap nhan la gia tri cuoi cung (tinh theo THOI GIAN THUC,
   // khong theo so lan poll, de doi poll nhanh hon van dam bao du "on dinh").
-  const STABLE_WINDOW_MS = 300;
+  // 300ms van khong du: hieu ung dem chay co ease-out (cham dan ve cuoi), nen mot vai buoc GAN
+  // CUOI (chua phai gia tri that) van co the dung yen du 300ms roi moi nhay tiep, khien script
+  // chap nhan nham 1 so NHO HON so that su. Tang len 1000ms (1 giay) de chac chan hieu ung da
+  // chay xong hoan toan truoc khi chap nhan.
+  const STABLE_WINDOW_MS = 1000;
   async function waitForEarningsAmount(previousAmountText) {
     const start = Date.now();
     let stableText = null;
