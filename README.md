@@ -855,6 +855,41 @@ Chuỗi của bản 6.x cũ (chỉ có `PERSO_INSTR`) vẫn đọc được như
 
 Toast báo rõ số lựa chọn đã thêm: `✅ Đã dán tiêu đề + 13 tag + ô cá nhân hoá (2 lựa chọn)`
 
+### Nhiều Custom options cùng lúc (v9.18)
+
+Trước v9.18, script chỉ đọc và tạo **đúng 1** ô cá nhân hoá — nhưng Etsy cho phép 1 listing có
+**nhiều** ô cùng lúc (mỗi ô là 1 `<li id="perso-field-…">` riêng, ví dụ 1 listing có cả 3 ô
+"Character" (text box), "Text under Design" (text box) và "Text Color" (list of options)). Kết
+quả: listing có từ 2 ô trở lên thì chỉ ô đầu tiên được tạo bên trang đích, các ô còn lại **bị mất
+hoàn toàn** mà không có cảnh báo gì.
+
+**Trang nguồn**: `layTatCaCaNhanHoa()` quét **tất cả** `li[id^="perso-field-"]` trên trang (trước
+đây chỉ lấy đúng 1 phần tử đầu tiên tìm được), trả về một mảng — giữ nguyên logic đọc từng ô
+(`[data-label]`/`[data-instructions]`/`<select>`) như trước, chỉ đổi từ "lấy 1" sang "lấy hết".
+Nếu trang không có cấu trúc `li[id^="perso-field-"]` (một số cấu trúc trang khác), vẫn giữ đường dự
+phòng cũ (dò khu vực rộng hơn, đọc đúng 1 ô) để không mất hẳn khả năng tương thích.
+
+**Định dạng Clipboard đổi hẳn** sang 1 khối JSON duy nhất, thay vì 3 dấu ngăn cách rời rạc:
+
+```
+tiêu đề |||TAGS||| tag |||PERSO_LIST||| [{"nhan":"Character","huongDan":"...","loai":"text_input","cacLuaChon":[]}, ...]
+```
+
+Dấu `|||PERSO_LABEL|||`/`|||PERSO_INSTR|||`/`|||PERSO_OPTS|||` (bản 7.2 trở về trước, chỉ chứa được
+1 ô) vẫn được **đọc** (đường dự phòng trong `tachDuLieu()`) để Clipboard tạo bởi bản cũ hơn không bị
+mất trắng, nhưng bản 9.18 trở đi **luôn ghi** theo định dạng JSON mới.
+
+**Trang đích**: lặp qua từng phần tử trong danh sách, mỗi vòng lặp là 1 lượt "Add field" → chọn
+đúng kiểu (Text box/List of options) → điền → bấm Done **hoàn tất** rồi mới mở "Add field" tiếp cho
+ô kế — vì Etsy chỉ cho mở 1 hộp thoại tại 1 thời điểm. 1 ô lỗi (ví dụ không tìm thấy nút "Add field"
+vì đã đạt giới hạn số Custom option của Etsy) không làm hỏng các ô còn lại — script vẫn chạy tiếp
+hết danh sách rồi báo tổng kết, ví dụ:
+
+```
+✅ Đã dán tiêu đề + 13 tag + 3 ô cá nhân hoá
+⚠️ ... + 2/3 ô cá nhân hoá (lỗi: "Text Color": Không tìm thấy nút "Add field")
+```
+
 ### Chống lệch phiên bản giữa các trình duyệt (v7.3)
 
 Script dùng Clipboard hệ thống để chuyển dữ liệu giữa các trình duyệt, nên **hai bên có thể chạy
