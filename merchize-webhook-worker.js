@@ -57,7 +57,8 @@ function noiDungTelegram(ev) {
   ];
   if (r.type_invalid) dong.push(`Lỗi: ${MO_TA_LOI_DIA_CHI[r.type_invalid] || r.type_invalid}`);
   if (r.message_invalid) dong.push(`Chi tiết: ${r.message_invalid}`);
-  if (!r.type_invalid && !r.message_invalid) dong.push(JSON.stringify(r).slice(0, 800));
+  if (r.error) dong.push(`Lỗi: ${r.error}`);
+  if (!r.type_invalid && !r.message_invalid && !r.error) dong.push(JSON.stringify(r).slice(0, 800));
   return dong.join('\n');
 }
 

@@ -1476,5 +1476,24 @@ Làm lại cho từng store. Nhớ lấy Secret key của store đó khai báo v
 | `GET /events` | Userscript lấy các thông báo chưa xử lý (header `x-read-key` = `READ_KEY`) |
 | `POST /events/ack` | Userscript báo đã ghi vào Sheet, xoá các thông báo đó khỏi KV |
 
-Phần userscript lấy thông báo về Sheet (ghi lỗi vào cột AC, mã `RX-...` vào cột AD, tracking,
-cost thật vào cột Y) sẽ làm tiếp sau khi có payload mẫu của các sự kiện còn lại.
+## Bước 6: Lấy thông báo về Google Sheet (userscript Merchize v1.11)
+
+Trên Google Sheet, mở bảng **Merchize** → phần **Thông báo Merchize (Webhook)**: điền **Worker
+URL** và **READ_KEY** (giống biến `READ_KEY` trên Cloudflare) → **Lưu cài đặt Worker**. Sau đó
+mỗi lần muốn cập nhật, bấm **Lấy thông báo Merchize**.
+
+Script đọc các tab đã cài store, tìm dòng theo `external_number` (= orderNumber, cột C) và
+`identifier` (= cột Account hoặc tên tab), rồi ghi:
+
+| Sự kiện | Ghi vào Sheet |
+|---|---|
+| Order invalid address | AC = `Lỗi địa chỉ: <loại lỗi> - <chi tiết>` |
+| Order importer error | AC = `Lỗi import: <lỗi>` |
+| Order changed tracking | AC = `Có tracking`, AE = tracking number, AF = hãng vận chuyển |
+| Order payment fulfillment cost | Y (dòng đầu của đơn) = `price` (tổng cost thật), ghi đè số ước tính |
+| Mọi sự kiện có mã Merchize | AD = mã `RX-...` thật |
+
+- Từ v1.11, lúc gửi đơn cột AD để trống, chờ webhook điền mã `RX-...`.
+- Thông báo đã ghi xong mới bị xoá khỏi Worker. Thông báo chưa tìm thấy đơn được giữ lại (tối
+  đa 30 ngày) và báo trên bảng để kiểm tra.
+- Sửa xong đơn lỗi import thì xoá ô AC để gửi lại.
