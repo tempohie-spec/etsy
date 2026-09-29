@@ -690,6 +690,32 @@ giờ **tăng theo đúng số ô Custom option vừa tạo được** (`ketQuaP
 Console log thêm dòng `Đã tạo N ô cá nhân hoá — đợi thêm Xms trước khi chuyển tab...` khi có ít nhất
 1 ô, để dễ đối chiếu lần chạy tới xem có còn kẹt ở đúng listing nhiều Custom option hay không.
 
+### v9.30 KHÔNG đủ — chuyển hướng: nhờ người dùng tự thêm 1 ảnh trước khi script bắt đầu (v9.31)
+
+Người dùng thử lại đúng listing đó với v9.30: **vẫn kẹt y hệt** ở lô đầu (`0/1 có ảnh xem trước`,
+đứng im). Đợi lâu hơn không đủ để giải quyết — thời gian không phải (hoặc không phải toàn bộ)
+nguyên nhân thật. Tính đến đây, ô "(không id)" gộp chung đã "sống sót" qua **4 cách sửa khác nhau**
+(giảm batch xuống 1 ảnh, bắn thêm sự kiện drop, đợi lâu hơn theo Custom options) mà không cách nào
+giải quyết dứt điểm — trong khi **chính người dùng tương tác tay với đúng ô đó luôn thành công 100%**
+xuyên suốt cả quá trình debug.
+
+Nhân tiện, người dùng hỏi thêm: bảng chọn ảnh của listing này không hiện 2 lựa chọn "Sau khi upload
+xong" (Publish/Dừng) như bình thường — có liên quan không? **Không liên quan** — 2 lựa chọn đó chỉ
+hiện khi listing đích đang HOÀN TOÀN TRỐNG lúc mở bảng chọn; listing này đã có sẵn ảnh từ trước
+(dòng "Listing này đang có 2 ảnh" trong bảng chọn), nên chỉ hiện đúng 1 dòng cảnh báo cố định
+("Dừng lại sau khi upload...") như thiết kế — không phải dấu hiệu lỗi.
+
+Đổi hướng hẳn thay vì tiếp tục đoán thêm cách sửa code: **khi phát hiện ô upload đang ở dạng gộp
+chung ngay từ đầu (trước khi làm bất cứ điều gì khác)**, script dừng lại và hiện hộp thoại nhờ
+**chính người dùng tự tay thêm 1 ảnh bất kỳ** (bấm "Add photos" thật của Etsy, chọn 1 ảnh tuỳ ý —
+nội dung không quan trọng, có thể xoá/thay sau) — chỉ cần đủ để Etsy chuyển lưới ra khỏi ô gộp chung
+sang ô riêng ổn định. Bấm "Đã thêm, tiếp tục" thì script tự xác nhận lại ô đã có `id` ổn định rồi
+mới tiếp tục toàn bộ phần còn lại (mở bảng chọn ảnh, tải, upload...) hoàn toàn tự động như trước.
+
+Đây là hướng đi khác hẳn 4 lần sửa trước: **không cố script hoá thêm nữa**, mà đưa đúng 1 bước duy
+nhất (thêm 1 ảnh) — bước nhỏ nhất có thể — sang cho người dùng làm bằng tay, dựa trên bằng chứng
+chắc chắn nhất đã có: tương tác tay luôn thành công.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự

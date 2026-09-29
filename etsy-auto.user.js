@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.30
+// @version      9.31
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.30';
+  const PHIEN_BAN = '9.31';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2986,6 +2986,54 @@
     return soThanhCong;
   }
 
+  // Etsy dung o "(không id)" — o "Drag and drop" gop chung khi luoi chua co du "diem tua" on dinh —
+  // theo doi nhieu phien ban van co listing bi ket ngay o o nay du da thu: giam lo dau xuong 1 anh
+  // (v9.26/v9.27), ban them su kien drop (v9.28 — RUT LAI vi gay len trung anh, xem v9.29), doi lau
+  // hon theo so o ca nhan hoa vua tao (v9.30). Vi CHINH NGUOI DUNG tuong tac that (khong qua script)
+  // voi o nay luon thanh cong 100% (da xac nhan xuyen suot qua trinh debug), cach chac chan nhat la
+  // nho NGUOI DUNG tu tay them DUNG 1 anh bat ky truoc — chi can co 1 anh de Etsy chuyen luoi ra
+  // khoi trang thai o gop chung sang o rieng on dinh — roi script tiep quan toan bo phan con lai.
+  function moYeuCauThemAnhThuCong() {
+    return new Promise((resolve) => {
+      const lop = document.createElement('div');
+      lop.style.cssText = `
+        position:fixed; inset:0; z-index:1000003; background:rgba(17,24,39,.6);
+        display:flex; align-items:center; justify-content:center; font-family:sans-serif;
+      `;
+      const hop = document.createElement('div');
+      hop.style.cssText = `
+        background:#fff; border-radius:12px; width:min(440px,94vw);
+        overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.35);
+      `;
+      hop.innerHTML = `
+        <div style="background:linear-gradient(135deg,#F56400,#FF8C42);color:#fff;padding:12px 16px;font-weight:bold;font-size:15px;">
+          ✋ Cần thêm tay 1 ảnh trước khi script tiếp tục
+        </div>
+        <div style="padding:14px 16px;font-size:13px;color:#374151;line-height:1.7;">
+          Ô upload ảnh của listing này đang ở dạng đặc biệt (ô "Drag and drop" gộp chung, Etsy chỉ
+          dùng khi lưới còn trống) — script hay bị Etsy "phớt lờ" khi tự động nhồi ảnh vào đúng ô
+          này, dù đã thử nhiều cách.
+          <br><br>
+          Hãy tự bấm <b>"Add photos"</b> trên trang và chọn <b>1 ảnh bất kỳ</b> (không quan trọng nội
+          dung, có thể xoá/thay sau) — đợi ảnh đó hiện lên lưới, rồi bấm <b>"Đã thêm, tiếp tục"</b>
+          bên dưới. Script sẽ tự lo toàn bộ phần ảnh còn lại như bình thường.
+        </div>
+        <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;justify-content:flex-end;gap:8px;">
+          <button id="ea-yctay-huy" style="padding:8px 14px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;cursor:pointer;">Huỷ</button>
+          <button id="ea-yctay-ok" style="padding:8px 16px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">Đã thêm, tiếp tục</button>
+        </div>
+      `;
+      lop.appendChild(hop);
+      document.body.appendChild(lop);
+      const dong = (ok) => {
+        lop.remove();
+        resolve(ok);
+      };
+      hop.querySelector('#ea-yctay-huy').onclick = () => dong(false);
+      hop.querySelector('#ea-yctay-ok').onclick = () => dong(true);
+    });
+  }
+
   // ---- Luong chinh ----
 
   async function tuUploadAnh() {
@@ -2999,9 +3047,29 @@
       return;
     }
 
-    if (!timOChonAnhSanPham()) {
+    let oBanDau = timOChonAnhSanPham();
+    if (!oBanDau) {
       hienThongBao('⚠️ Không thấy ô upload ảnh. Hãy mở tab "Photos & video" của trang chỉnh sửa listing rồi thử lại.', '#DC2626');
       return;
+    }
+
+    // O gop chung "(không id)" — xem ghi chu tai moYeuCauThemAnhThuCong() — nho nguoi dung tu tay
+    // them 1 anh TRUOC KHI script bat dau, thay vi tu dong nhoi vao o nay (da qua nhieu lan chung
+    // minh khong dang tin cay du thu nhieu cach).
+    if (!oBanDau.id) {
+      const dongY = await moYeuCauThemAnhThuCong();
+      if (!dongY) {
+        hienThongBao('❌ Đã huỷ upload — chưa thêm ảnh nào.', '#DC2626');
+        return;
+      }
+      oBanDau = timOChonAnhSanPham();
+      if (!oBanDau || !oBanDau.id) {
+        hienThongBao(
+          '⚠️ Vẫn chưa thấy ô upload chuyển sang dạng ổn định (có thể ảnh chưa thêm thành công). Hãy thêm 1 ảnh rồi bấm lại Alt+U.',
+          '#DC2626'
+        );
+        return;
+      }
     }
 
     const soAnhCu = layCacTheAnh().length;
