@@ -615,6 +615,30 @@ lô đầu), tự hỏi lại `timOChonAnhSanPham()` xem ô hiện tại có `id
 kích thước 5 ảnh như cũ. Cách này tự thích ứng theo đúng trạng thái thật của trang tại từng thời
 điểm, không còn dựa vào một điều kiện gián tiếp (`soAnhCu`) có thể sai trong các tình huống khác.
 
+### Batch 1 ảnh vẫn kẹt — nghi ô gộp chung dùng cơ chế "Drag and drop" riêng, bắn thêm sự kiện thả (v9.28)
+
+Log kế tiếp phá luôn giả thuyết "do kích thước lô" của v9.26/v9.27: đã giảm xuống **đúng 1 ảnh** cho
+lô đó (xác nhận qua log `Đã nhồi 1 file vào <input id="(không id)"...>`), nhưng ảnh đó **vẫn không
+hiện xem trước**, số thẻ trên lưới còn tụt dần (3 → 1) theo thời gian chờ — tức là vấn đề chưa bao
+giờ nằm ở việc nhồi *bao nhiêu* file, mà nằm ở chính **cách ô gộp chung này phản ứng (hay không phản
+ứng) với việc nhồi file qua `<input>.files` + sự kiện `input`/`change`**.
+
+Giả thuyết mới: ô này tên là **"Drag and drop"** — rất có thể Etsy nối nó với một trình nghe sự kiện
+**`drop`** riêng (thả file kéo vào), khác với `change` thông thường của input — và trình nghe đó mới
+là con đường THẬT SỰ để đăng ký lượt chọn ảnh cho ô này, còn `change` có thể chỉ là lối dự phòng khi
+người dùng bấm để mở hộp thoại chọn file hệ điều hành (không áp dụng được khi script tự gán `.files`).
+
+`nhoiFileVaoO()` giờ bắn **thêm** (không thay thế) một chuỗi sự kiện kéo-thả đầy đủ
+(`dragenter` → `dragover` → `drop`) mang theo **cùng 1 `DataTransfer`** chứa các file, ngay sau
+`input`/`change` như cũ. An toàn với ô RIÊNG (`thumbnail-upload-...`) — nếu ở đó không có trình nghe
+`drop`, các sự kiện này không làm gì cả, đường `input`/`change` cũ vẫn hoạt động như trước.
+
+⚠️ Đây là một thay đổi **thử nghiệm dựa trên suy luận hợp lý** (giống hướng dẫn kéo-thả sắp xếp ảnh
+trong bảng chọn ở script — dùng đúng HTML5 Drag and Drop API), chưa có bằng chứng xác nhận 100% đây
+là nguyên nhân — cần chạy thực tế lần nữa mới biết chắc có giải quyết được hay không.
+
+### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
+
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
 động tích sẵn **"Bấm hộ Publish..."** làm mặc định — dù HTML vẫn ghi `checked` ở "Dừng lại, tôi tự
 bấm lưu" như v9.11 đã đổi. Nguyên nhân: đây không phải là trang được tải lại thực sự (Etsy là SPA,
