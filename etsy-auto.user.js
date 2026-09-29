@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.33
+// @version      9.34
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.33';
+  const PHIEN_BAN = '9.34';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -1866,28 +1866,12 @@
     // Sau khi dan xong (it nhat 1 phan thanh cong), doi 1 chut roi tu dong bam vao tab "Photo & Video".
     // Neu hop thoai ca nhan hoa con dang mo (chua bam duoc Done) thi KHONG bam tab,
     // vi hop thoai dang chan ca trang -> bam cung khong an gi.
-    //
-    // Thoi gian doi TANG THEO SO O CA NHAN HOA da tao (moi o la 1 chu ky rieng: Add field -> dien
-    // -> Done, co the con keo theo goi luu/validate rieng phia Etsy) — nghi van tu nguoi dung: cac
-    // listing co NHIEU o ca nhan hoa (vd 2 o) hay bi ket ngay o buoc upload anh dau tien ngay sau do,
-    // trong khi listing it/khong co o nao thi luon on dinh. Chua chac chan day la nguyen nhan that,
-    // nhung tang thoi gian nghi truoc khi chuyen tab + bat dau upload la thay doi AN TOAN (chi lam
-    // cham hon vai giay, khong doi hanh vi/thu tu gi) de kiem chung — cho Etsy nhieu thoi gian hon
-    // on dinh sau khi vua tao xong cac o do truoc khi dua sang tac vu nang hon (upload anh).
-    const soOPersoDaTao = ketQuaPerso.boQua ? 0 : ketQuaPerso.thanhCong;
-    const choSauKhiDanTruocTab = 300 + soOPersoDaTao * 500;
-
     let daBamTab = false;
     if (ketQuaTieuDe.ok || ketQuaTag.ok || ketQuaPerso.ok) {
       if (hopThoaiTextBoxDangMo()) {
         console.warn('[Etsy Auto] Hộp thoại cá nhân hoá còn mở nên KHÔNG bấm tab Photo & Video');
       } else {
-        if (soOPersoDaTao > 0) {
-          console.log(
-            `[Etsy Auto] Đã tạo ${soOPersoDaTao} ô cá nhân hoá — đợi thêm ${choSauKhiDanTruocTab}ms trước khi chuyển tab Photo & Video (cho Etsy ổn định).`
-          );
-        }
-        await cho(choSauKhiDanTruocTab);
+        await cho(300);
         daBamTab = timVaBamTabPhotoVideo();
       }
     }
@@ -1917,10 +1901,9 @@
     }
 
     // Dan xong thi tu chay luon buoc upload anh (gop chung vao Alt+V, khong con nut/phim rieng).
-    // Doi them 1 chut de tab "Photo & Video" (vua bam o tren, neu co) kip ve xong o upload — cung
-    // tang theo so o ca nhan hoa da tao (xem ghi chu o choSauKhiDanTruocTab phia tren).
+    // Doi them 1 chut de tab "Photo & Video" (vua bam o tren, neu co) kip ve xong o upload.
     if (danhSachAnh && danhSachAnh.length) {
-      await cho(500 + soOPersoDaTao * 500);
+      await cho(500);
       try {
         await tuUploadAnh();
       } catch (loi) {
@@ -3107,25 +3090,11 @@
     // chon vao gioi han 20 anh/listing, dan toi vua bi Etsy chan hang "You can only add 20 photos
     // and 2 videos per listing" vua co nguy co len trung anh — te hon la dung han khi con nghi ngo.
     const SO_LAN_THU_LAI_LO = 2;
-    // Etsy dung 2 loai o upload khac nhau: o RIENG co id on dinh ("thumbnail-upload-...", dung khi
-    // luoi da co it nhat 1 anh) va o GOP CHUNG "Drag and drop" KHONG CO id (dung o mot so thoi diem
-    // khac — quan sat thuc te cho thay KHONG PHAI luon chi luc luoi trong, co lan van gap o gop
-    // chung ngay ca khi luoi da co san vai anh). Da quan sat LAP LAI NHIEU LAN: nhoi ca lo 5 anh vao
-    // o GOP CHUNG hay bi KET — mot vai anh trong lo khong hien anh xem truoc MA CUNG KHONG BAO
-    // LOI/spinner, chi dung im vo thoi han — trong khi nhoi vao o RIENG (co id) thi luon on dinh.
-    // Vi khong doan truoc chac chan luc nao se gap o gop chung, KIEM TRA LAI o thuc te NGAY TRUOC
-    // MOI LO (khong chi lo dau tien) — the nao cung dung 1 anh/lo neu dung la o gop chung, du la lo
-    // thu may.
-    const KICH_THUOC_LO_KHOI_TAO = 1;
     let soAnhDaXuLyXong = 0;
     let dungGiuaChung = null; // { lyDo, chiTiet } neu 1 lo bi loi that/het gio sau khi da thu lai het
 
-    for (let dau = 0; dau < cacFile.length; ) {
-      const oKiemTraTruoc = timOChonAnhSanPham();
-      const laOGopChung = !oKiemTraTruoc || !oKiemTraTruoc.id;
-      const kichThuocLoNay = laOGopChung ? KICH_THUOC_LO_KHOI_TAO : KICH_THUOC_LO_UPLOAD;
-      const lo = cacFile.slice(dau, dau + kichThuocLoNay);
-      dau += kichThuocLoNay;
+    for (let dau = 0; dau < cacFile.length; dau += KICH_THUOC_LO_UPLOAD) {
+      const lo = cacFile.slice(dau, dau + KICH_THUOC_LO_UPLOAD);
       let ketQuaLo = null;
       let lanThuCuoi = 0;
 

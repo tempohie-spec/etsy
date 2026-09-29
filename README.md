@@ -760,6 +760,40 @@ Sau khi xác nhận v9.32 sửa đúng gốc, bỏ hẳn `moYeuCauThemAnhThuCong
 động hoàn toàn: chỉ còn kiểm tra "có tìm thấy ô upload ảnh hay không" như trước v9.31, không còn bắt
 người dùng thêm ảnh tay trước khi bắt đầu nữa.
 
+### Dọn 2 lớp vá tạm không còn cần: lô 1 ảnh khởi động + chờ theo Custom options (v9.34)
+
+Sau khi xác nhận v9.32 sửa đúng gốc (đếm nhầm phần tử sortable của Custom options) không còn kẹt
+nữa, dọn nốt 2 thay đổi tạm thời từng thêm vào lúc chưa tìm ra nguyên nhân thật, để code gọn lại
+đúng bằng mức cần thiết:
+
+1. **Bỏ logic "lô đầu tiên nhồi 1 ảnh"** (`KICH_THUOC_LO_KHOI_TAO`, thêm ở v9.26/v9.27) — quay lại
+   nhồi cố định `KICH_THUOC_LO_UPLOAD` (5 ảnh/lô) cho mọi lô như từ v9.7, không còn kiểm tra `id`
+   của ô upload trước mỗi lô nữa.
+2. **Bỏ thời gian chờ tăng theo số ô Custom option** (`choSauKhiDanTruocTab`/`soOPersoDaTao`, thêm ở
+   v9.30) — quay lại đúng 300ms trước khi bấm tab Photo & Video và 500ms trước khi bắt đầu upload,
+   không phụ thuộc số ô cá nhân hoá vừa tạo nữa.
+
+### Vì sao nhồi theo lô 5 ảnh thay vì nhồi hết 1 lần? (nhắc lại)
+
+Đây là câu hỏi người dùng hỏi lại giữa lúc dọn dẹp ở trên — nhắc lại nguyên nhân gốc (đã có từ v9.7,
+xem mục "Nhồi ảnh theo từng lô nhỏ..." phía dưới): **không liên quan gì đến lỗi ô gộp chung vừa sửa
+ở trên** — đây là một vấn đề hoàn toàn khác, đã xác nhận bằng log thực tế từ rất sớm trong quá trình
+phát triển.
+
+Log thực tế khi đó: nhồi **8 ảnh cùng lúc** vào ô upload, ảnh xem trước (blob URL, trình duyệt tự vẽ
+ngay lập tức) vẫn hiện bình thường trên cả 8 ô — nhưng Console lại có nhiều dòng
+`POST .../api/v3/ajax/shop/{id}/listings/images 400 (Bad Request)` và Etsy tự bung toast đỏ **"File
+not uploaded"**. Tức là: ảnh xem trước chỉ là trình duyệt tự vẽ từ chính `File` object đưa vào —
+hoàn toàn không cần đợi Etsy thật sự nhận được file ở backend. Việc thật sự tải file lên server là
+**request POST riêng do JavaScript của Etsy tự thực hiện**, và backend đó của Etsy có vẻ **quá tải
+khi nhận quá nhiều file trong 1 lần chọn** — dẫn tới một số ảnh bị từ chối (400) mà không hề hay
+biết nếu chỉ nhìn ảnh xem trước.
+
+Giải pháp: chia nhỏ ra **từng lô 5 ảnh** (`KICH_THUOC_LO_UPLOAD`), đợi Etsy xử lý xong hẳn lô này
+(qua `choEtsyXuLyAnh()`, kiểm tra ảnh xem trước THẬT + không còn spinner) rồi mới nhồi lô tiếp theo
+— giảm tải cho backend upload của Etsy, tránh đúng kiểu lỗi 400 nói trên. Chi tiết đầy đủ xem mục
+"Nhồi ảnh theo từng lô nhỏ + phát hiện lỗi upload THẬT của Etsy (v9.7)" phía dưới.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
