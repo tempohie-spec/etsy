@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      4.2
+// @version      4.3
 // @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
 // @grant        GM_setValue
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '4.2';
+  const SCRIPT_VERSION = '4.3';
 
   // Manual overrides if the automatic substring match picks the wrong
   // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -447,16 +447,76 @@
     return rows;
   }
 
+  // Only orders placed within this many days are kept when loading a sheet —
+  // older rows are skipped entirely (not matched, not filled).
+  const RECENT_DAYS_LIMIT = 10;
+
+  // Parses "D/M/YY", "D/M/YYYY" (day-first, matching this sheet's ORDER DATE
+  // convention, e.g. "20/5/26") or an ISO "YYYY-MM-DD" date string. Returns
+  // null if it doesn't look like a date at all (in which case the row is
+  // kept rather than guessed away).
+  function parseSheetDate(str) {
+    const s = (str || '').trim();
+    if (!s) return null;
+
+    let m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+    if (m) {
+      const d = parseInt(m[1], 10);
+      const mo = parseInt(m[2], 10);
+      let y = parseInt(m[3], 10);
+      if (y < 100) y += 2000;
+      const dt = new Date(y, mo - 1, d);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) {
+      const dt = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+
+    return null;
+  }
+
+  function isWithinRecentDays(date, days) {
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - days);
+    return date >= cutoff;
+  }
+
+  // Finds a header column by trying keyword groups in priority order (all
+  // header cells checked against the first group before falling back to the
+  // next) — e.g. "ORDER DATE" contains the bare substring "ORDER", so a
+  // single flat keyword list risked matching the date column instead of the
+  // real "ORDER CODE" column whenever the date column came first.
+  function findColPriority(header, tiers) {
+    for (const tier of tiers) {
+      const idx = header.findIndex((h) => tier.some((k) => h.includes(k)));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  }
+
   function parseSheetCsv(text) {
     const rows = parseCsv(text).filter((r) => r.some((c) => c.trim() !== ''));
     if (!rows.length) return { ok: false, rowCount: 0 };
 
     const header = rows[0].map((h) => h.trim().toUpperCase());
-    const findCol = (...keywords) => header.findIndex((h) => keywords.some((k) => h.includes(k)));
-    const colOrder = findCol('ORDER CODE', 'ORDER ID', 'MA DON', 'MÃ ĐƠN', 'ORDER');
-    const colName = findCol('FULL NAME', 'NAME', 'CUSTOMER');
-    const colTracking = findCol('TRACKING');
-    const colCarrier = findCol('DVVC', 'CARRIER', 'VAN CHUYEN', 'VẬN CHUYỂN');
+    const colOrder = findColPriority(header, [
+      ['ORDER CODE'],
+      ['ORDER ID'],
+      ['MA DON', 'MÃ ĐƠN'],
+      ['ORDER'],
+    ]);
+    const colName = findColPriority(header, [['FULL NAME'], ['NAME'], ['CUSTOMER']]);
+    const colTracking = findColPriority(header, [['TRACKING']]);
+    const colCarrier = findColPriority(header, [
+      ['DVVC'],
+      ['CARRIER'],
+      ['VAN CHUYEN', 'VẬN CHUYỂN'],
+    ]);
+    const colDate = findColPriority(header, [['ORDER DATE'], ['DATE', 'NGAY', 'NGÀY']]);
 
     if (colOrder === -1 || colTracking === -1) {
       return { ok: false, header, colOrder, colTracking };
@@ -466,12 +526,22 @@
     const mapByName = {};
     const order = [];
     let count = 0;
+    let skippedOld = 0;
     for (let i = 1; i < rows.length; i++) {
       const cells = rows[i];
       const orderId = (cells[colOrder] || '').trim();
       const tracking = (cells[colTracking] || '').trim();
       const carrier = colCarrier !== -1 ? (cells[colCarrier] || '').trim() : '';
       if (!orderId || !tracking) continue; // order not shipped yet -> skip
+
+      if (colDate !== -1) {
+        const date = parseSheetDate(cells[colDate]);
+        if (date && !isWithinRecentDays(date, RECENT_DAYS_LIMIT)) {
+          skippedOld++;
+          continue;
+        }
+      }
+
       if (!(orderId in map)) order.push(orderId);
       map[orderId] = { tracking, carrier };
       if (colName !== -1) {
@@ -480,7 +550,7 @@
       }
       count++;
     }
-    return { ok: true, map, mapByName, order, count, rowCount: rows.length - 1 };
+    return { ok: true, map, mapByName, order, count, rowCount: rows.length - 1, skippedOld };
   }
 
   function lookupTracking(orderId, customerName) {
@@ -688,7 +758,11 @@
       return { ok: false, error: `thiếu cột ${missing.join(', ')}` };
     }
     if (result.count === 0) {
-      return { ok: false, error: `đọc được ${result.rowCount} dòng nhưng không đơn nào có TRACKING` };
+      const reason =
+        result.skippedOld > 0
+          ? `${result.skippedOld} đơn có tracking nhưng đều cũ hơn ${RECENT_DAYS_LIMIT} ngày`
+          : `đọc được ${result.rowCount} dòng nhưng không đơn nào có TRACKING`;
+      return { ok: false, error: reason };
     }
     return result;
   }
@@ -720,6 +794,7 @@
     const combinedOrder = [];
     const errors = [];
     let okCount = 0;
+    let totalSkippedOld = 0;
 
     for (const url of urls) {
       log('Fetching Sheet:', url);
@@ -730,6 +805,7 @@
         continue;
       }
       okCount++;
+      totalSkippedOld += result.skippedOld || 0;
       log(`  loaded ${result.count} order(s).`);
       for (const orderId of result.order) {
         if (!(orderId in combinedMap)) combinedOrder.push(orderId);
@@ -750,9 +826,13 @@
     localStorage.setItem('at_sheet_urls', urlsText);
 
     let msg = `Đã tải ${combinedOrder.length} đơn từ ${okCount}/${urls.length} link.`;
+    if (totalSkippedOld > 0) msg += ` (bỏ qua ${totalSkippedOld} đơn cũ hơn ${RECENT_DAYS_LIMIT} ngày)`;
     if (errors.length) msg += `\nLỗi:\n${errors.join('\n')}`;
     if (info) info.textContent = msg;
-    log(`Sheet URLs: loaded ${combinedOrder.length} order(s) from ${okCount}/${urls.length} link(s).`);
+    log(
+      `Sheet URLs: loaded ${combinedOrder.length} order(s) from ${okCount}/${urls.length} link(s)`,
+      totalSkippedOld > 0 ? `(skipped ${totalSkippedOld} older than ${RECENT_DAYS_LIMIT}d)` : ''
+    );
     return true;
   }
 

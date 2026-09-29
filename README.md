@@ -998,9 +998,13 @@ tracking**. Log sẽ ghi rõ `found (by customer name)` khi khớp qua tên thay
    Bấm **Start** là script tự tải dữ liệu mới nhất từ các link đó rồi mới chạy — không cần dán lại,
    kể cả sau khi tracking trong sheet được cập nhật thêm.
 4. Script tải trực tiếp bản CSV của từng sheet (có đủ header thật), nên tự dò cột theo **tên cột**
-   (`ORDER CODE`, `FULL NAME`, `TRACKING`, `DVVC`) thay vì đoán vị trí cố định — không phụ thuộc
-   thứ tự cột hay sheet có ô xuống dòng (Alt+Enter) trong tên/địa chỉ. Nếu cùng 1 mã đơn xuất hiện
-   ở nhiều sheet, dữ liệu từ sheet dán **sau** sẽ ghi đè sheet dán trước.
+   (`ORDER CODE`, `FULL NAME`, `TRACKING`, `DVVC`, `ORDER DATE`) thay vì đoán vị trí cố định —
+   không phụ thuộc thứ tự cột hay sheet có ô xuống dòng (Alt+Enter) trong tên/địa chỉ. Nếu cùng 1
+   mã đơn xuất hiện ở nhiều sheet, dữ liệu từ sheet dán **sau** sẽ ghi đè sheet dán trước.
+5. **Chỉ xét đơn trong 10 ngày gần nhất** (theo cột `ORDER DATE`, định dạng `ngày/tháng/năm` như
+   `20/9/26`) — đơn cũ hơn bị bỏ qua hoàn toàn, không nạp vào danh sách so khớp. Đổi hằng số
+   `RECENT_DAYS_LIMIT` ở đầu file nếu muốn khác 10 ngày. Dòng nào không đọc được ngày (sai định
+   dạng, ô trống, hoặc sheet không có cột ngày) thì vẫn được giữ lại như bình thường.
 
 Trên tab Etsy sẽ có panel nổi góc dưới phải với nút **Start / Pause / Stop**. Bấm **Stop** sẽ xoá
 log trong panel (các link Sheet đã lưu thì vẫn được giữ nguyên, không cần dán lại).
