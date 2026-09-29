@@ -576,6 +576,29 @@ Sửa 2 chỗ:
 Toast báo lỗi cuối cùng cũng đổi từ "Đã thử lại N lần" (giả định luôn thử đủ số lần) thành đếm đúng
 **số lần đã thử thực tế** (`lanThuCuoi`), vì giờ có thể dừng chỉ sau 1 lần nếu gặp hết giờ ngay từ đầu.
 
+### Lô đầu tiên khi lưới đích còn trống hay bị kẹt — giảm xuống 1 ảnh để "khởi động" lưới (v9.26)
+
+Soát lại TẤT CẢ các log lỗi "kẹt" đã thu thập được từ v9.19 tới giờ (nhiều phiên chạy khác nhau,
+nhiều listing khác nhau), lộ ra một quy luật rất rõ: **lỗi kẹt (ảnh không hiện xem trước, không báo
+lỗi, không spinner — chỉ đứng im tới hết giờ) chỉ từng xảy ra ở đúng LÔ ĐẦU TIÊN của một lượt upload,
+và chỉ khi lưới đích đang HOÀN TOÀN TRỐNG lúc bắt đầu** (`soAnhCu === 0`). Log lúc đó luôn cho thấy
+input được nhồi vào có `id="(không id)"` — tức là ô `<input>` gộp chung "Drag and drop" mà Etsy dùng
+riêng khi lưới chưa có ảnh nào (xem mục "Chọn đúng ô upload" bên dưới). **Mọi lô sau đó** (lưới đã có
+ít nhất 1 ảnh, Etsy đã chuyển sang ô riêng `id="thumbnail-upload-..."`) — dù cùng kích thước 5 ảnh,
+cùng listing, cùng phiên chạy — **luôn ổn định**, kể cả khi phải đợi lâu vẫn luôn có tiến triển
+(spinner giảm dần, ảnh xem trước tăng dần), chưa từng đứng im hoàn toàn.
+
+Suy ra: bản thân cái ô `<input>` gộp chung lúc lưới trống có vẻ xử lý một lô nhiều file (5 ảnh) kém
+tin cậy hơn hẳn so với ô riêng dùng cho các lần sau — có thể do đây là ô dùng chung cho cả luồng kéo-
+thả lẫn chọn file, chưa được Etsy tối ưu cho việc nhận nhiều file cùng lúc qua sự kiện `change` giả
+lập.
+
+Sửa: khi `soAnhCu === 0`, **lô đầu tiên chỉ nhồi đúng 1 ảnh** (`KICH_THUOC_LO_KHOI_TAO = 1`) thay vì
+`KICH_THUOC_LO_UPLOAD` (5) như bình thường — đủ để Etsy chuyển lưới ra khỏi trạng thái "ô gộp chung"
+sang ô riêng ổn định. Từ lô thứ 2 trở đi (lưới đã có ít nhất 1 ảnh) mới dùng lại đúng kích thước 5
+ảnh/lô như cũ. Chỉ ảnh hưởng listing đích đang trống hoàn toàn lúc bắt đầu Alt+V — không đổi gì với
+các trường hợp lưới đích đã có sẵn ảnh từ trước.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
