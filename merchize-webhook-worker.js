@@ -545,10 +545,11 @@ function donCanTra(rows) {
 async function chayLich(env, event) {
   const dem = taoBoDem();
   const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, teb: [], tebCost: [], canXuLy: [] };
-  const ghiNhan = (ma, kq) => {
+  // Moi muc thong ke: { tab, ma } (canXuLy them note) de tin Telegram ghi ro don nao cua tab nao.
+  const ghiNhan = (tab, ma, kq) => {
     thongKe.daTra++;
-    if (kq.tracking) thongKe.tracking.push(ma);
-    if (kq.cost) thongKe.cost.push(ma);
+    if (kq.tracking) thongKe.tracking.push({ tab, ma });
+    if (kq.cost) thongKe.cost.push({ tab, ma });
   };
   const stores = docCauHinhStores(env);
   const tabs = Object.keys(stores);
@@ -651,12 +652,12 @@ async function chayLich(env, event) {
           boGhi.dat(tab, rowNumber, COL.carrier, tk.dvvc);
           boGhi.tieuDe(tab, COL.tracking, 'Tracking');
           boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
-          thongKe.teb.push(ma);
+          thongKe.teb.push({ tab, ma });
         }
         // Ghi de ca chu "chua co cost" / "chua ff" do script Import Cost dien (don Teb khong co tren Merchize).
         if (tk.total !== null && tk.total > 0 && soTien(cell(row, COL.baseCost)) !== tk.total) {
           boGhi.dat(tab, rowNumber, COL.baseCost, tk.total, true);
-          thongKe.tebCost.push(ma);
+          thongKe.tebCost.push({ tab, ma });
         }
       });
     } catch (e) {
@@ -682,12 +683,19 @@ async function chayLich(env, event) {
         const taoLuc = Date.parse(o.created || o.paid_at || '');
         if (!isNaN(taoLuc) && taoLuc < Date.now() - SO_NGAY_CAP_NHAT * 86400000) continue;
         const maEtsy = str(o.external_order_number || (o.external_order_id || {}).id);
-        thongKe.canXuLy.push(maEtsy || str(o.code));
         const khoa = 'att:' + ((o.order_request_attentions || []).join(',') || o._id);
-        if (await env.EVENTS.get(khoa)) continue;
+        // KV luu lai note de cac lan sau van hien noi dung ma khong goi lai API.
+        const daBao = await env.EVENTS.get(khoa);
+        if (daBao) {
+          let noteCu = '';
+          try { noteCu = JSON.parse(daBao).note || ''; } catch (e) { /* ban luu cu chi co "1" */ }
+          thongKe.canXuLy.push({ tab, ma: maEtsy || str(o.code), note: noteCu });
+          continue;
+        }
         if (dem.n >= GIOI_HAN_REQUEST - 6 - tabs.length) break;
         const dsYeuCau = await merchizeGetRaw(dem, store, `/order/orders/${o._id}/require-attention?status=open&limit=50`);
         const note = (Array.isArray(dsYeuCau) ? dsYeuCau : []).map((x) => str(x.note)).filter(Boolean).join(' | ');
+        thongKe.canXuLy.push({ tab, ma: maEtsy || str(o.code), note });
         apDungSuKien({
           event_type: 'ORDER.REQUIRE.ATTENTION',
           resource: { external_number: maEtsy, code: str(o.code), note }
@@ -699,7 +707,7 @@ async function chayLich(env, event) {
           `Mã Merchize: ${str(o.code) || '?'}`,
           `Nội dung: ${note || 'xem trên Merchize'}`
         ].join('\n'));
-        await env.EVENTS.put(khoa, '1', { expirationTtl: LUU_TOI_DA_GIAY });
+        await env.EVENTS.put(khoa, JSON.stringify({ note }), { expirationTtl: LUU_TOI_DA_GIAY });
       }
     } catch (e) { /* loi tam thoi, lan sau kiem tra lai */ }
   }
@@ -724,7 +732,7 @@ async function chayLich(env, event) {
         phan.forEach(([, dong]) => {
           const rx = cell(dong[0].row, COL.merchizeId);
           const cua = goiHang.filter((g) => str(g.name).replace(/-F\d+$/i, '') === rx);
-          ghiNhan(cell(dong[0].row, COL.orderNumber), apDungKetQuaApi(tab, dong, tomTatApiTracking(cua), boGhi));
+          ghiNhan(tab, cell(dong[0].row, COL.orderNumber), apDungKetQuaApi(tab, dong, tomTatApiTracking(cua), boGhi));
         });
       } catch (e) { /* loi tam thoi, lan sau tra lai */ }
     }
@@ -746,7 +754,7 @@ async function chayLich(env, event) {
         if (!goiHang.length && /\d$/.test(ma) && dem.n < GIOI_HAN_REQUEST - 2) {
           goiHang = await merchizeFetch(dem, store, 'GET', url(ma + 'a'));
         }
-        ghiNhan(ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi));
+        ghiNhan(tab, ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi));
       } catch (e) { /* bo qua, lan sau tra lai */ }
     }
   }
@@ -780,16 +788,26 @@ async function chayLich(env, event) {
   });
   const luc = (event && event.scheduledTime) || Date.now();
   const tiep = lanChayTiep(event && event.cron, luc);
-  const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
+  // Nhom theo tab: "  • <tab>: ma1, ma2 ..." (toi da 15 ma moi tab).
+  const theoTab = (arr) => {
+    const nhom = {};
+    arr.forEach(({ tab, ma }) => { (nhom[tab] = nhom[tab] || []).push(ma); });
+    return Object.keys(nhom).map((t) => {
+      const m = nhom[t];
+      return `  • ${t}: ${m.slice(0, 15).join(', ')}${m.length > 15 ? ` ... (+${m.length - 15})` : ''}`;
+    }).join('\n');
+  };
+  const muc = (tieuDe, arr) => (arr.length ? `${tieuDe}: ${arr.length} đơn\n${theoTab(arr)}` : '');
   const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.teb.length || thongKe.tebCost.length ||
     thongKe.canXuLy.length;
   await guiTelegram(env, dem, [
     `🔄 Cập nhật tự động lúc ${gioVN(luc)}`,
-    thongKe.tracking.length ? `Tracking mới: ${thongKe.tracking.length} đơn (${ds(thongKe.tracking)})` : '',
-    thongKe.teb.length ? `Tracking Teb mới: ${thongKe.teb.length} đơn (${ds(thongKe.teb)})` : '',
-    thongKe.tebCost.length ? `Cost Teb: ${thongKe.tebCost.length} đơn (${ds(thongKe.tebCost)})` : '',
-    thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length} (${ds(thongKe.canXuLy)})` : '',
-    thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
+    muc('Tracking mới', thongKe.tracking),
+    muc('Tracking Teb mới', thongKe.teb),
+    muc('Cost thật', thongKe.cost),
+    muc('Cost Teb', thongKe.tebCost),
+    thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length}\n` +
+      thongKe.canXuLy.map((x) => `  • ${x.tab} | ${x.ma}: ${x.note || 'xem trên Merchize'}`).join('\n') : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
     `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : ''),
@@ -797,8 +815,8 @@ async function chayLich(env, event) {
   ].filter(Boolean).join('\n'));
 
   return {
-    tracking: thongKe.tracking.length, cost: thongKe.cost.length,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb.length, costTeb: thongKe.tebCost.length, canXuLy: thongKe.canXuLy, teb: tebInfo, conThieuTracking: conThieu, soDu
+    tracking: thongKe.tracking, cost: thongKe.cost,
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb, costTeb: thongKe.tebCost, canXuLy: thongKe.canXuLy, teb: tebInfo, conThieuTracking: conThieu, soDu
   };
 }
 
