@@ -637,6 +637,31 @@ người dùng bấm để mở hộp thoại chọn file hệ điều hành (kh
 trong bảng chọn ở script — dùng đúng HTML5 Drag and Drop API), chưa có bằng chứng xác nhận 100% đây
 là nguyên nhân — cần chạy thực tế lần nữa mới biết chắc có giải quyết được hay không.
 
+### RÚT LẠI v9.28: bắn cả 2 sự kiện gây LÊN TRÙNG ảnh — quay về chỉ dùng input/change (v9.29)
+
+Lần chạy kế tiếp: mọi lô đều báo "Etsy xử lý xong" thành công, **không hề có lô nào lỗi/hết giờ/thử
+lại** — nhưng người dùng báo ảnh **bị lên trùng**, và Etsy chặn hẳn bằng thông báo gốc "You can only
+add 20 photos and 2 videos per listing" dù số ảnh người dùng chọn không hề vượt 20.
+
+Nguyên nhân gần như chắc chắn: ô đó (dù gộp chung hay riêng) rất có thể nghe **CẢ HAI** sự kiện
+`change` LẪN `drop` cùng lúc (không phải chỉ 1 trong 2 như giả thuyết ở v9.28) — bắn cả 2 sự kiện
+mang cùng 1 `DataTransfer` khiến Etsy **đăng ký file đó 2 lần**, mỗi lô 5 ảnh thành 10 ảnh trên
+lưới. Đây là hậu quả nghiêm trọng hơn hẳn vấn đề ban đầu (1 lô thỉnh thoảng bị kẹt/chậm) — ảnh trùng
+phải tự dọn tay, còn tệ hơn là dừng lại chờ.
+
+Rút lại toàn bộ thay đổi của v9.28: `nhoiFileVaoO()` quay về **chỉ** bắn `input` + `change` như từ
+đầu, không còn bắn thêm chuỗi `dragenter`/`dragover`/`drop` nữa. Đánh đổi: ô gộp chung "(không id)"
+có thể vẫn thỉnh thoảng bị kẹt ở lô đầu như trước v9.28 — nhưng đã có sẵn 2 lớp bảo vệ để giảm thiệt
+hại: giảm lô đó xuống 1 ảnh (v9.26/v9.27, ít nhất chỉ mất 1 ảnh mỗi lần kẹt thay vì cả 5), và tự tải
+phần còn thiếu xuống máy khi upload tự động thất bại hẳn (v9.24) — an toàn hơn nhiều so với rủi ro
+lên trùng ảnh + bị Etsy chặn vượt hạn mức.
+
+Người dùng còn nêu giả thuyết riêng: lỗi liên quan tới sản phẩm có **2 Custom option** (không bị khi
+thử sản phẩm khác không có custom option). Chưa có cơ sở kỹ thuật rõ ràng để giải thích mối liên hệ
+này (ô upload ảnh và Custom options là 2 phần độc lập của form, không chung DOM/logic) — ghi nhận lại
+đây, cần thêm dữ liệu (ví dụ thử đúng listing đó sau khi rút lại v9.28) mới kết luận được có phải
+trùng hợp hay không.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
