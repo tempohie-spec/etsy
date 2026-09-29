@@ -10,6 +10,8 @@
 //     4. Don Merchize "Request update" (can xu ly, tao trong 10 ngay): ghi AC "Can xu ly: <note>" + Telegram 1 lan.
 //     3. Don di Teb (AC = "Teb"): lay tracking + DVVC + Total (base cost) tu sheet Teb (bien TEB).
 // - GET /run?key=<1 trong SECRET_KEYS>: chay lich ngay lap tuc.
+// - GET /telegram-setup?key=<1 trong SECRET_KEYS>: cai 1 lan de tra loi bot ("xong") tat nhac don
+//   can xu ly; POST /telegram nhan tin nhan tu Telegram.
 //
 // Bien moi truong (Settings > Variables and Secrets, loai Secret):
 //   SECRET_KEYS             Secret key webhook cua cac store, cach nhau dau phay
@@ -116,12 +118,6 @@ function homNayVN() {
 function ngayTuO(v) {
   const m = str(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
-}
-
-// Ma don goc: bo hau to chu o cuoi (don gui lai "4181764944a" -> "4181764944").
-function maGoc(ma) {
-  const v = str(ma);
-  return v.replace(/[^0-9]+$/, '') || v;
 }
 
 // Ma don, tracking, hang van chuyen, ticket chi ghi o DONG DAU cua don (don nhieu dong); cac dong
@@ -354,6 +350,9 @@ function noiDungTuSuKien(ev) {
   } else if (loai === 'ORDER.PAYMENT.FULFILLMENT_COST') {
     const gia = Number(r.price);
     if (!isNaN(gia) && str(r.price) !== '') co.cost = gia;
+  } else if (loai === 'ORDER.REQUEST.DONE') {
+    // Nguoi dung bao "xong" qua bot Telegram.
+    co.status = 'Đã xử lý request';
   } else if (loai === 'ORDER.REQUIRE.ATTENTION') {
     // Tu tao trong lich chay (khong phai webhook): don Merchize can xu ly (Request update).
     co.status = `Cần xử lý: ${str(r.note) || 'xem trên Merchize'}`;
@@ -377,24 +376,21 @@ function apDungSuKien(ev, duLieu, boGhi) {
   const r = ev.resource || {};
   const ma = str(r.external_number);
   const idf = str(r.identifier);
-  const timDung = [];
-  const timGoc = [];
+  // Khop DUNG ma don (hau to nhu "a" do nguoi dung tu cap nhat trong Sheet cho khop Merchize).
+  const tim = [];
   Object.keys(duLieu).forEach((t) => {
     duLieu[t].forEach((row, i) => {
       if (i === 0) return;
       if (co.cacRx) {
-        if (co.cacRx.includes(cell(row, COL.merchizeId))) timDung.push({ t, rowNumber: i + 1, row });
+        if (co.cacRx.includes(cell(row, COL.merchizeId))) tim.push({ t, rowNumber: i + 1, row });
         return;
       }
       const maDong = cell(row, COL.orderNumber);
       if (!ma || !maDong) return;
       if (idf && idf !== t && idf !== cell(row, COL.account)) return;
-      // Uu tien dong trung dung ma; khong co thi khop theo ma goc (don gui lai co hau to "a").
-      if (maDong === ma) timDung.push({ t, rowNumber: i + 1, row });
-      else if (maGoc(maDong) === maGoc(ma)) timGoc.push({ t, rowNumber: i + 1, row });
+      if (maDong === ma) tim.push({ t, rowNumber: i + 1, row });
     });
   });
-  const tim = timDung.length ? timDung : timGoc;
   // Ticket cua don chua co ma RX trong Sheet: da bao Telegram, khong cho nua.
   if (tim.length === 0) return co.cacRx ? 'boQua' : 'chuaThay';
 
@@ -664,17 +660,13 @@ async function chayLich(env, event) {
     try {
       const data = await sheetsFetch(env, dem,
         `/values/${encodeURIComponent(`'${cfg.sheet}'!A:AA`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
-      // Khop dung ma; khong co thi khop ma goc (don gui lai tren sheet Teb co hau to "a").
+      // Khop dung ma don.
       const theoMa = {};
-      const theoGoc = {};
       (data.values || []).forEach((r) => {
         const ma = cell(r, 1);
-        if (!ma) return;
-        const v = { tracking: cell(r, 19), dvvc: cell(r, 20), total: soTien(r[26]) };
-        theoMa[ma] = v;
-        theoGoc[maGoc(ma)] = v;
+        if (ma) theoMa[ma] = { tracking: cell(r, 19), dvvc: cell(r, 20), total: soTien(r[26]) };
       });
-      const timTeb = (ma) => theoMa[ma] || theoGoc[maGoc(ma)];
+      const timTeb = (ma) => theoMa[ma];
       tebInfo[tab] = {
         soDongSheetTeb: (data.values || []).length,
         khopMaDon: Array.from(canTeb.keys()).filter((m) => timTeb(m)).length,
@@ -724,6 +716,13 @@ async function chayLich(env, event) {
         if (!isNaN(taoLuc) && taoLuc < Date.now() - SO_NGAY_CAP_NHAT * 86400000) continue;
         const maEtsy = str(o.external_order_number || (o.external_order_id || {}).id);
         const khoa = 'att:' + ((o.order_request_attentions || []).join(',') || o._id);
+        // Nguoi dung da bao "xong" qua bot Telegram cho dung yeu cau nay -> khong nhac nua.
+        if (await env.EVENTS.get('done:' + khoa)) continue;
+        // Ma don -> yeu cau dang mo, de lenh "xong <ma don>" tren Telegram biet tat yeu cau nao.
+        const lienKet = JSON.stringify({ khoa, tab });
+        if (maEtsy && (await env.EVENTS.get('attma:' + maEtsy)) !== lienKet) {
+          await env.EVENTS.put('attma:' + maEtsy, lienKet, { expirationTtl: LUU_TOI_DA_GIAY });
+        }
         // KV luu lai note de cac lan sau van hien noi dung ma khong goi lai API.
         const daBao = await env.EVENTS.get(khoa);
         if (daBao) {
@@ -745,7 +744,8 @@ async function chayLich(env, event) {
           `Tab: ${tab}`,
           `Đơn Etsy: ${maEtsy || '?'}`,
           `Mã Merchize: ${str(o.code) || '?'}`,
-          `Nội dung: ${note || 'xem trên Merchize'}`
+          `Nội dung: ${note || 'xem trên Merchize'}`,
+          'Xử lý xong thì trả lời (reply) tin này: xong'
         ].join('\n'));
         await env.EVENTS.put(khoa, JSON.stringify({ note }), { expirationTtl: LUU_TOI_DA_GIAY });
       }
@@ -799,18 +799,12 @@ async function chayLich(env, event) {
     let hanMuc = conLai;
     const layHanMuc = () => (hanMuc > 0 ? (hanMuc--, true) : false);
     let daXet = 0;
-    const traMotDon = async ({ tab, store, ma, dong, ngay }) => {
+    const traMotDon = async ({ tab, store, ma, dong }) => {
       if (!layHanMuc()) return;
       daXet++;
       try {
         const url = (m) => '/order/external/orders/tracking?external_number=' + encodeURIComponent(m);
-        let goiHang = await merchizeFetch(dem, store, 'GET', url(ma));
-        // Khong co goi hang nao: co the don da huy va gui lai voi hau to "a". Chi thu voi don tu 2
-        // ngay tro len (don moi chua co goi hang la binh thuong, khong ton them request).
-        const duCu = ngay && Date.now() - ngay >= 2 * 86400000;
-        if (!goiHang.length && duCu && /\d$/.test(ma) && layHanMuc()) {
-          goiHang = await merchizeFetch(dem, store, 'GET', url(ma + 'a'));
-        }
+        const goiHang = await merchizeFetch(dem, store, 'GET', url(ma));
         ghiNhan(tab, ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi));
       } catch (e) { /* bo qua, lan sau tra lai */ }
     };
@@ -888,11 +882,102 @@ async function chayLich(env, event) {
   };
 }
 
+// ============ BOT TELEGRAM: bao "xong" de tat nhac don can xu ly ============
+// Chuoi bi mat cho webhook Telegram, sinh tu bot token (khong can them bien moi truong).
+async function bimatTelegram(env) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('mz-tg:' + str(env.TELEGRAM_BOT_TOKEN)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
+}
+
+async function traLoiTelegram(env, dem, chatId, replyTo, text) {
+  await goi(dem, `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, reply_to_message_id: replyTo })
+  });
+}
+
+// Lenh: tra loi tin 🛑 bang "xong", hoac "/xong 4185372830 4185372831".
+async function xuLyTinTelegram(env, msg) {
+  const dem = taoBoDem();
+  const chatId = String((msg.chat || {}).id || '');
+  if (!chatId || chatId !== str(env.TELEGRAM_CHAT_ID)) return;
+  const text = str(msg.text);
+  const lenhXong = /^\/?(xong|done|ok|đã xử lý|da xu ly)\b/i.test(text);
+  if (/^\/(help|start)\b/i.test(text)) {
+    await traLoiTelegram(env, dem, chatId, msg.message_id,
+      'Tắt nhắc đơn cần xử lý: trả lời (reply) tin 🛑 bằng "xong", hoặc gõ /xong <mã đơn> (nhiều mã cách nhau dấu cách).');
+    return;
+  }
+  if (!lenhXong) return;
+  let cacMa = text.replace(/^\/?\S+/, '').split(/[\s,]+/).map(str).filter(Boolean);
+  if (!cacMa.length && msg.reply_to_message) {
+    const m = str(msg.reply_to_message.text).match(/Đơn Etsy:\s*(\S+)/);
+    if (m) cacMa = [m[1]];
+  }
+  if (!cacMa.length) {
+    await traLoiTelegram(env, dem, chatId, msg.message_id, 'Chưa có mã đơn. Trả lời đúng tin 🛑, hoặc gõ /xong <mã đơn>.');
+    return;
+  }
+  const ketQua = [];
+  const theoTab = {};
+  for (const ma of cacMa) {
+    const v = await env.EVENTS.get('attma:' + ma);
+    if (!v) { ketQua.push(`• ${ma}: không có yêu cầu nào đang mở`); continue; }
+    const { khoa, tab } = JSON.parse(v);
+    await env.EVENTS.put('done:' + khoa, '1', { expirationTtl: LUU_TOI_DA_GIAY });
+    (theoTab[tab] = theoTab[tab] || []).push(ma);
+    ketQua.push(`• ${ma} (${tab}): đã ghi nhận, không nhắc lại`);
+  }
+  // Ghi AC = "Da xu ly request" cho cac don do (chi doc cac tab lien quan).
+  try {
+    const stores = docCauHinhStores(env);
+    const viTriTatCa = viTriTab(env, stores);
+    const viTri = {};
+    Object.keys(theoTab).forEach((t) => { if (viTriTatCa[t]) viTri[t] = viTriTatCa[t]; });
+    if (Object.keys(viTri).length) {
+      const duLieu = await docCacTab(env, dem, viTri);
+      const boGhi = taoBoGhi(duLieu, viTri);
+      Object.values(theoTab).flat().forEach((ma) => {
+        apDungSuKien({ event_type: 'ORDER.REQUEST.DONE', resource: { external_number: ma } }, duLieu, boGhi);
+      });
+      await ghiSheet(env, dem, boGhi);
+    }
+  } catch (e) {
+    ketQua.push('(Không ghi được cột AC: ' + e.message.slice(0, 150) + ')');
+  }
+  await traLoiTelegram(env, dem, chatId, msg.message_id, '✅ ' + ketQua.join('\n'));
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/') return nhanWebhook(request, env, ctx);
     if (request.method === 'GET' && url.pathname === '/') return json({ ok: true, service: 'merchize-webhook' });
+    // Telegram gui tin nhan cua ban toi bot ve day (sau khi mo /telegram-setup 1 lan).
+    if (request.method === 'POST' && url.pathname === '/telegram') {
+      if (request.headers.get('X-Telegram-Bot-Api-Secret-Token') !== await bimatTelegram(env)) {
+        return json({ ok: false }, 401);
+      }
+      const update = await request.json().catch(() => ({}));
+      if (update.message) ctx.waitUntil(xuLyTinTelegram(env, update.message).catch(() => {}));
+      return json({ ok: true });
+    }
+    // Cai dat 1 lan: /telegram-setup?key=<1 trong cac SECRET_KEYS> -> bot gui tin nhan ve Worker.
+    if (request.method === 'GET' && url.pathname === '/telegram-setup') {
+      const cacKey = str(env.SECRET_KEYS).split(',').map(str).filter(Boolean);
+      if (!cacKey.includes(url.searchParams.get('key') || '')) return json({ ok: false, error: 'invalid key' }, 401);
+      const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: url.origin + '/telegram',
+          secret_token: await bimatTelegram(env),
+          allowed_updates: ['message']
+        })
+      });
+      return json({ ok: true, telegram: await res.json().catch(() => null) });
+    }
     // Chay lich ngay lap tuc: /run?key=<1 trong cac SECRET_KEYS>
     if (request.method === 'GET' && url.pathname === '/run') {
       const cacKey = str(env.SECRET_KEYS).split(',').map(str).filter(Boolean);

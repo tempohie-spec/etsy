@@ -1357,7 +1357,8 @@ orderNumber) bị bỏ qua.
 
 Đơn bị lỗi: sửa dữ liệu rồi **xoá ô AC** của các dòng đơn đó để gửi lại. Gửi lại đơn đã bị
 cancel: thêm hậu tố chữ vào orderNumber (vd `4181764944a`) vì Merchize không nhận trùng
-External number.
+External number. Mã trong Sheet phải giống hệt mã đã gửi lên Merchize (Worker khớp đúng mã,
+không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4181764944a`.
 
 ## Base Cost ước tính (cột Y, v1.5)
 
@@ -1404,7 +1405,7 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   **Base Cost (Y)** (ghi đè cả chữ `chưa có cost` / `chưa ff`, chỉ ghi khi số khác). Chỉ ghi ở dòng
   đầu của đơn. Telegram báo `Tracking Teb mới` / `Cost Teb`. Chỉ xét đơn có Date Fulfill trong
   **10 ngày** gần nhất; nhận đơn theo mã có trong sheet Teb (kể cả AC đang là `Cũ` / `Đã gửi`, AC đổi
-  thành `Teb`), khớp cả mã gửi lại có hậu tố `a`. Cần: **Share file Teb** cho email service account (quyền xem là đủ) và thêm biến
+  thành `Teb`), khớp đúng mã. Cần: **Share file Teb** cho email service account (quyền xem là đủ) và thêm biến
   Secret `TEB` trên Cloudflare:
 
   ```json
@@ -1458,7 +1459,7 @@ Chạy 24/7, **không cần mở Sheet**:
 
 - File code: [`merchize-webhook-worker.js`](merchize-webhook-worker.js)
 - Tối ưu mỗi lần chạy: tra tracking song song 6 đơn/lần; đơn cũ tra trước; bỏ qua đơn fulfill
-  hôm nay (chưa thể có tracking); chỉ thử mã hậu tố `a` với đơn từ 2 ngày trở lên; số dư lưu 1 giờ;
+  hôm nay (chưa thể có tracking); số dư lưu 1 giờ;
   hạn mức request tính trước nên không bao giờ vượt 50. Muốn cập nhật nhanh hơn: đặt lịch
   `*/15 * * * *` (15 phút/lần, Telegram 96 tin/ngày).
 - Miễn phí trên gói Free của Cloudflare. Giới hạn: tối đa 50 request ra ngoài mỗi lần chạy, nên
@@ -1481,9 +1482,8 @@ thông báo có gửi). Ticket tìm theo mã RX ở cột AD.
 | Lịch: đơn "Request update" trên Merchize | AC = `Cần xử lý: <note>` (vd màu không ship Worldwide), AD = mã RX; Telegram báo 1 lần mỗi yêu cầu |
 | Mọi nguồn có mã Merchize | AD = mã `RX-...` thật |
 
-Khớp đơn theo mã đơn Etsy, kể cả đơn gửi lại có hậu tố chữ (thông báo của `4181764944a` ghi vào
-dòng `4181764944` nếu Sheet không có dòng `4181764944a`). Tra API mà mã gốc không có gói hàng nào
-thì tra tiếp mã có hậu tố `a`. API tracking không trả về tên khách hàng nên không đối chiếu theo
+Khớp đơn theo đúng mã đơn Etsy trong cột C (đơn gửi lại có hậu tố như `4181764944a` thì cột C
+cũng phải ghi `4181764944a`). API tracking không trả về tên khách hàng nên không đối chiếu theo
 tên. **Mã đơn Merchize (AD), Tracking (AE), Hãng vận chuyển (AF), Ticket (AG) chỉ ghi ở dòng đầu**
 của đơn nhiều dòng (dòng sau nếu còn giá trị cũ sẽ bị xoá); AC ghi cho mọi dòng của đơn.
 Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không phải đơn nào cũng bị thu (vd đơn UK không bị thu).
@@ -1493,6 +1493,17 @@ Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không ph
 thì lấy danh sách qua `search/v3?order_issue_type=issue_request_update`, yêu cầu mới thì lấy nội
 dung qua `/order/orders/<id>/require-attention`, ghi AC và nhắn Telegram `🛑 Đơn cần xử lý trên
 Merchize` (mỗi yêu cầu 1 lần). Tin tóm tắt mỗi lần chạy có dòng số đơn đang cần xử lý.
+
+**Báo đã xử lý qua bot Telegram:** cài 1 lần bằng cách mở
+`https://merchize-webhook.<subdomain>.workers.dev/telegram-setup?key=<SECRET_KEY>` (thấy
+`"ok":true` là xong). Sau đó trong nhóm/chat Telegram (đúng `TELEGRAM_CHAT_ID`):
+
+- Trả lời (reply) tin `🛑 Đơn cần xử lý` bằng `xong`, hoặc
+- Gõ `/xong <mã đơn>` (nhiều mã cách nhau dấu cách), `/help` để xem hướng dẫn.
+
+Bot trả lời `✅`, ghi AC = `Đã xử lý request` và không liệt kê yêu cầu đó nữa. Nếu Merchize mở
+yêu cầu mới cho cùng đơn thì vẫn báo lại. Trong nhóm, bot cần tắt Group Privacy (BotFather >
+/setprivacy > Disable) hoặc dùng lệnh `/xong`, vì mặc định bot chỉ nhận lệnh và tin reply.
 
 Ghi Sheet thất bại (sai quyền, sai khoá...) thì thông báo được giữ lại để lịch chạy lại, và
 Telegram báo lỗi (tối đa 1 tin/giờ).
