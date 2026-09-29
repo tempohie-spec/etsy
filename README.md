@@ -1457,6 +1457,10 @@ Chạy 24/7, **không cần mở Sheet**:
   tra API tracking cho đơn 10 ngày gần nhất còn thiếu tracking để bù thông báo bị sót.
 
 - File code: [`merchize-webhook-worker.js`](merchize-webhook-worker.js)
+- Tối ưu mỗi lần chạy: tra tracking song song 6 đơn/lần; đơn cũ tra trước; bỏ qua đơn fulfill
+  hôm nay (chưa thể có tracking); chỉ thử mã hậu tố `a` với đơn từ 2 ngày trở lên; số dư lưu 1 giờ;
+  hạn mức request tính trước nên không bao giờ vượt 50. Muốn cập nhật nhanh hơn: đặt lịch
+  `*/15 * * * *` (15 phút/lần, Telegram 96 tin/ngày).
 - Miễn phí trên gói Free của Cloudflare. Giới hạn: tối đa 50 request ra ngoài mỗi lần chạy, nên
   mỗi giờ tra khoảng 40 đơn chưa có mã RX (đơn đã có mã RX tra gộp 50 đơn/1 request), lần sau tra
   tiếp các đơn còn lại.

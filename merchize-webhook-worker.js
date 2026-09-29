@@ -107,6 +107,12 @@ function maQuocGia(ten) {
   return bangQuocGia[key] || '';
 }
 
+// Nua dem hom nay theo gio Viet Nam, cung he quy chieu voi ngayTuO().
+function homNayVN() {
+  const d = new Date(Date.now() + 7 * 3600000);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
 function ngayTuO(v) {
   const m = str(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
@@ -770,27 +776,48 @@ async function chayLich(env, event) {
         });
       } catch (e) { /* loi tam thoi, lan sau tra lai */ }
     }
-    chuaRx.forEach(([ma, dong]) => donLe.push({ tab, store, ma, dong }));
+    // Don fulfill hom nay (gio VN) chua the co tracking -> khong ton request tra tung don.
+    chuaRx.forEach(([ma, dong]) => {
+      const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
+      if (ngay && ngay >= homNayVN()) return;
+      donLe.push({ tab, store, ma, dong, ngay: ngay ? ngay.getTime() : 0 });
+    });
   }
   // Chua lai request cho: ghi Sheet (2), Telegram (1), so du moi store (1/store).
-  const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - tabs.length - dem.n);
+  // Don cu hon truoc (de co tracking hon), roi xoay vong tiep noi lan truoc.
+  donLe.sort((a, b) => a.ngay - b.ngay);
+  // So du luu KV 1 gio: lan chay nao da co thi khong phai goi lai, danh request cho tra tracking.
+  const soDuLuu = await env.EVENTS.get('sodu');
+  const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - (soDuLuu ? 0 : tabs.length) - dem.n);
   if (donLe.length && conLai) {
     // Moi lan chay tiep noi vi tri lan truoc (luu KV), dat lich 30 phut hay 1 gio deu tra lan luot het.
     const viTri = Number(await env.EVENTS.get('cron:vitri')) || 0;
     const batDau = viTri % donLe.length;
-    await env.EVENTS.put('cron:vitri', String(batDau + Math.min(conLai, donLe.length)));
-    for (let i = 0; i < Math.min(conLai, donLe.length); i++) {
-      const { tab, store, ma, dong } = donLe[(batDau + i) % donLe.length];
+    const lanNay = [];
+    for (let i = 0; i < Math.min(conLai, donLe.length); i++) lanNay.push(donLe[(batDau + i) % donLe.length]);
+    // Han muc request dat truoc (an toan khi chay song song): het han muc thi dung, khong vuot 50.
+    let hanMuc = conLai;
+    const layHanMuc = () => (hanMuc > 0 ? (hanMuc--, true) : false);
+    let daXet = 0;
+    const traMotDon = async ({ tab, store, ma, dong, ngay }) => {
+      if (!layHanMuc()) return;
+      daXet++;
       try {
         const url = (m) => '/order/external/orders/tracking?external_number=' + encodeURIComponent(m);
         let goiHang = await merchizeFetch(dem, store, 'GET', url(ma));
-        // Khong co goi hang nao: co the don da huy va gui lai voi hau to "a".
-        if (!goiHang.length && /\d$/.test(ma) && dem.n < GIOI_HAN_REQUEST - 2) {
+        // Khong co goi hang nao: co the don da huy va gui lai voi hau to "a". Chi thu voi don tu 2
+        // ngay tro len (don moi chua co goi hang la binh thuong, khong ton them request).
+        const duCu = ngay && Date.now() - ngay >= 2 * 86400000;
+        if (!goiHang.length && duCu && /\d$/.test(ma) && layHanMuc()) {
           goiHang = await merchizeFetch(dem, store, 'GET', url(ma + 'a'));
         }
         ghiNhan(tab, ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi));
       } catch (e) { /* bo qua, lan sau tra lai */ }
-    }
+    };
+    // Goi song song 6 don/lan (gioi han ket noi dong thoi cua Cloudflare) cho nhanh.
+    for (let i = 0; i < lanNay.length && hanMuc > 0; i += 6) await Promise.all(lanNay.slice(i, i + 6).map(traMotDon));
+    // Lan sau tiep noi dung sau don cuoi cung da xet.
+    await env.EVENTS.put('cron:vitri', String(batDau + daXet));
   }
 
   await ghiSheet(env, dem, boGhi);
@@ -800,19 +827,26 @@ async function chayLich(env, event) {
   const conThieu = Math.max(0, tongCanTra - thongKe.tracking.length);
 
   // So du tung store: API noi bo cua trang seller Merchize (GET /billing/balance -> data.amount).
-  const soDu = {};
-  for (const tab of tabs) {
-    const store = stores[tab];
-    if (!store || !store.baseUrl || !store.token) continue;
-    try {
-      const res = await goi(dem, store.baseUrl.replace(/\/+$/, '') + '/billing/balance', {
-        headers: { Authorization: 'Bearer ' + store.token }
-      });
-      const data = await res.json().catch(() => null);
-      const amount = data && data.success && data.data ? Number(data.data.amount) : NaN;
-      soDu[tab] = isNaN(amount) ? `lỗi ${res.status}` : Math.round(amount * 100) / 100;
-    } catch (e) {
-      soDu[tab] = 'lỗi kết nối';
+  let soDu = {};
+  try { soDu = soDuLuu ? JSON.parse(soDuLuu) : {}; } catch (e) { soDu = {}; }
+  if (!soDuLuu) {
+    await Promise.all(tabs.map(async (tab) => {
+      const store = stores[tab];
+      if (!store || !store.baseUrl || !store.token) return;
+      try {
+        const res = await goi(dem, store.baseUrl.replace(/\/+$/, '') + '/billing/balance', {
+          headers: { Authorization: 'Bearer ' + store.token }
+        });
+        const data = await res.json().catch(() => null);
+        const amount = data && data.success && data.data ? Number(data.data.amount) : NaN;
+        soDu[tab] = isNaN(amount) ? `lỗi ${res.status}` : Math.round(amount * 100) / 100;
+      } catch (e) {
+        soDu[tab] = 'lỗi kết nối';
+      }
+    }));
+    // Chi luu khi lay duoc it nhat 1 store, de lan sau thu lai neu loi het.
+    if (Object.values(soDu).some((v) => typeof v === 'number')) {
+      await env.EVENTS.put('sodu', JSON.stringify(soDu), { expirationTtl: 3600 });
     }
   }
   const dongSoDu = Object.keys(soDu).map((tab) => {
