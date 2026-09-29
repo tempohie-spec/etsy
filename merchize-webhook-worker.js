@@ -576,31 +576,49 @@ async function chayLich(env, event) {
       continue;
     }
     // Nhan don Teb theo ma don co trong sheet Teb (ca don cu tao bang Apps Script, AC = "Cu"/trong),
-    // tru don da gui Merchize.
-    const canTeb = new Map();
+    // tru don da gui Merchize. Chi xet don co Date Fulfill (dong dau) trong SO_NGAY_CAP_NHAT ngay.
+    const moc = new Date();
+    moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
+    const tatCaDon = new Map();
     rows.forEach((row, i) => {
       const ma = cell(row, COL.orderNumber);
-      const st = cell(row, COL.status);
-      if (i === 0 || !ma || st === 'Đã gửi' || /^Lỗi import/.test(st)) return;
-      if (!canTeb.has(ma)) canTeb.set(ma, []);
-      canTeb.get(ma).push({ rowNumber: i + 1, row });
+      if (i === 0 || !ma) return;
+      if (!tatCaDon.has(ma)) tatCaDon.set(ma, []);
+      tatCaDon.get(ma).push({ rowNumber: i + 1, row });
     });
-    if (!canTeb.size) continue;
+    const canTeb = new Map();
+    tatCaDon.forEach((dong, ma) => {
+      const st = cell(dong[0].row, COL.status);
+      if (st === 'Đã gửi' || /^Lỗi import/.test(st)) return;
+      const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
+      if (!ngay || ngay < moc) return;
+      canTeb.set(ma, dong);
+    });
+    if (!canTeb.size) {
+      tebInfo[tab] = `không có đơn nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất`;
+      continue;
+    }
     try {
       const data = await sheetsFetch(env, dem,
         `/values/${encodeURIComponent(`'${cfg.sheet}'!A:AA`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
+      // Khop dung ma; khong co thi khop ma goc (don gui lai tren sheet Teb co hau to "a").
       const theoMa = {};
+      const theoGoc = {};
       (data.values || []).forEach((r) => {
         const ma = cell(r, 1);
-        if (ma) theoMa[ma] = { tracking: cell(r, 19), dvvc: cell(r, 20), total: soTien(r[26]) };
+        if (!ma) return;
+        const v = { tracking: cell(r, 19), dvvc: cell(r, 20), total: soTien(r[26]) };
+        theoMa[ma] = v;
+        theoGoc[maGoc(ma)] = v;
       });
+      const timTeb = (ma) => theoMa[ma] || theoGoc[maGoc(ma)];
       tebInfo[tab] = {
         soDongSheetTeb: (data.values || []).length,
-        khopMaDon: Array.from(canTeb.keys()).filter((m) => theoMa[m]).length,
+        khopMaDon: Array.from(canTeb.keys()).filter((m) => timTeb(m)).length,
         viDuMaSheetTeb: Object.keys(theoMa).slice(-3)
       };
       canTeb.forEach((dong, ma) => {
-        const tk = theoMa[ma];
+        const tk = timTeb(ma);
         if (!tk) return;
         const { rowNumber, row } = dong[0];
         dong.forEach(({ rowNumber: rn, row: r }) => {

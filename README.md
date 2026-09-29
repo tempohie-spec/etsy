@@ -1396,7 +1396,9 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
 - **Tracking + cost Teb tự động:** Worker đọc sheet Teb mỗi lần chạy, theo ORDER CODE (cột B):
   TRACKING (T) / DVVC (U) điền vào AE/AF cho đơn `Teb` còn thiếu tracking; **Total (AA)** điền vào
   **Base Cost (Y)** (ghi đè cả chữ `chưa có cost` / `chưa ff`, chỉ ghi khi số khác). Chỉ ghi ở dòng
-  đầu của đơn. Telegram báo `Tracking Teb mới` / `Cost Teb`. Cần: **Share file Teb** cho email service account (quyền xem là đủ) và thêm biến
+  đầu của đơn. Telegram báo `Tracking Teb mới` / `Cost Teb`. Chỉ xét đơn có Date Fulfill trong
+  **10 ngày** gần nhất; nhận đơn theo mã có trong sheet Teb (kể cả đơn cũ AC = `Cũ`, AC đổi thành
+  `Teb`), khớp cả mã gửi lại có hậu tố `a`. Cần: **Share file Teb** cho email service account (quyền xem là đủ) và thêm biến
   Secret `TEB` trên Cloudflare:
 
   ```json
