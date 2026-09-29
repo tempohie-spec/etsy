@@ -502,6 +502,27 @@ nhồi — tách bạch rõ 2 khả năng: nếu input nhận đúng đủ file 
 nguyên nhân chắc chắn nằm ở phía Etsy (không đọc được sự kiện `change`, hoặc backend không xử lý),
 không còn là nghi vấn "nhồi sai/nhồi hỏng" từ phía script nữa.
 
+### Kết luận sau chuỗi log v9.19 → v9.22: cơ chế hoạt động đúng, bỏ log gây hoang mang (v9.23)
+
+Log tiếp theo (cùng listing, thử lại) mang tin tốt: **cả 9 ảnh (4 sản phẩm + 5 bảng size) upload
+thành công**, tổng thời gian chờ Etsy xử lý chỉ khoảng **45s** — không còn kiểu "0 thẻ suốt 180s"
+như lần trước. Log này còn xác nhận dứt điểm 2 nghi vấn còn treo lại:
+
+1. **`input.files.length` đọc ngay sau khi gán luôn ra `0`, kể cả ở lô THÀNH CÔNG** — chứng minh đây
+   chỉ là hiện tượng bình thường của Etsy (React tự xoá trắng `FileList` hiển thị của input ngay sau
+   khi nhận sự kiện `change`, để cho phép chọn lại đúng file đó ở lần sau), **không phải dấu hiệu
+   lỗi** như nghi ngờ ban đầu ở v9.22. Bỏ hẳn số liệu này khỏi log (chỉ giữ lại `id`/field cha của
+   input) vì nó chỉ gây hoang mang mỗi lần xem log mà không nói lên điều gì.
+2. **Phần tử bị coi là "còn spinner" đúng là spinner THẬT của Etsy**: log in ra
+   `<div data-clg-id="WtSpinner" role="alert" aria-live="assertive" class="wt-spinner wt-spinner--01">`
+   — `data-clg-id="WtSpinner"` là tên component nội bộ (Wonderland UI) của chính Etsy dùng cho
+   spinner, không phải phần tử bắt nhầm. Xác nhận các thay đổi ở v9.19–v9.21 đang hoạt động đúng.
+
+Kết luận: trường hợp cực đoan ở v9.22 (0 thẻ suốt 2×180s, đồng thời 3/5 ảnh fetch bị timeout ở cả 2
+lần thử) nhiều khả năng là **mạng/CDN của người dùng thực sự chập chờn nặng đúng lúc đó**, không
+phải lỗi trong script — cơ chế thử lại theo lô (v9.7/v9.8) đã hoạt động đúng thiết kế: tự thử lại
+thay vì bỏ cuộc ngay, và log tiến độ (v9.20/v9.21) cho thấy rõ chuyện gì đang xảy ra thay vì im lặng.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
