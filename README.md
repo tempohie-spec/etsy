@@ -429,6 +429,31 @@ Hai thay đổi:
    đúng 1 lần, sang chờ có polling tối đa 8s (`doiVaTimNutTheoNhan()`, giống 2 bước xác nhận sau
    đó) — chấp nhận việc nút có thể còn disabled thêm vài giây sau khi ảnh cuối cùng đã xử lý xong.
 
+### Sửa lỗi "spinner rất lâu" do chính v9.19 gây ra + thêm log đo tốc độ (v9.20)
+
+Ngay sau v9.19, người dùng báo ảnh đứng spinner **rất lâu** so với tự upload từ thư viện ảnh trên
+máy. Nguyên nhân: `dangXuLyRieng()` ở v9.19 chỉ kiểm tra `querySelector()` có **tìm thấy** phần tử
+spinner hay không, **không kiểm tra phần tử đó có đang thật sự hiển thị không**. Nhiều khung giao
+diện (nhiều khả năng cả của Etsy) giữ sẵn phần tử spinner/progressbar trong DOM ngay cả khi đã **ẩn**
+(`display:none` hoặc tương đương) — `querySelector()` vẫn "tìm thấy" nó, nên `dangXuLyRieng()` có
+thể trả về `true` **mãi mãi** dù ảnh đã xử lý xong từ lâu, khiến `choEtsyXuLyAnh()` chờ hết veo
+`THOI_HAN_CHO_ETSY_XU_LY_ANH` (180s) **cho mỗi lô**, rồi còn thử lại thêm `SO_LAN_THU_LAI_LO` lần
+nữa — nhân lên thành vài phút "spinner" mỗi lô, đúng như người dùng mô tả.
+
+Sửa: `dangXuLyRieng()` giờ bắt buộc kiểm tra thêm `dangHienThi()` trên chính phần tử spinner tìm
+được — chỉ tính là "đang xử lý" khi spinner đó **thật sự đang hiện trên màn hình**, không chỉ đơn
+thuần tồn tại trong DOM.
+
+Nhân dịp sửa, thêm luôn **log đo tốc độ** trong `choEtsyXuLyAnh()` để tự kiểm tra được từ Console
+(F12) mà không cần đoán mò:
+
+- Mỗi ~5 giây trong lúc chờ, in 1 dòng tình trạng: số thẻ đã xuất hiện / số thẻ có ảnh xem trước /
+  số thẻ còn spinner — ví dụ `... đã chờ 10s cho 5 ảnh: 5/5 thẻ xuất hiện, 5/5 có ảnh xem trước, 1
+  thẻ còn spinner`. Nhìn dãy log này biết ngay đang **chờ Etsy xử lý thật** (số liệu đổi dần) hay
+  **bị kẹt ở đúng 1 thẻ** (số liệu đứng yên không đổi qua nhiều lần log).
+- Khi xử lý xong 1 lô, in tổng thời gian: `Etsy xử lý xong 5 ảnh sau 8.4s`.
+- Nếu hết hẳn thời hạn mà vẫn chưa xong, in cảnh báo rõ số giây đã chờ.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự

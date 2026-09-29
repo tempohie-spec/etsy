@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.19
+// @version      9.20
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.19';
+  const PHIEN_BAN = '9.20';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2792,10 +2792,18 @@
   // 1 buoc hoan tat rieng phia sau (vd tao ban thumbnail cuoi cung) — the van hien spinner de tren
   // luc do. Selector co tinh chat "do rong" (khong dua vao 1 class/id cu the cua Etsy, vi de doi)
   // giong cach timThongBaoLoiUploadEtsy() da lam.
+  // QUAN TRONG: phai kiem tra CA dangHienThi() chu khong chi querySelector() tim thay hay khong —
+  // nhieu template UI (kha nang cao gom ca cua Etsy) giu san phan tu spinner/progressbar trong DOM
+  // ke ca khi da AN (display:none / rong buoc CSS khac), chi de "san" cho lan sau can hien lai. Neu
+  // chi kiem tra querySelector() tim thay ma khong loc theo hien thi, 1 the co the bi coi la "vAn
+  // dang xu ly" MAI MAI (phan tu spinner "chet" van nam trong DOM) — khien choEtsyXuLyAnh() cho tro
+  // het THOI_HAN_CHO_ETSY_XU_LY_ANH (180s) MOI LO, nhan them SO_LAN_THU_LAI_LO+1 lan thu lai, tao
+  // cam giac "spinner rat lau" du anh that ra da xong tu som.
   function dangXuLyRieng(the) {
-    return !!the.querySelector(
+    const spinner = the.querySelector(
       '[role="progressbar"], [aria-busy="true"], [class*="spinner" i], [data-clg-id*="spinner" i], [data-clg-id*="loading" i]'
     );
+    return !!spinner && dangHienThi(spinner);
   }
 
   // Cho Etsy upload + ve xong cac the anh moi. Tra ve { ok, lyDo, chiTiet }:
@@ -2803,20 +2811,27 @@
   //                                   ON DINH qua it nhat 2 lan kiem tra lien tiep
   //   ok=false, lyDo='loi_that'    -> chinh Etsy tu bao loi upload that (dang tin nhat, dung lai ngay)
   //   ok=false, lyDo='het_gio'     -> qua THOI_HAN_CHO_ETSY_XU_LY_ANH ma van chua du the
+  //
+  // Co LOG TIEN DO dinh ky (moi ~5s) + log thoi gian xu ly khi xong, de nguoi dung tu kiem tra toc
+  // do va nguyen nhan cham qua Console (F12) thay vi phai doan mo — vi du phan biet duoc "Etsy that
+  // su xu ly cham" (so the/spinner tang dan theo thoi gian) voi "bi ket mai o 1 the" (so lieu dung
+  // yen khong doi qua nhieu lan log).
   async function choEtsyXuLyAnh(soAnhCu, soAnhThem) {
     const moc = Date.now();
     let soLanOnDinhLienTiep = 0;
+    let giayLogCuoi = 0;
     while (Date.now() - moc < THOI_HAN_CHO_ETSY_XU_LY_ANH) {
       const loiThat = timThongBaoLoiUploadEtsy();
       if (loiThat) {
         return { ok: false, lyDo: 'loi_that', chiTiet: loiThat.textContent.trim().slice(0, 200) };
       }
       const cacThe = layCacTheAnh();
+      const theMoi = cacThe.length >= soAnhCu + soAnhThem ? cacThe.slice(soAnhCu, soAnhCu + soAnhThem) : [];
+      const soDaCoAnh = theMoi.filter((t) => t.querySelector('img')).length;
+      const soConSpinner = theMoi.filter((t) => dangXuLyRieng(t)).length;
       // Da du so the, moi the moi deu da co anh xem truoc VA khong con spinner rieng -> coi nhu
       // Etsy xu ly xong the do.
-      const xong =
-        cacThe.length >= soAnhCu + soAnhThem &&
-        cacThe.slice(soAnhCu, soAnhCu + soAnhThem).every((t) => t.querySelector('img') && !dangXuLyRieng(t));
+      const xong = theMoi.length === soAnhThem && soDaCoAnh === soAnhThem && soConSpinner === 0;
 
       if (xong) {
         soLanOnDinhLienTiep++;
@@ -2824,12 +2839,26 @@
         // phong khi selector spinner o tren khong khop dung markup that cua Etsy (doan "do rong"
         // van co the doan sai): 2 lan on dinh giup giam rui ro tuong xong qua som luc nut Publish
         // van con dang disabled o phia Etsy.
-        if (soLanOnDinhLienTiep >= 2) return { ok: true };
+        if (soLanOnDinhLienTiep >= 2) {
+          console.log(`[Etsy Auto] Etsy xử lý xong ${soAnhThem} ảnh sau ${((Date.now() - moc) / 1000).toFixed(1)}s`);
+          return { ok: true };
+        }
       } else {
         soLanOnDinhLienTiep = 0;
       }
+
+      const giayDaTroi = Math.round((Date.now() - moc) / 1000);
+      if (giayDaTroi - giayLogCuoi >= 5) {
+        giayLogCuoi = giayDaTroi;
+        console.log(
+          `[Etsy Auto] ... đã chờ ${giayDaTroi}s cho ${soAnhThem} ảnh: ${theMoi.length}/${soAnhThem} thẻ xuất hiện, ` +
+            `${soDaCoAnh}/${soAnhThem} có ảnh xem trước, ${soConSpinner} thẻ còn spinner`
+        );
+      }
+
       await cho(1000);
     }
+    console.warn(`[Etsy Auto] Hết ${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s vẫn chưa xử lý xong ${soAnhThem} ảnh`);
     return { ok: false, lyDo: 'het_gio' };
   }
 
