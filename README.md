@@ -1470,6 +1470,7 @@ thông báo có gửi). Ticket tìm theo mã RX ở cột AD.
 | Order payment fulfillment cost | Y (dòng đầu của đơn) = cost thật |
 | API tracking | Y (chỉ khi ô Y trống) = giá sản phẩm + phí ship (+3.5$ thuế nếu gửi đi châu Âu) |
 | Order issue updated | AG = `<trạng thái> [vấn đề]: <tin nhắn mới nhất>` |
+| Lịch: đơn "Request update" trên Merchize | AC = `Cần xử lý: <note>` (vd màu không ship Worldwide), AD = mã RX; Telegram báo 1 lần mỗi yêu cầu |
 | Mọi nguồn có mã Merchize | AD = mã `RX-...` thật |
 
 Khớp đơn theo mã đơn Etsy, kể cả đơn gửi lại có hậu tố chữ (thông báo của `4181764944a` ghi vào
@@ -1478,6 +1479,12 @@ thì tra tiếp mã có hậu tố `a`. API tracking không trả về tên khá
 tên. **Mã đơn Merchize (AD), Tracking (AE), Hãng vận chuyển (AF), Ticket (AG) chỉ ghi ở dòng đầu**
 của đơn nhiều dòng (dòng sau nếu còn giá trị cũ sẽ bị xoá); AC ghi cho mọi dòng của đơn.
 Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không phải đơn nào cũng bị thu (vd đơn UK không bị thu).
+
+**Đơn cần xử lý (Request update):** mỗi lần chạy, với từng store Worker gọi
+`GET <baseUrl>/order/orders/statistic-issues` (API nội bộ trang Orders). Có đơn `issue_request_update`
+thì lấy danh sách qua `search/v3?order_issue_type=issue_request_update`, yêu cầu mới thì lấy nội
+dung qua `/order/orders/<id>/require-attention`, ghi AC và nhắn Telegram `🛑 Đơn cần xử lý trên
+Merchize` (mỗi yêu cầu 1 lần). Tin tóm tắt mỗi lần chạy có dòng số đơn đang cần xử lý.
 
 Ghi Sheet thất bại (sai quyền, sai khoá...) thì thông báo được giữ lại để lịch chạy lại, và
 Telegram báo lỗi (tối đa 1 tin/giờ).
