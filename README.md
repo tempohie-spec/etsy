@@ -1387,12 +1387,13 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
 - **SKU Merchize tra thẳng catalog.** Luật AU giữ như Apps Script cũ: Comfort Adult (1717US) gửi
   **Australia** dùng **1717AU** (Comfort Colors 1717 Made in AU) nếu có đúng màu + size, không có
   thì dùng 1717US. Bấm **1. Cập nhật catalog** một lần để tải thêm 1717AU.
-- **Teb Print** (tab trong `TEB_TABS`, hiện là **ETSY_Turkiye 01**), luật giữ như cũ: đơn gửi
+- **Teb Print** (tab **đã lưu sheet Teb** bằng nút Lưu sheet Teb, hoặc ETSY_Turkiye 01), luật giữ
+  như cũ; bỏ dùng Teb: để trống ô link rồi bấm Lưu. Đơn gửi
   **United States**, **chỉ 1 dòng**, tìm được SKU trong sheet **Teb Print SKU** (cột `title`,
   `color`, `size`, `SKU`) thì **không gửi Merchize** mà **ghi nối tiếp vào sheet Teb do bạn
   chọn**; cột AB = SKU Teb, AC = `Teb`.
   - Chọn sheet Teb: mở file Teb, mở đúng tab, copy link (có `#gid=`) → trên bảng Merchize ở tab
-    ETSY_Turkiye 01 dán vào ô **Link sheet Teb** → **Lưu sheet Teb cho tab này**. Tài khoản Google
+    cần dùng Teb dán vào ô **Link sheet Teb** → **Lưu sheet Teb cho tab này**. Tài khoản Google
     của bạn phải có quyền sửa file Teb.
   - **Chỉ ghi cột B → T** (cột A ORDER DATE bị khoá, không ghi), vào dòng trống kế tiếp theo cột
     B, không chèn dòng mới. Cột ghi: B ORDER CODE, C SKU, D QUANTITY, E FULL
@@ -1407,8 +1408,11 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   Secret `TEB` trên Cloudflare:
 
   ```json
-  { "ETSY_Turkiye 01": { "spreadsheetId": "<ID file Teb>", "sheet": "<tên tab trong file Teb>" } }
+  { "ETSY_Turkiye 01": { "spreadsheetId": "<ID file Teb>", "sheet": "<tên tab trong file Teb>" },
+    "ETSY_OlavenStore": { "spreadsheetId": "<ID file Teb>", "sheet": "<tên tab trong file Teb>" } }
   ```
+
+  Tab dùng Teb cần có sheet **Teb Print SKU** trong **cùng file** với tab đó (để tra SKU Teb).
 
 ## Quy tắc tra SKU
 

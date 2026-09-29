@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.26
+// @version      1.27
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -17,7 +17,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.26';
+  const SCRIPT_VERSION = '1.27';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -699,11 +699,16 @@
   // ============ TEB PRINT (fulfill rieng cho 1 so account) ============
   // Tab nao dung Teb: don gui US, chi 1 dong va tim duoc SKU trong sheet "Teb Print SKU" thi di
   // Teb (ghi noi tiep vao sheet Teb do nguoi dung chon), con lai gui Merchize.
+  // Tab dung Teb = tab da luu sheet Teb (nut "Luu sheet Teb cho tab nay"). TEB_TABS chi con de
+  // tuong thich ban cu.
   const TEB_TABS = new Set(['ETSY_Turkiye 01']);
+  function laTabTeb(tenTab) {
+    return TEB_TABS.has(tenTab) || !!docCacSheetTeb()[tenTab];
+  }
   const STATUS_TEB = 'Teb';
 
   function tebSkuCuaDon(don, tenTab, bangPhu) {
-    if (!TEB_TABS.has(tenTab) || don.rows.length !== 1) return '';
+    if (!laTabTeb(tenTab) || don.rows.length !== 1) return '';
     const r = don.rows[0].r;
     if (cell(r, COL.country).toLowerCase() !== 'united states') return '';
     return bangPhu.teb[makeKey(cell(r, COL.title), cell(r, COL.color), cell(r, COL.size))] || '';
@@ -767,7 +772,15 @@
   // Luu sheet Teb dich cho tab dang mo tu link (mo dung tab trong file Teb roi copy link co #gid=).
   async function luuSheetTeb(link) {
     const { title } = await layTrangTinhDangMo();
-    if (!TEB_TABS.has(title)) throw new Error(`Tab "${title}" không dùng Teb (TEB_TABS: ${Array.from(TEB_TABS).join(', ')}).`);
+    // O link de trong: bo dung Teb cho tab nay.
+    if (!str(link)) {
+      const all = docCacSheetTeb();
+      if (!all[title]) throw new Error('Chưa dán link sheet Teb.');
+      if (!W.confirm(`Bỏ dùng Teb cho tab "${title}"? Đơn của tab này sẽ gửi hết lên Merchize.`)) return 'Đã hủy.';
+      delete all[title];
+      GM_setValue('mz_teb_targets', JSON.stringify(all));
+      return `Tab "${title}" không còn dùng Teb.`;
+    }
     const m = str(link).match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
     if (!m) throw new Error('Link không phải link Google Sheet.');
     const g = str(link).match(/gid=(\d+)/);
@@ -974,7 +987,7 @@
     const saveTokenBtn = nut('Lưu store Merchize cho tab này', '#607d8b');
     const viewStoreBtn = nut('Xem store của tab', '#90a4ae');
     const tebInput = el('input', oCss);
-    tebInput.placeholder = 'Link sheet Teb (mở đúng tab rồi copy link, chỉ tab dùng Teb)';
+    tebInput.placeholder = 'Link sheet Teb (mở đúng tab rồi copy link) nếu tab này dùng Teb';
     const tebBtn = nut('Lưu sheet Teb cho tab này', '#6d4c41');
 
     const catalogInfo = el('div', 'font-size:11px;color:#999;margin:4px 0 6px;');
@@ -1094,14 +1107,14 @@
       const dong = [st
         ? `✅ Tab "${title}": store Merchize ${tenStore} (đã có token)`
         : `❌ Tab "${title}": chưa có store Merchize`];
-      if (TEB_TABS.has(title)) dong.push(teb ? `✅ Sheet Teb: ${teb.sheetTitle}` : '❌ Chưa chọn sheet Teb');
+      if (laTabTeb(title)) dong.push(teb ? `✅ Sheet Teb: ${teb.sheetTitle}` : '❌ Chưa chọn sheet Teb');
       storeInfo.textContent = dong.join('\n');
       storeInfo.style.whiteSpace = 'pre-wrap';
       storeInfo.style.color = st ? '#2e7d32' : '#c62828';
       viewStoreBtn.textContent = st ? `Store Merchize: ${tenStore}` : 'Xem store của tab';
       tebInput.placeholder = teb
-        ? `Sheet Teb đang dùng: ${teb.sheetTitle} (dán link mới để đổi)`
-        : 'Link sheet Teb (mở đúng tab rồi copy link, chỉ tab dùng Teb)';
+        ? `Sheet Teb đang dùng: ${teb.sheetTitle} (dán link mới để đổi, để trống rồi bấm Lưu để bỏ)`
+        : 'Link sheet Teb (mở đúng tab rồi copy link) nếu tab này dùng Teb';
       if (document.activeElement !== baseInput) baseInput.value = st ? st.baseUrl : '';
       return storeInfo.textContent;
     }
