@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.25
+// @version      1.26
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
+// @grant        GM_registerMenuCommand
 // @connect      merchize.com
 // @run-at       document-idle
 // ==/UserScript==
@@ -16,7 +17,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.25';
+  const SCRIPT_VERSION = '1.26';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -997,6 +998,22 @@
     [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, tebInput, tebBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
+
+    // Vi tri da luu co the nam ngoai man hinh (cua so nho hon luc keo tha) -> keo ve trong man hinh.
+    function giuNutTrongManHinh() {
+      if (btn.style.left === '' || btn.style.left === 'auto') return;
+      const r = btn.getBoundingClientRect();
+      const left = Math.min(Math.max(0, r.left), Math.max(0, window.innerWidth - btn.offsetWidth));
+      const top = Math.min(Math.max(0, r.top), Math.max(0, window.innerHeight - btn.offsetHeight));
+      if (left !== r.left || top !== r.top) Object.assign(btn.style, { left: left + 'px', top: top + 'px' });
+    }
+    function datLaiViTriNut() {
+      try { localStorage.removeItem(POS_STORAGE_KEY); } catch (e) { /* bo qua */ }
+      Object.assign(btn.style, { left: 'auto', top: 'auto', right: '24px', bottom: '80px' });
+    }
+    giuNutTrongManHinh();
+    window.addEventListener('resize', giuNutTrongManHinh);
+    try { GM_registerMenuCommand('Hiện lại nút Merchize (góc phải dưới)', datLaiViTriNut); } catch (e) { /* bo qua */ }
     document.body.appendChild(panel);
 
     function repositionPanel() {
