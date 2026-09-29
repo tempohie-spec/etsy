@@ -1394,7 +1394,8 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   - Chọn sheet Teb: mở file Teb, mở đúng tab, copy link (có `#gid=`) → trên bảng Merchize ở tab
     ETSY_Turkiye 01 dán vào ô **Link sheet Teb** → **Lưu sheet Teb cho tab này**. Tài khoản Google
     của bạn phải có quyền sửa file Teb.
-  - Cột ghi: A ORDER DATE (`28/9/26`, từ Date Fulfill), B ORDER CODE, C SKU, D QUANTITY, E FULL
+  - **Chỉ ghi cột B → T** (cột A ORDER DATE bị khoá, không ghi), vào dòng trống kế tiếp theo cột
+    B, không chèn dòng mới. Cột ghi: B ORDER CODE, C SKU, D QUANTITY, E FULL
     NAME, F PHONE, G-H ADDRESS, I CITY, J REGION, K ZIP, L COUNTRY, M FRONT DESIGN, N BACK DESIGN,
     Q MOCKUP (chỉ có back design thì ghi vào R MOCKUP BACK), S NOTE = `DTG` nếu in DTG.
 - **Tracking + cost Teb tự động:** Worker đọc sheet Teb mỗi lần chạy, theo ORDER CODE (cột B):
