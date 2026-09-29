@@ -83,7 +83,8 @@ const BI_DANH_QUOC_GIA = {
 let bangQuocGia = null;
 function maQuocGia(ten) {
   const v = str(ten);
-  if (/^[A-Za-z]{2}$/.test(v)) return v.toUpperCase();
+  // "UK" khong phai ma ISO (Merchize bao "Country is invalid"), ma dung la "GB".
+  if (/^[A-Za-z]{2}$/.test(v)) return v.toUpperCase() === 'UK' ? 'GB' : v.toUpperCase();
   const key = v.toLowerCase();
   if (BI_DANH_QUOC_GIA[key]) return BI_DANH_QUOC_GIA[key];
   if (!bangQuocGia) {

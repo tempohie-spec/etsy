@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.22
+// @version      1.23
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.22';
+  const SCRIPT_VERSION = '1.23';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -128,7 +128,8 @@
   };
   function maQuocGia(ten) {
     const v = str(ten);
-    if (/^[A-Za-z]{2}$/.test(v)) return v.toUpperCase();
+    // "UK" khong phai ma ISO (Merchize bao "Country is invalid"), ma dung la "GB".
+    if (/^[A-Za-z]{2}$/.test(v)) return v.toUpperCase() === 'UK' ? 'GB' : v.toUpperCase();
     const key = v.toLowerCase();
     if (BI_DANH_QUOC_GIA[key]) return BI_DANH_QUOC_GIA[key];
     if (!bangQuocGia) {
