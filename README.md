@@ -523,6 +523,33 @@ lần thử) nhiều khả năng là **mạng/CDN của người dùng thực s�
 phải lỗi trong script — cơ chế thử lại theo lô (v9.7/v9.8) đã hoạt động đúng thiết kế: tự thử lại
 thay vì bỏ cuộc ngay, và log tiến độ (v9.20/v9.21) cho thấy rõ chuyện gì đang xảy ra thay vì im lặng.
 
+### Phương án dự phòng: tự tải ảnh còn thiếu xuống máy khi upload tự động thất bại hẳn (v9.24)
+
+Một lần chạy khác cho thêm bằng chứng: batch cuối gặp đúng **3 lần liên tiếp lỗi 500 thật từ Etsy**
+(`POST .../listings/images 500`, kèm toast chính chủ "Hm, we're having trouble uploading those
+files..."). Script đã xử lý đúng — dừng lại sau khi thử hết `SO_LAN_THU_LAI_LO + 1` lần, báo rõ số
+ảnh còn thiếu — nhưng người dùng vẫn phải tự tìm cách hoàn tất phần còn lại. Nhân dịp này, hỏi thêm:
+tải hết ảnh xuống máy rồi tự chọn qua "Add photos" thật của Etsy có nhanh/ổn định hơn không?
+
+Câu trả lời: **có khả năng cao là có** — bằng chứng chính là phát hiện đã dẫn tới cơ chế thử lại ở
+v9.7/v9.8: người dùng từng test và xác nhận "upload ảnh trực tiếp từ máy tính thì rất nhanh, không
+lỗi". Lý do kỹ thuật: lỗi 500 xảy ra ở chính server Etsy khi xử lý file — xảy ra như nhau dù file
+được chọn bằng tay hay do script nhồi vào `<input>` — nhưng khi người dùng chọn tay **toàn bộ ảnh
+cùng lúc**, JS của Etsy tự điều phối/thử lại theo cách riêng của họ, có vẻ ổn định hơn hẳn cách
+script chia nhỏ 5 ảnh/lô rồi tiêm liên tục nhiều lần. Việc chọn lại file qua hộp thoại hệ điều hành
+thì KHÔNG script hoá được (giới hạn bảo mật trình duyệt, giống lý do không tự kéo-thả sắp xếp được).
+
+Vì file đã tải xuống máy được đặt tên kèm số thứ tự 2 chữ số (`... - 01.jpg`, `... - 02.jpg`...),
+sắp xếp theo Tên trong Explorer/Finder sẽ luôn đúng thứ tự carousel gốc, nên người dùng chỉ cần chọn
+hết rồi thả vào là ảnh lên đúng thứ tự, không cần kéo sắp xếp lại.
+
+Từ đó, thêm **phương án dự phòng tự động**: khi `tuUploadAnh()` phải dừng hẳn giữa chừng
+(`dungGiuaChung`, đã thử hết số lần cho phép), script **tự tải ngay các ảnh CHƯA upload được xuống
+máy** bằng `taiCacFileConLaiXuongMay()` — dùng lại chính các `File` đã có sẵn trong bộ nhớ (từ bước
+lấy ảnh song song trước đó), **không tốn thêm request nào**, đặt tên kèm `"... - con thiếu - 01..."`
+theo đúng thứ tự còn thiếu. Toast cuối cùng đổi từ "tự upload nốt phần còn thiếu" (không rõ làm sao)
+thành hướng dẫn cụ thể: mở "Add photos" thật của Etsy, sắp Downloads theo Tên, chọn hết rồi thả vào.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
