@@ -7,6 +7,7 @@
 // - Lich (Cron Trigger, vd moi 30 phut hoac moi gio):
 //     1. Chay lai cac thong bao con cho trong KV.
 //     2. Tra API tracking cho don 10 ngay gan nhat chua co tracking -> dien tracking, ma RX, cost.
+//     4. Don Merchize "Request update" (can xu ly): ghi AC "Can xu ly: <note>" + Telegram 1 lan.
 //     3. Don di Teb (AC = "Teb"): lay tracking + DVVC + Total (base cost) tu sheet Teb (bien TEB).
 // - GET /run?key=<1 trong SECRET_KEYS>: chay lich ngay lap tuc.
 //
@@ -315,6 +316,9 @@ function noiDungTuSuKien(ev) {
   } else if (loai === 'ORDER.PAYMENT.FULFILLMENT_COST') {
     const gia = Number(r.price);
     if (!isNaN(gia) && str(r.price) !== '') co.cost = gia;
+  } else if (loai === 'ORDER.REQUIRE.ATTENTION') {
+    // Tu tao trong lich chay (khong phai webhook): don Merchize can xu ly (Request update).
+    co.status = `Cần xử lý: ${str(r.note) || 'xem trên Merchize'}`;
   } else if (loai === 'ORDER.ISSUE.UPDATED') {
     const msg = r.last_message || {};
     const noiDung = str(msg.body_text || msg.body).replace(/\s+/g, ' ').slice(0, 300);
@@ -489,6 +493,23 @@ function lanChayTiep(cron, luc) {
   return gioVN(Math.floor(luc / buoc) * buoc + buoc);
 }
 
+// GET API noi bo cua trang seller Merchize, tra ve data nguyen ban (object hoac mang).
+async function merchizeGetRaw(dem, store, path) {
+  const res = await goi(dem, store.baseUrl.replace(/\/+$/, '') + path, {
+    headers: { Authorization: 'Bearer ' + store.token }
+  });
+  const data = await res.json().catch(() => null);
+  if (!data || !data.success) throw new Error(`Merchize ${res.status}: ${(data && data.message) || 'lỗi'}`);
+  return data.data;
+}
+
+// Bo tham so giong trang Orders cua Merchize, loc don "Request update" (can nguoi ban xu ly).
+const QUERY_CAN_XU_LY = 'artwork_status=&external_number=&fulfillment_created_at_from=&fulfillment_created_at_to=' +
+  '&fulfillment_status=&isOrderIssues=false&isPersonalized=&isRequireAttention=false&isTapShippedOrder=false' +
+  '&limit=100&order_issue_type=issue_request_update&order_status=&page=1&paid_at_from=&paid_at_to=' +
+  '&payment_status=&push_to_fulfillment_progress=&shipment_status=&shipped_at_from=&shipped_at_to=' +
+  '&tracking_status=&validate_shipping_address=';
+
 async function merchizeFetch(dem, store, method, path, body) {
   const res = await goi(dem, store.baseUrl.replace(/\/+$/, '') + path, {
     method,
@@ -523,7 +544,7 @@ function donCanTra(rows) {
 
 async function chayLich(env, event) {
   const dem = taoBoDem();
-  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, teb: [], tebCost: [] };
+  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, teb: [], tebCost: [], canXuLy: [] };
   const ghiNhan = (ma, kq) => {
     thongKe.daTra++;
     if (kq.tracking) thongKe.tracking.push(ma);
@@ -644,6 +665,42 @@ async function chayLich(env, event) {
     }
   }
 
+  // 4. Don Merchize can xu ly (Request update): statistic-issues (1 request/store) -> neu co thi
+  //    search/v3 lay danh sach -> yeu cau MOI thi lay note (require-attention), ghi AC + Telegram.
+  //    Moi yeu cau chi bao 1 lan (KV "att:<id>", giu 30 ngay).
+  for (const tab of tabs) {
+    const store = stores[tab];
+    if (!store || !store.baseUrl || !store.token) continue;
+    try {
+      const thongKeLoi = await merchizeGetRaw(dem, store, '/order/orders/statistic-issues?' + QUERY_CAN_XU_LY);
+      const muc = (Array.isArray(thongKeLoi) ? thongKeLoi : []).find((x) => x.key === 'issue_request_update');
+      if (!muc || !Number(muc.total)) continue;
+      const kq = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_CAN_XU_LY);
+      for (const o of (kq && kq.orders) || []) {
+        if (o.order_request_attention_status && o.order_request_attention_status !== 'open') continue;
+        const maEtsy = str(o.external_order_number || (o.external_order_id || {}).id);
+        thongKe.canXuLy.push(maEtsy || str(o.code));
+        const khoa = 'att:' + ((o.order_request_attentions || []).join(',') || o._id);
+        if (await env.EVENTS.get(khoa)) continue;
+        if (dem.n >= GIOI_HAN_REQUEST - 6 - tabs.length) break;
+        const dsYeuCau = await merchizeGetRaw(dem, store, `/order/orders/${o._id}/require-attention?status=open&limit=50`);
+        const note = (Array.isArray(dsYeuCau) ? dsYeuCau : []).map((x) => str(x.note)).filter(Boolean).join(' | ');
+        apDungSuKien({
+          event_type: 'ORDER.REQUIRE.ATTENTION',
+          resource: { external_number: maEtsy, code: str(o.code), note }
+        }, duLieu, boGhi);
+        await guiTelegram(env, dem, [
+          '🛑 Đơn cần xử lý trên Merchize',
+          `Tab: ${tab}`,
+          `Đơn Etsy: ${maEtsy || '?'}`,
+          `Mã Merchize: ${str(o.code) || '?'}`,
+          `Nội dung: ${note || 'xem trên Merchize'}`
+        ].join('\n'));
+        await env.EVENTS.put(khoa, '1', { expirationTtl: LUU_TOI_DA_GIAY });
+      }
+    } catch (e) { /* loi tam thoi, lan sau kiem tra lai */ }
+  }
+
   // 2. Tra API tracking. Don da co ma RX: gop 50 don/1 request. Don chua co ma RX: tra tung don,
   //    trong gioi han request con lai, xoay vong theo gio de lan luot tra het.
   const donLe = [];
@@ -721,12 +778,14 @@ async function chayLich(env, event) {
   const luc = (event && event.scheduledTime) || Date.now();
   const tiep = lanChayTiep(event && event.cron, luc);
   const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
-  const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.teb.length || thongKe.tebCost.length;
+  const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.teb.length || thongKe.tebCost.length ||
+    thongKe.canXuLy.length;
   await guiTelegram(env, dem, [
     `🔄 Cập nhật tự động lúc ${gioVN(luc)}`,
     thongKe.tracking.length ? `Tracking mới: ${thongKe.tracking.length} đơn (${ds(thongKe.tracking)})` : '',
     thongKe.teb.length ? `Tracking Teb mới: ${thongKe.teb.length} đơn (${ds(thongKe.teb)})` : '',
     thongKe.tebCost.length ? `Cost Teb: ${thongKe.tebCost.length} đơn (${ds(thongKe.tebCost)})` : '',
+    thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length} (${ds(thongKe.canXuLy)})` : '',
     thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
@@ -736,7 +795,7 @@ async function chayLich(env, event) {
 
   return {
     tracking: thongKe.tracking.length, cost: thongKe.cost.length,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb.length, costTeb: thongKe.tebCost.length, teb: tebInfo, conThieuTracking: conThieu, soDu
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb.length, costTeb: thongKe.tebCost.length, canXuLy: thongKe.canXuLy, teb: tebInfo, conThieuTracking: conThieu, soDu
   };
 }
 
