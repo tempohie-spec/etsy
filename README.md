@@ -1566,6 +1566,17 @@ giống lúc cài trong userscript):
 }
 ```
 
+**Tab nằm ở file Google Sheet khác** (vd 1 store quản lý ở file riêng): thêm `spreadsheetId` (ID
+file đó) và `sheet` (tên tab thật trong file, bỏ qua nếu trùng tên mục) vào mục của store đó:
+
+```json
+"Store Rieng": { "baseUrl": "https://bo-group-1-2.merchize.com/<store>/bo-api", "token": "TOKEN", "spreadsheetId": "ID_FILE_KHAC", "sheet": "Tên tab trong file" }
+```
+
+File đó phải **Share cho email service account (Editor)**. Tab phải có cùng bố cục cột với tab
+account hiện tại (C orderNumber ... W Date Fulfill, Y Base Cost, AB-AG). Mỗi file tốn thêm 1 request
+đọc mỗi lần chạy.
+
 Biến `READ_KEY` của bản cũ không còn dùng, có thể xoá.
 
 ## Bước 5: Bật lịch chạy

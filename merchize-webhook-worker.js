@@ -18,6 +18,8 @@
 //   GOOGLE_SERVICE_ACCOUNT  Toan bo noi dung file JSON khoa Service Account
 //   SPREADSHEET_ID          ID cua Google Sheet (doan giua /d/ va /edit trong link)
 //   STORES                  JSON: {"<ten tab>": {"baseUrl": "https://...merchize.com/<store>/bo-api", "token": "<Access Token>"}}
+//                           Tab nam o file Sheet khac: them "spreadsheetId": "<ID file>" (va "sheet": "<ten tab
+//                           that trong file>" neu ten muc khac ten tab), file do phai share cho service account.
 //   TEB (tuy chon)          JSON: {"<ten tab>": {"spreadsheetId": "<ID file Teb>", "sheet": "<ten tab trong file Teb>"}}
 // KV binding: EVENTS
 
@@ -235,26 +237,49 @@ function docCauHinhStores(env) {
   try { return JSON.parse(env.STORES || '{}') || {}; } catch (e) { throw new Error('Biến STORES không phải JSON hợp lệ.'); }
 }
 
-// Doc A:AG cua moi tab trong STORES -> { tenTab: rows }.
-async function docCacTab(env, dem, tabs) {
-  if (tabs.length === 0) return {};
-  const q = tabs.map((t) => 'ranges=' + encodeURIComponent(`'${t}'!A1:AG`)).join('&');
-  const data = await sheetsFetch(env, dem, `/values:batchGet?${q}&valueRenderOption=FORMATTED_VALUE`);
+// Vi tri that cua moi muc trong STORES: file (spreadsheetId, mac dinh SPREADSHEET_ID) va ten tab
+// trong file do (sheet, mac dinh chinh la ten muc). Nho vay 1 Worker phuc vu duoc nhieu file Sheet.
+function viTriTab(env, stores) {
+  const vt = {};
+  Object.keys(stores).forEach((k) => {
+    const st = stores[k] || {};
+    vt[k] = { id: str(st.spreadsheetId) || env.SPREADSHEET_ID, sheet: str(st.sheet) || k };
+  });
+  return vt;
+}
+
+// Doc A:AG cua moi muc trong STORES -> { tenMuc: rows }. Gom theo file, moi file 1 request.
+// File nao doc loi (chua share cho service account...) thi bao Telegram va coi nhu rong.
+async function docCacTab(env, dem, viTri) {
   const kq = {};
-  tabs.forEach((t, i) => { kq[t] = ((data.valueRanges || [])[i] || {}).values || []; });
+  const theoFile = {};
+  Object.keys(viTri).forEach((k) => { (theoFile[viTri[k].id] = theoFile[viTri[k].id] || []).push(k); });
+  for (const id of Object.keys(theoFile)) {
+    const keys = theoFile[id];
+    const q = keys.map((k) => 'ranges=' + encodeURIComponent(`'${viTri[k].sheet}'!A1:AG`)).join('&');
+    try {
+      const data = await sheetsFetch(env, dem, `/values:batchGet?${q}&valueRenderOption=FORMATTED_VALUE`, {}, id);
+      keys.forEach((k, i) => { kq[k] = ((data.valueRanges || [])[i] || {}).values || []; });
+    } catch (e) {
+      keys.forEach((k) => { kq[k] = []; });
+      await baoLoiHeThong(env, dem, `Không đọc được file Sheet ${id} (${keys.join(', ')}): ${e.message}`).catch(() => {});
+    }
+  }
   return kq;
 }
 
-// Bo ghi: gom cac o can ghi, dong thoi sua ngay trong bo nho de cac buoc sau thay gia tri moi.
-function taoBoGhi(duLieu) {
+// Bo ghi: gom cac o can ghi (theo file), dong thoi sua ngay trong bo nho de cac buoc sau thay gia
+// tri moi.
+function taoBoGhi(duLieu, viTri) {
   const text = new Map();
   const so = new Map();
   return {
     text,
     so,
     dat(tab, rowNumber, col, value, laSo) {
-      const range = `'${tab}'!${TEN_COT[col]}${rowNumber}`;
-      (laSo ? so : text).set(range, value);
+      const vt = viTri[tab];
+      const range = `'${vt.sheet}'!${TEN_COT[col]}${rowNumber}`;
+      (laSo ? so : text).set(vt.id + '|' + range, { id: vt.id, range, value });
       const rows = duLieu[tab];
       if (!rows[rowNumber - 1]) rows[rowNumber - 1] = [];
       rows[rowNumber - 1][col] = String(value);
@@ -268,13 +293,13 @@ function taoBoGhi(duLieu) {
 }
 
 // Ghi 1 lo. O bi khoa (Protected range) thi bo o do ra roi ghi lai phan con lai, toi da 8 lan.
-async function ghiLo(env, dem, valueInputOption, data, biKhoa) {
+async function ghiLo(env, dem, valueInputOption, data, biKhoa, spreadsheetId) {
   let conLai = data;
   for (let lan = 0; lan < 8 && conLai.length; lan++) {
     try {
       await sheetsFetch(env, dem, '/values:batchUpdate', {
         method: 'POST', body: JSON.stringify({ valueInputOption, data: conLai })
-      });
+      }, spreadsheetId);
       return;
     } catch (e) {
       const m = String(e.message).match(/Invalid data\[(\d+)\][^"]*protected/i);
@@ -286,11 +311,18 @@ async function ghiLo(env, dem, valueInputOption, data, biKhoa) {
 }
 
 async function ghiSheet(env, dem, boGhi) {
-  const doi = (m) => Array.from(m.entries()).map(([range, v]) => ({ range, values: [[v]] }));
+  // Gom theo file: { id: [{ range, values }] }.
+  const theoFile = (m) => {
+    const g = {};
+    m.forEach(({ id, range, value }) => { (g[id] = g[id] || []).push({ range, values: [[value]] }); });
+    return g;
+  };
   const biKhoa = [];
   // RAW cho chu (tracking dai khong bi doi thanh so), USER_ENTERED cho cost (de la so).
-  if (boGhi.text.size) await ghiLo(env, dem, 'RAW', doi(boGhi.text), biKhoa);
-  if (boGhi.so.size) await ghiLo(env, dem, 'USER_ENTERED', doi(boGhi.so), biKhoa);
+  const text = theoFile(boGhi.text);
+  const so = theoFile(boGhi.so);
+  for (const id of Object.keys(text)) await ghiLo(env, dem, 'RAW', text[id], biKhoa, id);
+  for (const id of Object.keys(so)) await ghiLo(env, dem, 'USER_ENTERED', so[id], biKhoa, id);
   if (biKhoa.length) {
     await baoLoiHeThong(env, dem, `Không ghi được ${biKhoa.length} ô vì đang bị khoá (Protected range): ` +
       biKhoa.slice(0, 10).join(', ') + '. Thêm email service account vào quyền sửa của vùng bảo vệ đó.').catch(() => {});
@@ -396,8 +428,9 @@ async function xuLyNgay(env, ev) {
     if (canGuiTelegram(ev)) await guiTelegram(env, dem, noiDungTelegram(ev));
     if (!noiDungTuSuKien(ev)) return;
     const stores = docCauHinhStores(env);
-    const duLieu = await docCacTab(env, dem, Object.keys(stores));
-    const boGhi = taoBoGhi(duLieu);
+    const viTri = viTriTab(env, stores);
+    const duLieu = await docCacTab(env, dem, viTri);
+    const boGhi = taoBoGhi(duLieu, viTri);
     const kq = apDungSuKien(ev, duLieu, boGhi);
     await ghiSheet(env, dem, boGhi);
     if (kq === 'chuaThay') await luuCho(env, ev);
@@ -553,8 +586,9 @@ async function chayLich(env, event) {
   };
   const stores = docCauHinhStores(env);
   const tabs = Object.keys(stores);
-  const duLieu = await docCacTab(env, dem, tabs);
-  const boGhi = taoBoGhi(duLieu);
+  const viTri = viTriTab(env, stores);
+  const duLieu = await docCacTab(env, dem, viTri);
+  const boGhi = taoBoGhi(duLieu, viTri);
 
   // 1. Chay lai cac thong bao con cho.
   const list = await env.EVENTS.list({ prefix: 'ev:' });
