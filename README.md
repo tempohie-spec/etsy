@@ -662,6 +662,34 @@ này (ô upload ảnh và Custom options là 2 phần độc lập của form, k
 đây, cần thêm dữ liệu (ví dụ thử đúng listing đó sau khi rút lại v9.28) mới kết luận được có phải
 trùng hợp hay không.
 
+### Có thể liên quan Custom options thật — chờ lâu hơn theo số ô đã tạo trước khi upload (v9.30)
+
+Sau v9.29, người dùng chạy lại đúng cặp so sánh (2 listing khác nhau, cùng 1 phiên): listing **có 2
+ô Custom options** ("Choose your favorite character" — List of options, và "Show Some Love to Our
+Shop" — Text box) **kẹt lại đúng ở lô đầu tiên** (đứng im hơn 60s, giống các lần trước); listing
+**không cần tạo Custom option nào** thì **chạy trơn tru toàn bộ**, không lô nào kẹt/lỗi/thử lại. Kết
+quả này khớp với giả thuyết người dùng nêu ở v9.29 — không còn là trùng hợp ngẫu nhiên nữa.
+
+Cơ chế nghi ngờ: `danTieuDeVaTag()` (luồng Alt+V) tạo TỪNG ô cá nhân hoá xong mới chuyển tab "Photo
+& Video" rồi bắt đầu upload — nhưng khoảng nghỉ trước đó chỉ cố định 300ms (trước khi bấm tab) và
+500ms (trước khi upload), KHÔNG PHỤ THUỘC vào việc vừa tạo bao nhiêu ô. Mỗi ô Custom option là 1 chu
+kỳ "Add field → điền → Done" riêng, có thể kéo theo request lưu/validate riêng phía Etsy — nếu vừa
+tạo XONG 2 ô mà lập tức chuyển tab + nhồi ảnh ngay, Etsy có thể vẫn còn đang xử lý/ổn định lại giao
+diện phía sau, đúng lúc đó gặp phải batch ảnh đầu tiên nên bị "kẹt" ở đúng thời điểm nhạy cảm này.
+
+Sửa (thay đổi AN TOÀN — chỉ làm chậm thêm vài giây, không đổi hành vi/thứ tự gì khác, để kiểm chứng
+giả thuyết mà không risk như v9.28): thời gian nghỉ trước khi chuyển tab và trước khi bắt đầu upload
+giờ **tăng theo đúng số ô Custom option vừa tạo được** (`ketQuaPerso.thanhCong`) — thêm 500ms mỗi ô:
+
+| Số ô Custom option đã tạo | Đợi trước khi bấm tab | Đợi trước khi bắt đầu upload |
+|---|---|---|
+| 0 (như trước) | 300ms | 500ms |
+| 1 | 800ms | 1000ms |
+| 2 | 1300ms | 1500ms |
+
+Console log thêm dòng `Đã tạo N ô cá nhân hoá — đợi thêm Xms trước khi chuyển tab...` khi có ít nhất
+1 ô, để dễ đối chiếu lần chạy tới xem có còn kẹt ở đúng listing nhiều Custom option hay không.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
