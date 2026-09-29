@@ -575,8 +575,8 @@ async function chayLich(env, event) {
       await baoLoiHeThong(env, dem, `Biến TEB của tab "${tab}" thiếu spreadsheetId hoặc sheet.`).catch(() => {});
       continue;
     }
-    // Nhan don Teb theo ma don co trong sheet Teb (ca don cu tao bang Apps Script, AC = "Cu"/trong),
-    // tru don da gui Merchize. Chi xet don co Date Fulfill (dong dau) trong SO_NGAY_CAP_NHAT ngay.
+    // Nhan don Teb theo ma don co trong sheet Teb (ca don cu tao bang Apps Script, AC = "Cu"/trong).
+    // Chi xet don co Date Fulfill (dong dau) trong SO_NGAY_CAP_NHAT ngay.
     const moc = new Date();
     moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
     const tatCaDon = new Map();
@@ -586,10 +586,9 @@ async function chayLich(env, event) {
       if (!tatCaDon.has(ma)) tatCaDon.set(ma, []);
       tatCaDon.get(ma).push({ rowNumber: i + 1, row });
     });
+    // Don co trong sheet Teb la don Teb, ke ca AC dang "Da gui" (gui truoc khi co phan Teb).
     const canTeb = new Map();
     tatCaDon.forEach((dong, ma) => {
-      const st = cell(dong[0].row, COL.status);
-      if (st === 'Đã gửi' || /^Lỗi import/.test(st)) return;
       const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
       if (!ngay || ngay < moc) return;
       canTeb.set(ma, dong);
