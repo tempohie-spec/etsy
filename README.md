@@ -550,6 +550,32 @@ lấy ảnh song song trước đó), **không tốn thêm request nào**, đặ
 theo đúng thứ tự còn thiếu. Toast cuối cùng đổi từ "tự upload nốt phần còn thiếu" (không rõ làm sao)
 thành hướng dẫn cụ thể: mở "Add photos" thật của Etsy, sắp Downloads theo Tên, chọn hết rồi thả vào.
 
+### KHÔNG nhồi lại khi chỉ HẾT GIỜ (chưa chắc là lỗi thật) — tránh vượt giới hạn 20 ảnh (v9.25)
+
+Log tiếp theo lộ ra một lỗi thật: 1 lô hết giờ chờ (180s, không phải lỗi Etsy báo — chỉ là script tự
+bỏ cuộc), script vẫn **nhồi lại y hệt các file đó** như khi gặp lỗi thật, rồi lô "thử lại" đó thành
+công rất nhanh (5.2s). Điều này cho thấy nhiều khả năng ảnh của lần đầu **vẫn đang được Etsy xử lý
+phía sau hậu trường** khi script bỏ cuộc chờ — nhồi lại là nhồi **thêm một lượt chọn file mới**, trong
+khi Etsy có thể vẫn đang đếm cả lượt cũ vào tổng số ảnh của listing. Hậu quả thực tế: script tiếp tục
+chạy hết các lô sau, nhưng đến gần cuối thì Etsy chặn hẳn bằng thông báo gốc **"You can only add 20
+photos and 2 videos per listing. Select fewer files and try again."** — vừa có nguy cơ ảnh lên trùng,
+vừa bị chặn vượt hạn mức, dù tổng số ảnh thực người dùng chọn chưa hề vượt 20.
+
+Sửa 2 chỗ:
+
+1. **Chỉ nhồi lại khi Etsy TỰ BÁO LỖI THẬT** (`lyDo === 'loi_that'`, tức bắt được đúng toast lỗi của
+   Etsy — tín hiệu đáng tin, biết chắc lô đó bị từ chối). **Không còn nhồi lại khi chỉ HẾT GIỜ**
+   (`lyDo === 'het_gio'`) — trường hợp này script chỉ đang *nghi ngờ*, không có gì xác nhận ảnh đã
+   thật sự thất bại; nhồi thêm 1 lượt chọn file mới lúc này rủi ro cao hơn lợi ích. Gặp hết giờ ->
+   dừng lô đó ngay, chuyển sang phương án dự phòng tải-về-máy (v9.24) để người dùng tự kiểm tra và
+   hoàn tất bằng tay — an toàn hơn là tự ý đoán và nhồi lại.
+2. **Giảm `THOI_HAN_CHO_ETSY_XU_LY_ANH` từ 180s xuống 120s** — dữ liệu thực tế qua nhiều lần chạy
+   cho thấy các lô xử lý xong thật sự đều dưới 90s (thường chỉ vài giây, trường hợp lâu nhất quan
+   sát được là ~89s); 180s chỉ kéo dài thời gian chờ vô ích cho trường hợp thật sự bị kẹt.
+
+Toast báo lỗi cuối cùng cũng đổi từ "Đã thử lại N lần" (giả định luôn thử đủ số lần) thành đếm đúng
+**số lần đã thử thực tế** (`lanThuCuoi`), vì giờ có thể dừng chỉ sau 1 lần nếu gặp hết giờ ngay từ đầu.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
