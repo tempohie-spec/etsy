@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.24
+// @version      1.25
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.24';
+  const SCRIPT_VERSION = '1.25';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -720,7 +720,7 @@
   }
 
   // 1 dong theo dinh dang sheet Teb (A ORDER DATE, B ORDER CODE, C SKU ... Q MOCKUP, R MOCKUP
-  // BACK, S NOTE = DTG), giong buildTebDestRow cua Apps Script cu.
+  // BACK, S NOTE = DTG), giong buildTebDestRow cua Apps Script cu. Khi ghi bo cot A (bi khoa).
   function dongTeb(r, tebSku) {
     const v = new Array(20).fill('');
     v[0] = ngayTeb(cell(r, COL.dateFulfill));
@@ -747,10 +747,19 @@
   // Ghi NOI TIEP (khong xoa gi) cac don Teb vao sheet Teb da chon cho tab nay.
   async function ghiSheetTeb(target, dsTeb) {
     if (!dsTeb.length) return;
-    const range = encodeURIComponent(`'${target.sheetTitle}'!A:T`);
-    await sheetsApiFetch(`${target.spreadsheetId}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    // Chi ghi cot B -> T (cot A ORDER DATE va cac cot sau T tren sheet Teb co the bi khoa). Tim
+    // dong trong ke tiep theo cot B (ORDER CODE) roi ghi dung vung do, khong chen dong moi.
+    const cotB = await sheetsApiFetch(
+      `${target.spreadsheetId}/values/${encodeURIComponent(`'${target.sheetTitle}'!B:B`)}?majorDimension=COLUMNS`,
+      { method: 'GET' });
+    const dongTiep = (((cotB.values || [])[0]) || []).length + 1;
+    const range = `'${target.sheetTitle}'!B${dongTiep}:T${dongTiep + dsTeb.length - 1}`;
+    await sheetsApiFetch(`${target.spreadsheetId}/values:batchUpdate`, {
       method: 'POST',
-      body: JSON.stringify({ values: dsTeb.map((d) => dongTeb(d.rows[0].r, d.tebSku)) })
+      body: JSON.stringify({
+        valueInputOption: 'RAW',
+        data: [{ range, values: dsTeb.map((d) => dongTeb(d.rows[0].r, d.tebSku).slice(1)) }]
+      })
     });
   }
 
