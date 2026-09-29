@@ -1378,22 +1378,29 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   script **Import Cost/Earnings** như cũ, script đó sẽ ghi đè số ước tính khi có cost thật.
 - Catalog lưu từ bản cũ chưa có giá: bấm **1. Cập nhật catalog** lại một lần.
 
-## Sheet "Merchize SKU" và Teb Print (v1.20, thay Apps Script cũ)
+## Luật AU và Teb Print (v1.21, thay Apps Script cũ)
 
-Gộp logic Apps Script `processCurrentSheet` cũ vào nút **Kiểm tra** / **Gửi đơn**:
+- **SKU Merchize tra thẳng catalog.** Luật AU giữ như Apps Script cũ: Comfort Adult (1717US) gửi
+  **Australia** dùng **1717AU** (Comfort Colors 1717 Made in AU) nếu có đúng màu + size, không có
+  thì dùng 1717US. Bấm **1. Cập nhật catalog** một lần để tải thêm 1717AU.
+- **Teb Print** (tab trong `TEB_TABS`, hiện là **ETSY_Turkiye 01**), luật giữ như cũ: đơn gửi
+  **United States**, **chỉ 1 dòng**, tìm được SKU trong sheet **Teb Print SKU** (cột `title`,
+  `color`, `size`, `SKU`) thì **không gửi Merchize** mà **ghi nối tiếp vào sheet Teb do bạn
+  chọn**; cột AB = SKU Teb, AC = `Teb`.
+  - Chọn sheet Teb: mở file Teb, mở đúng tab, copy link (có `#gid=`) → trên bảng Merchize ở tab
+    ETSY_Turkiye 01 dán vào ô **Link sheet Teb** → **Lưu sheet Teb cho tab này**. Tài khoản Google
+    của bạn phải có quyền sửa file Teb.
+  - Cột ghi: A ORDER DATE (`28/9/26`, từ Date Fulfill), B ORDER CODE, C SKU, D QUANTITY, E FULL
+    NAME, F PHONE, G-H ADDRESS, I CITY, J REGION, K ZIP, L COUNTRY, M FRONT DESIGN, N BACK DESIGN,
+    Q MOCKUP (chỉ có back design thì ghi vào R MOCKUP BACK), S NOTE = `DTG` nếu in DTG.
+- **Tracking Teb tự động:** Worker đọc sheet Teb (cột B ORDER CODE, T TRACKING, U DVVC) mỗi lần
+  chạy, điền AE/AF (dòng đầu của đơn) cho đơn `Teb` còn thiếu tracking, và báo `Tracking Teb mới`
+  trên Telegram. Cần: **Share file Teb** cho email service account (quyền xem là đủ) và thêm biến
+  Secret `TEB` trên Cloudflare:
 
-- **SKU Merchize:** tra sheet **Merchize SKU** trước (cột `title`, `color`, `size`, `merchizeSku`,
-  `type`; khoá = title + color + size, không phân biệt hoa thường). Cùng khoá có nhiều `type`
-  (1717 Made in AU / Made in US): đơn gửi **Australia** ưu tiên AU, không có thì US; nước khác
-  luôn US. Không có trong sheet thì tra catalog API như trước.
-- **Teb Print** (tab trong `TEB_TABS`, hiện là **ETSY_Turkiye 01**): đơn gửi **United States**,
-  **chỉ 1 dòng**, và tìm được SKU trong sheet **Teb Print SKU** (cột `title`, `color`, `size`,
-  `SKU`) thì **không gửi Merchize** mà ghi vào sheet **Teb: ETSY_Turkiye 01** đúng định dạng cũ
-  (xoá dữ liệu cũ, giữ dòng tiêu đề) để tải file lên Teb; cột AB = SKU Teb, AC = `Teb`. Chỉ có
-  designBack thì mockUpFront ghi vào cột mockupBack (R). DTG ghi vào cột S.
-- Nút **Kiểm tra** báo trước đơn nào đi Teb. Worker và nút cập nhật tracking bỏ qua đơn `Teb`.
-- Sheet **Teb: ...** bị xoá và ghi lại **mỗi lần bấm Gửi đơn** có đơn Teb: tải file lên Teb trước
-  khi gửi đợt tiếp theo.
+  ```json
+  { "ETSY_Turkiye 01": { "spreadsheetId": "<ID file Teb>", "sheet": "<tên tab trong file Teb>" } }
+  ```
 
 ## Quy tắc tra SKU
 

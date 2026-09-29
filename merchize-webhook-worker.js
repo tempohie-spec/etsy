@@ -7,6 +7,7 @@
 // - Lich (Cron Trigger, vd moi 30 phut hoac moi gio):
 //     1. Chay lai cac thong bao con cho trong KV.
 //     2. Tra API tracking cho don 10 ngay gan nhat chua co tracking -> dien tracking, ma RX, cost.
+//     3. Don di Teb (AC = "Teb"): lay tracking + DVVC tu sheet Teb (bien TEB).
 // - GET /run?key=<1 trong SECRET_KEYS>: chay lich ngay lap tuc.
 //
 // Bien moi truong (Settings > Variables and Secrets, loai Secret):
@@ -16,6 +17,7 @@
 //   GOOGLE_SERVICE_ACCOUNT  Toan bo noi dung file JSON khoa Service Account
 //   SPREADSHEET_ID          ID cua Google Sheet (doan giua /d/ va /edit trong link)
 //   STORES                  JSON: {"<ten tab>": {"baseUrl": "https://...merchize.com/<store>/bo-api", "token": "<Access Token>"}}
+//   TEB (tuy chon)          JSON: {"<ten tab>": {"spreadsheetId": "<ID file Teb>", "sheet": "<ten tab trong file Teb>"}}
 // KV binding: EVENTS
 
 const LUU_TOI_DA_GIAY = 30 * 24 * 3600;
@@ -216,9 +218,9 @@ async function layGoogleToken(env, dem) {
   return data.access_token;
 }
 
-async function sheetsFetch(env, dem, path, opts = {}) {
+async function sheetsFetch(env, dem, path, opts = {}, spreadsheetId = env.SPREADSHEET_ID) {
   const token = await layGoogleToken(env, dem);
-  const res = await goi(dem, `https://sheets.googleapis.com/v4/spreadsheets/${env.SPREADSHEET_ID}${path}`, {
+  const res = await goi(dem, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}${path}`, {
     ...opts,
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }
   });
@@ -519,7 +521,7 @@ function donCanTra(rows) {
 
 async function chayLich(env, event) {
   const dem = taoBoDem();
-  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0 };
+  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, teb: [] };
   const ghiNhan = (ma, kq) => {
     thongKe.daTra++;
     if (kq.tracking) thongKe.tracking.push(ma);
@@ -541,6 +543,46 @@ async function chayLich(env, event) {
     const kqSk = apDungSuKien(ev, duLieu, boGhi);
     if (kqSk !== 'chuaThay') daXong.push(k.name);
     if (kqSk === 'xong') thongKe.cho++;
+  }
+
+  // 3 (lam truoc de chac chan con request). Don Teb: lay tracking tu sheet Teb theo ORDER CODE
+  //    (cot B), TRACKING (cot T), DVVC (cot U). Chi ghi o dong dau cua don.
+  let cauHinhTeb = {};
+  try { cauHinhTeb = JSON.parse(env.TEB || '{}') || {}; } catch (e) { cauHinhTeb = {}; }
+  for (const tab of Object.keys(cauHinhTeb)) {
+    const cfg = cauHinhTeb[tab];
+    const rows = duLieu[tab];
+    if (!rows || !cfg || !cfg.spreadsheetId || !cfg.sheet) continue;
+    const canTeb = new Map();
+    rows.forEach((row, i) => {
+      const ma = cell(row, COL.orderNumber);
+      if (i === 0 || !ma || cell(row, COL.status) !== 'Teb') return;
+      if (!canTeb.has(ma)) canTeb.set(ma, []);
+      canTeb.get(ma).push({ rowNumber: i + 1, row });
+    });
+    const conThieuTeb = Array.from(canTeb.entries()).filter(([, dong]) => !dong.some(({ row }) => cell(row, COL.tracking)));
+    if (!conThieuTeb.length) continue;
+    try {
+      const data = await sheetsFetch(env, dem,
+        `/values/${encodeURIComponent(`'${cfg.sheet}'!A:U`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
+      const theoMa = {};
+      (data.values || []).forEach((r) => {
+        const ma = cell(r, 1);
+        if (ma && cell(r, 19)) theoMa[ma] = { tracking: cell(r, 19), dvvc: cell(r, 20) };
+      });
+      conThieuTeb.forEach(([ma, dong]) => {
+        const tk = theoMa[ma];
+        if (!tk) return;
+        const { rowNumber } = dong[0];
+        boGhi.dat(tab, rowNumber, COL.tracking, tk.tracking);
+        boGhi.dat(tab, rowNumber, COL.carrier, tk.dvvc);
+        boGhi.tieuDe(tab, COL.tracking, 'Tracking');
+        boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
+        thongKe.teb.push(ma);
+      });
+    } catch (e) {
+      await baoLoiHeThong(env, dem, `Không đọc được sheet Teb của tab "${tab}": ${e.message}`).catch(() => {});
+    }
   }
 
   // 2. Tra API tracking. Don da co ma RX: gop 50 don/1 request. Don chua co ma RX: tra tung don,
@@ -620,10 +662,11 @@ async function chayLich(env, event) {
   const luc = (event && event.scheduledTime) || Date.now();
   const tiep = lanChayTiep(event && event.cron, luc);
   const ds = (arr) => arr.slice(0, 15).join(', ') + (arr.length > 15 ? ` ... (+${arr.length - 15})` : '');
-  const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho;
+  const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.teb.length;
   await guiTelegram(env, dem, [
     `🔄 Cập nhật tự động lúc ${gioVN(luc)}`,
     thongKe.tracking.length ? `Tracking mới: ${thongKe.tracking.length} đơn (${ds(thongKe.tracking)})` : '',
+    thongKe.teb.length ? `Tracking Teb mới: ${thongKe.teb.length} đơn (${ds(thongKe.teb)})` : '',
     thongKe.cost.length ? `Cost thật: ${thongKe.cost.length} đơn (${ds(thongKe.cost)})` : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
@@ -633,7 +676,7 @@ async function chayLich(env, event) {
 
   return {
     tracking: thongKe.tracking.length, cost: thongKe.cost.length,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, conThieuTracking: conThieu, soDu
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb.length, conThieuTracking: conThieu, soDu
   };
 }
 

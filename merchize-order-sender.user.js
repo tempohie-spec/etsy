@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.20
+// @version      1.21
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.20';
+  const SCRIPT_VERSION = '1.21';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -93,7 +93,7 @@
     if (t.includes('bella') && t.includes('adult')) return '3001US';
     return null;
   }
-  const MA_SAN_PHAM = ['3001US', '301YUS', '1717US', '9018US', '3321US', '1800US', '1850US'];
+  const MA_SAN_PHAM = ['3001US', '301YUS', '1717US', '1717AU', '9018US', '3321US', '1800US', '1850US'];
 
   const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
@@ -260,25 +260,10 @@
     ].join('\n');
   }
 
-  // ====== BANG PHU TRONG SHEET: "Merchize SKU" va "Teb Print SKU" (giong Apps Script cu) ======
+  // ====== SHEET "Teb Print SKU" (giong Apps Script cu) ======
   // Khoa tra cuu = title|color|size (viet thuong, bo khoang trang dau cuoi).
   function makeKey(a, b, c) {
     return [a, b, c].map((x) => str(x).toLowerCase()).join('|');
-  }
-
-  const MERCHIZE_TYPE_AU = 'Classic Unisex T-Shirt Comfort Colors 1717 (Made in AU)';
-  const MERCHIZE_TYPE_US = 'Classic Unisex T-Shirt Comfort Colors 1717 (Made in US)';
-
-  // Cung title+color+size co the co nhieu dong khac "type" (vd 1717 Made in AU / Made in US):
-  // don gui Uc uu tien AU, khong co thi US; nuoc khac luon US.
-  function resolveMerchizeMatch(matches, country) {
-    if (!matches || matches.length === 0) return null;
-    if (matches.length === 1) return matches[0];
-    const us = matches.find((m) => m.type === MERCHIZE_TYPE_US);
-    if (str(country).toLowerCase() === 'australia') {
-      return matches.find((m) => m.type === MERCHIZE_TYPE_AU) || us || matches[0];
-    }
-    return us || matches[0];
   }
 
   function bangTuDuLieu(values) {
@@ -287,7 +272,7 @@
     return { H, rows: values.slice(1) };
   }
 
-  // Doc 2 sheet phu. Sheet nao khong co thi bo qua (tra ve bang rong).
+  // Doc sheet "Teb Print SKU". Khong co sheet thi tra ve bang rong.
   async function docBangPhu(spreadsheetId) {
     const doc = async (ten) => {
       try {
@@ -297,13 +282,6 @@
         return { H: {}, rows: [] };
       }
     };
-    const merchize = {};
-    const m = await doc('Merchize SKU');
-    m.rows.forEach((r) => {
-      const key = makeKey(r[m.H.title], r[m.H.color], r[m.H.size]);
-      const sku = str(r[m.H.merchizeSku]);
-      if (key !== '||' && sku) (merchize[key] = merchize[key] || []).push({ type: str(r[m.H.type]), merchizeSku: sku });
-    });
     const teb = {};
     const t = await doc('Teb Print SKU');
     t.rows.forEach((r) => {
@@ -311,36 +289,24 @@
       const sku = str(r[t.H.SKU]);
       if (key !== '||' && sku) teb[key] = sku;
     });
-    return { merchize, teb };
+    return { teb };
   }
 
-  function timVariantTheoSku(catalog, sku) {
-    for (const maSp of Object.keys(catalog.products)) {
-      const sp = catalog.products[maSp];
-      for (const k of Object.keys(sp.variants)) {
-        const v = sp.variants[k];
-        if ((typeof v === 'string' ? v : v.sku) === sku) return { sp, v: typeof v === 'string' ? null : v };
-      }
+  // Tra SKU cho 1 dong tu catalog. Mau ghep "A/B" (Etsy gop nhieu mau vao 1 lua chon) -> thu
+  // tung manh, chi nhan khi dung 1 manh khop catalog.
+  // Luat AU (giong Apps Script cu): Comfort Adult (1717US) gui Australia -> dung 1717 Made in AU
+  // (1717AU) neu co dung mau + size, khong co thi quay ve 1717US.
+  function traSku(catalog, title, color, size, country) {
+    const maSpGoc = xacDinhMaSanPham(title);
+    if (!maSpGoc) return { loi: `không nhận ra loại áo "${title}"` };
+    if (maSpGoc === '1717US' && str(country).toLowerCase() === 'australia') {
+      const kqAu = traSkuTrongSp(catalog, '1717AU', color, size);
+      if (kqAu.sku) return kqAu;
     }
-    return null;
+    return traSkuTrongSp(catalog, maSpGoc, color, size);
   }
 
-  // Tra SKU cho 1 dong: uu tien sheet "Merchize SKU" (neu co), khong co thi tra catalog.
-  // Mau ghep "A/B" (Etsy gop nhieu mau vao 1 lua chon) -> thu tung manh, chi nhan khi dung 1
-  // manh khop catalog.
-  function traSku(catalog, title, color, size, country, bangPhu) {
-    const tuSheet = bangPhu && resolveMerchizeMatch(bangPhu.merchize[makeKey(title, color, size)], country);
-    if (tuSheet) {
-      const tim = timVariantTheoSku(catalog, tuSheet.merchizeSku);
-      return {
-        sku: tuSheet.merchizeSku,
-        productTitle: tuSheet.type || (tim && tim.sp.title) || title,
-        mauGui: color,
-        variant: tim ? tim.v : null
-      };
-    }
-    const maSp = xacDinhMaSanPham(title);
-    if (!maSp) return { loi: `không nhận ra loại áo "${title}"` };
+  function traSkuTrongSp(catalog, maSp, color, size) {
     const sp = catalog.products[maSp];
     if (!sp) return { loi: `catalog chưa có ${maSp}, bấm "Cập nhật catalog"` };
     const s = chuanHoaSize(size);
@@ -598,7 +564,7 @@
   }
 
   // Kiem tra + dung payload cho 1 don. Tra ve { payload, skus, loi[] }.
-  function dungDon(don, catalog, tenTab, bangPhu) {
+  function dungDon(don, catalog, tenTab) {
     const loi = [];
     const skus = [];
     const dongCost = [];
@@ -631,7 +597,7 @@
       const title = cell(r, COL.title);
       const color = cell(r, COL.color);
       const size = cell(r, COL.size);
-      const tra = traSku(catalog, title, color, size, cell(first, COL.country), bangPhu);
+      const tra = traSku(catalog, title, color, size, cell(first, COL.country));
       // Mau ghep "A/B" da tra ra 1 mau cu the -> gui dung manh do thay vi ca chuoi goc.
       const mauGui = tra.mauGui || color;
       skus.push(tra.sku || '');
@@ -709,12 +675,11 @@
       donMap.get(ma).rows.push({ rowNumber: i + 1, r });
     });
     const canDien = Array.from(donMap.values()).filter((d) => !cell(d.rows[0].r, COL.baseCost));
-    const bangPhu = await docBangPhu(spreadsheetId);
     const list = [];
     const loi = [];
     const chiTiet = [];
     canDien.forEach((d) => {
-      const kq = dungDon(d, catalog, title, bangPhu);
+      const kq = dungDon(d, catalog, title);
       if (typeof kq.cost === 'number') {
         list.push({ row: d.rows[0].rowNumber, cost: kq.cost });
         chiTiet.push(`• ${d.orderNumber} ${kq.chiTietCost}`);
@@ -856,7 +821,7 @@
 
   // ============ TEB PRINT (fulfill rieng cho 1 so account) ============
   // Tab nao dung Teb: don gui US, chi 1 dong va tim duoc SKU trong sheet "Teb Print SKU" thi di
-  // Teb (ghi ra sheet "Teb: <tab>" de tai file len Teb), con lai gui Merchize.
+  // Teb (ghi noi tiep vao sheet Teb do nguoi dung chon), con lai gui Merchize.
   const TEB_TABS = new Set(['ETSY_Turkiye 01']);
   const STATUS_TEB = 'Teb';
 
@@ -867,9 +832,22 @@
     return bangPhu.teb[makeKey(cell(r, COL.title), cell(r, COL.color), cell(r, COL.size))] || '';
   }
 
-  // 1 dong theo dinh dang sheet Teb cu (20 cot, giong buildTebDestRow cua Apps Script).
+  // Sheet Teb dich cua tung tab: { "<tab>": { spreadsheetId, sheetTitle } }, luu trong Violentmonkey.
+  function docCacSheetTeb() {
+    try { return JSON.parse(GM_getValue('mz_teb_targets', '{}')) || {}; } catch (e) { return {}; }
+  }
+
+  // "28/09/2026" -> "28/9/26" (giong cot ORDER DATE cua sheet Teb).
+  function ngayTeb(v) {
+    const m = str(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    return m ? `${Number(m[1])}/${Number(m[2])}/${m[3].slice(-2)}` : str(v);
+  }
+
+  // 1 dong theo dinh dang sheet Teb (A ORDER DATE, B ORDER CODE, C SKU ... Q MOCKUP, R MOCKUP
+  // BACK, S NOTE = DTG), giong buildTebDestRow cua Apps Script cu.
   function dongTeb(r, tebSku) {
     const v = new Array(20).fill('');
+    v[0] = ngayTeb(cell(r, COL.dateFulfill));
     v[1] = cell(r, COL.orderNumber);
     v[2] = tebSku;
     v[3] = cell(r, COL.quantity);
@@ -890,23 +868,31 @@
     return v;
   }
 
-  // Xoa du lieu cu (giu dong tieu de) roi ghi cac don Teb cua lan gui nay vao sheet "Teb: <tab>".
-  async function ghiSheetTeb(spreadsheetId, tenTab, dsTeb) {
-    const ten = 'Teb: ' + tenTab;
-    if (!Object.values(tenTabTheoGid).includes(ten)) {
-      await sheetsApiFetch(`${spreadsheetId}:batchUpdate`, {
-        method: 'POST', body: JSON.stringify({ requests: [{ addSheet: { properties: { title: ten } } }] })
-      });
-    }
-    await sheetsApiFetch(`${spreadsheetId}/values/${encodeURIComponent(`'${ten}'!A2:Z`)}:clear`, { method: 'POST', body: '{}' });
+  // Ghi NOI TIEP (khong xoa gi) cac don Teb vao sheet Teb da chon cho tab nay.
+  async function ghiSheetTeb(target, dsTeb) {
     if (!dsTeb.length) return;
-    await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
+    const range = encodeURIComponent(`'${target.sheetTitle}'!A:T`);
+    await sheetsApiFetch(`${target.spreadsheetId}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
       method: 'POST',
-      body: JSON.stringify({
-        valueInputOption: 'RAW',
-        data: [{ range: `'${ten}'!A2`, values: dsTeb.map((d) => dongTeb(d.rows[0].r, d.tebSku)) }]
-      })
+      body: JSON.stringify({ values: dsTeb.map((d) => dongTeb(d.rows[0].r, d.tebSku)) })
     });
+  }
+
+  // Luu sheet Teb dich cho tab dang mo tu link (mo dung tab trong file Teb roi copy link co #gid=).
+  async function luuSheetTeb(link) {
+    const { title } = await layTrangTinhDangMo();
+    if (!TEB_TABS.has(title)) throw new Error(`Tab "${title}" không dùng Teb (TEB_TABS: ${Array.from(TEB_TABS).join(', ')}).`);
+    const m = str(link).match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (!m) throw new Error('Link không phải link Google Sheet.');
+    const g = str(link).match(/gid=(\d+)/);
+    const gid = g ? Number(g[1]) : 0;
+    const data = await sheetsApiFetch(`${m[1]}?fields=sheets.properties`, { method: 'GET' });
+    const p = (data.sheets || []).map((x) => x.properties).find((x) => x.sheetId === gid);
+    if (!p) throw new Error('Không tìm thấy tab trong link (link cần có #gid=...).');
+    const all = docCacSheetTeb();
+    all[title] = { spreadsheetId: m[1], sheetTitle: p.title };
+    GM_setValue('mz_teb_targets', JSON.stringify(all));
+    return `Đã chọn sheet Teb cho tab "${title}": tab "${p.title}". Đơn Teb sẽ được ghi nối tiếp vào đó.`;
   }
 
   // ============ 3 CHUC NANG CHINH ============
@@ -922,7 +908,11 @@
     const bangPhu = await docBangPhu(spreadsheetId);
     const tatCa = gomDon(rows).map((d) => ({ ...d, tebSku: tebSkuCuaDon(d, title, bangPhu) }));
     const dsTeb = tatCa.filter((d) => d.tebSku);
-    const donList = tatCa.filter((d) => !d.tebSku).map((d) => ({ ...d, ...dungDon(d, catalog, title, bangPhu) }));
+    const tebTarget = docCacSheetTeb()[title];
+    if (guiThat && dsTeb.length && !tebTarget) {
+      throw new Error(`Có ${dsTeb.length} đơn đi Teb nhưng tab "${title}" chưa chọn sheet Teb. Dán link sheet Teb rồi bấm "Lưu sheet Teb".`);
+    }
+    const donList = tatCa.filter((d) => !d.tebSku).map((d) => ({ ...d, ...dungDon(d, catalog, title) }));
     if (donList.length === 0 && dsTeb.length === 0) return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
     const dongTebBaoCao = dsTeb.length ? [`${dsTeb.length} đơn đi Teb: ${dsTeb.map((d) => d.orderNumber).join(', ')}`] : [];
 
@@ -955,7 +945,7 @@
     }
     const ok = W.confirm(
       `Gửi ${hopLe.length} đơn trong trang "${title}" lên store Merchize:\n${store.baseUrl}` +
-      (dsTeb.length ? `\nvà ghi ${dsTeb.length} đơn đi Teb vào sheet "Teb: ${title}" (xoá dữ liệu cũ trong sheet đó)` : '') +
+      (dsTeb.length ? `\nvà ghi nối tiếp ${dsTeb.length} đơn đi Teb vào sheet Teb "${tebTarget.sheetTitle}"` : '') +
       (coLoi.length ? `\n(${coLoi.length} đơn lỗi sẽ được đánh dấu, không gửi)` : '') +
       (hopLe.length > 30 ? '\n\nSố đơn khá nhiều. Nếu đây là đơn cũ, hãy bấm Hủy rồi dùng nút "Đánh dấu dòng cũ".' : '')
     );
@@ -972,7 +962,7 @@
 
     // Don Teb: ghi sheet Teb truoc, roi danh dau AC = "Teb" de khong bi gui lai.
     if (dsTeb.length) {
-      await ghiSheetTeb(spreadsheetId, title, dsTeb);
+      await ghiSheetTeb(tebTarget, dsTeb);
       await ghiKetQua(spreadsheetId, title, dsTeb.map((d) => ({ row: d.rows[0].rowNumber, values: [d.tebSku, STATUS_TEB, ''] })));
     }
 
@@ -1009,7 +999,7 @@
 
     return [
       `Trang "${title}": gửi thành công ${thanhCong}/${hopLe.length} đơn lên Merchize.`,
-      ...(dsTeb.length ? [`Đã ghi ${dsTeb.length} đơn vào sheet "Teb: ${title}", tải file lên Teb.`] : []),
+      ...(dsTeb.length ? [`Đã ghi ${dsTeb.length} đơn vào sheet Teb "${tebTarget.sheetTitle}".`] : []),
       ...ketQuaGui,
       coLoi.length ? `${coLoi.length} đơn không gửi vì lỗi dữ liệu:` : '',
       ...dongLoi
@@ -1085,6 +1075,9 @@
     tokenInput.placeholder = 'Access Token của store này';
     const saveTokenBtn = nut('Lưu store cho tab này', '#607d8b');
     const viewStoreBtn = nut('Xem store của tab', '#90a4ae');
+    const tebInput = el('input', oCss);
+    tebInput.placeholder = 'Link sheet Teb (mở đúng tab rồi copy link, chỉ tab dùng Teb)';
+    const tebBtn = nut('Lưu sheet Teb cho tab này', '#6d4c41');
 
     const catalogInfo = el('div', 'font-size:11px;color:#999;margin:4px 0 6px;');
     function capNhatCatalogInfo() {
@@ -1105,7 +1098,7 @@
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, apiBtn, statusEl]
+    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, tebInput, tebBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, apiBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
     document.body.appendChild(panel);
@@ -1166,7 +1159,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, viewStoreBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, apiBtn];
+    const tatCaNut = [saveTokenBtn, viewStoreBtn, tebBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, apiBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1216,6 +1209,11 @@
     window.addEventListener('hashchange', capNhatStoreTheoTab);
 
     viewStoreBtn.addEventListener('click', () => chay(xemStore));
+    tebBtn.addEventListener('click', () => chay(async () => {
+      const kq = await luuSheetTeb(tebInput.value);
+      tebInput.value = '';
+      return kq;
+    }));
     saveTokenBtn.addEventListener('click', () => chay(async () => {
       const baseUrl = chuanHoaBaseUrl(baseInput.value);
       if (!baseUrl) throw new Error('Base URL không đúng dạng https://....merchize.com/<store>/bo-api');
