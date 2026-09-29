@@ -548,10 +548,14 @@ async function chayLich(env, event) {
   // 3 (lam truoc de chac chan con request). Don Teb: doc sheet Teb theo ORDER CODE (cot B) ->
   //    TRACKING (T), DVVC (U) ghi vao AE/AF, Total (AA) ghi vao Base Cost (Y). Chi ghi dong dau
   //    cua don va chi khi gia tri khac hien tai.
+  // Tinh trang doc sheet Teb, tra ve trong ket qua /run de biet vi sao khong co cap nhat.
+  const tebInfo = {};
   let cauHinhTeb = {};
+  if (!env.TEB) tebInfo.loi = 'chưa khai báo biến TEB';
   try {
     cauHinhTeb = JSON.parse(env.TEB || '{}') || {};
   } catch (e) {
+    tebInfo.loi = 'biến TEB không phải JSON hợp lệ';
     await baoLoiHeThong(env, dem, 'Biến TEB không phải JSON hợp lệ.').catch(() => {});
   }
   const soTien = (v) => {
@@ -562,10 +566,12 @@ async function chayLich(env, event) {
     const cfg = cauHinhTeb[tab];
     const rows = duLieu[tab];
     if (!rows) {
+      tebInfo[tab] = 'tab không có trong STORES';
       await baoLoiHeThong(env, dem, `Tab "${tab}" trong biến TEB không có trong STORES.`).catch(() => {});
       continue;
     }
     if (!cfg || !cfg.spreadsheetId || !cfg.sheet) {
+      tebInfo[tab] = 'thiếu spreadsheetId hoặc sheet';
       await baoLoiHeThong(env, dem, `Biến TEB của tab "${tab}" thiếu spreadsheetId hoặc sheet.`).catch(() => {});
       continue;
     }
@@ -588,6 +594,11 @@ async function chayLich(env, event) {
         const ma = cell(r, 1);
         if (ma) theoMa[ma] = { tracking: cell(r, 19), dvvc: cell(r, 20), total: soTien(r[26]) };
       });
+      tebInfo[tab] = {
+        soDongSheetTeb: (data.values || []).length,
+        khopMaDon: Array.from(canTeb.keys()).filter((m) => theoMa[m]).length,
+        viDuMaSheetTeb: Object.keys(theoMa).slice(-3)
+      };
       canTeb.forEach((dong, ma) => {
         const tk = theoMa[ma];
         if (!tk) return;
@@ -609,6 +620,7 @@ async function chayLich(env, event) {
         }
       });
     } catch (e) {
+      tebInfo[tab] = 'lỗi đọc sheet Teb: ' + e.message.slice(0, 200);
       await baoLoiHeThong(env, dem, `Không đọc được sheet Teb của tab "${tab}": ${e.message}`).catch(() => {});
     }
   }
@@ -705,7 +717,7 @@ async function chayLich(env, event) {
 
   return {
     tracking: thongKe.tracking.length, cost: thongKe.cost.length,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb.length, costTeb: thongKe.tebCost.length, conThieuTracking: conThieu, soDu
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb.length, costTeb: thongKe.tebCost.length, teb: tebInfo, conThieuTracking: conThieu, soDu
   };
 }
 
