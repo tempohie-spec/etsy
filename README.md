@@ -753,6 +753,13 @@ Giữ nguyên hộp thoại "nhờ thêm 1 ảnh tay" của v9.31 làm lớp b�
 nên chưa vội gỡ bỏ; nếu sau bản sửa này không còn gặp lại hộp thoại đó nữa, xem như xác nhận đây
 đúng là nguyên nhân duy nhất.
 
+### Bỏ hộp thoại "nhờ thêm 1 ảnh tay" (v9.33)
+
+Sau khi xác nhận v9.32 sửa đúng gốc, bỏ hẳn `moYeuCauThemAnhThuCong()` và phần gọi nó trong
+`tuUploadAnh()` (thêm tạm ở v9.31 làm lớp bảo vệ khi chưa rõ nguyên nhân) — quay lại đúng luồng tự
+động hoàn toàn: chỉ còn kiểm tra "có tìm thấy ô upload ảnh hay không" như trước v9.31, không còn bắt
+người dùng thêm ảnh tay trước khi bắt đầu nữa.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
