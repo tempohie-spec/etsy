@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.20
+// @version      9.21
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.20';
+  const PHIEN_BAN = '9.21';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2799,11 +2799,17 @@
   // dang xu ly" MAI MAI (phan tu spinner "chet" van nam trong DOM) — khien choEtsyXuLyAnh() cho tro
   // het THOI_HAN_CHO_ETSY_XU_LY_ANH (180s) MOI LO, nhan them SO_LAN_THU_LAI_LO+1 lan thu lai, tao
   // cam giac "spinner rat lau" du anh that ra da xong tu som.
-  function dangXuLyRieng(the) {
+  // "baoChiTietMoiLan" (tuy chon): goi 1 lan DUY NHAT voi chinh phan tu spinner vua bat duoc, de
+  // noi goi log ra tag/class that su — giup phan biet "spinner that" voi truong hop selector do
+  // rong (vi du [class*="spinner" i]) lo bat nham 1 phan tu KHONG lien quan toi trang thai xu ly
+  // (vd icon trang tri co chu "spinner" tinh co trong ten class).
+  function dangXuLyRieng(the, baoChiTietMoiLan) {
     const spinner = the.querySelector(
       '[role="progressbar"], [aria-busy="true"], [class*="spinner" i], [data-clg-id*="spinner" i], [data-clg-id*="loading" i]'
     );
-    return !!spinner && dangHienThi(spinner);
+    const dangXuLy = !!spinner && dangHienThi(spinner);
+    if (dangXuLy && typeof baoChiTietMoiLan === 'function') baoChiTietMoiLan(spinner);
+    return dangXuLy;
   }
 
   // Cho Etsy upload + ve xong cac the anh moi. Tra ve { ok, lyDo, chiTiet }:
@@ -2820,6 +2826,20 @@
     const moc = Date.now();
     let soLanOnDinhLienTiep = 0;
     let giayLogCuoi = 0;
+
+    // Log CHI TIET phan tu spinner that su bat duoc, CHI 1 LAN cho ca lan cho nay (tranh spam) —
+    // de doi chieu: neu day khong phai spinner that (vi du 1 icon trang tri khong lien quan), se
+    // thay ro qua tag/class in ra, thay vi phai doan.
+    let daLogChiTietSpinner = false;
+    const baoChiTietSpinner = (spinner) => {
+      if (daLogChiTietSpinner) return;
+      daLogChiTietSpinner = true;
+      console.log(
+        '[Etsy Auto] Phần tử bị coi là "còn spinner" (đối chiếu xem có đúng là spinner thật không):',
+        spinner
+      );
+    };
+
     while (Date.now() - moc < THOI_HAN_CHO_ETSY_XU_LY_ANH) {
       const loiThat = timThongBaoLoiUploadEtsy();
       if (loiThat) {
@@ -2828,7 +2848,7 @@
       const cacThe = layCacTheAnh();
       const theMoi = cacThe.length >= soAnhCu + soAnhThem ? cacThe.slice(soAnhCu, soAnhCu + soAnhThem) : [];
       const soDaCoAnh = theMoi.filter((t) => t.querySelector('img')).length;
-      const soConSpinner = theMoi.filter((t) => dangXuLyRieng(t)).length;
+      const soConSpinner = theMoi.filter((t) => dangXuLyRieng(t, baoChiTietSpinner)).length;
       // Da du so the, moi the moi deu da co anh xem truoc VA khong con spinner rieng -> coi nhu
       // Etsy xu ly xong the do.
       const xong = theMoi.length === soAnhThem && soDaCoAnh === soAnhThem && soConSpinner === 0;
@@ -2851,8 +2871,9 @@
       if (giayDaTroi - giayLogCuoi >= 5) {
         giayLogCuoi = giayDaTroi;
         console.log(
-          `[Etsy Auto] ... đã chờ ${giayDaTroi}s cho ${soAnhThem} ảnh: ${theMoi.length}/${soAnhThem} thẻ xuất hiện, ` +
-            `${soDaCoAnh}/${soAnhThem} có ảnh xem trước, ${soConSpinner} thẻ còn spinner`
+          `[Etsy Auto] ... đã chờ ${giayDaTroi}s cho ${soAnhThem} ảnh: ${cacThe.length} thẻ đang có trên lưới, ` +
+            `${theMoi.length}/${soAnhThem} thẻ mới xuất hiện, ${soDaCoAnh}/${soAnhThem} có ảnh xem trước, ` +
+            `${soConSpinner} thẻ còn spinner`
         );
       }
 

@@ -454,6 +454,31 @@ Nhân dịp sửa, thêm luôn **log đo tốc độ** trong `choEtsyXuLyAnh()` 
 - Khi xử lý xong 1 lô, in tổng thời gian: `Etsy xử lý xong 5 ảnh sau 8.4s`.
 - Nếu hết hẳn thời hạn mà vẫn chưa xong, in cảnh báo rõ số giây đã chờ.
 
+### Log lần đầu cho thấy 2 kiểu chậm khác nhau — thêm log chi tiết phần tử spinner (v9.21)
+
+Nhờ log v9.20, lần thử tiếp theo của người dùng cho thấy **2 kiểu chậm khác hẳn nhau**, cả hai đều
+KHÔNG phải do lỗi selector "kẹt mãi mãi" của v9.19 (log số liệu có thay đổi theo thời gian, không
+đứng yên):
+
+- **Lô đầu tiên** (lưới đích đang trống — `soAnhCu = 0`): `0/5 thẻ mới xuất hiện` liên tục suốt
+  **85 giây** trước khi thẻ nào hiện ra, tổng cộng **89.4s** mới xong. Khi lưới đích còn trống, Etsy
+  gộp khu vực upload thành 1 ô "Drag and drop" duy nhất (xem mục "Chọn đúng ô upload" ở dưới) — nhiều
+  khả năng khung `[aria-roledescription="sortable"]` chỉ được Etsy dựng lên **sau khi** ảnh đầu tiên
+  đã thật sự lên xong ở backend, nên script không có gì để đếm trong lúc đó. Đây là thời gian Etsy
+  xử lý + dựng lại giao diện, không phải script bị kẹt.
+- **Lô sau** (lưới đã có ảnh): thẻ + ảnh xem trước hiện đủ **ngay từ giây thứ 5**, nhưng cả 5 thẻ
+  vẫn báo **"còn spinner" liên tục suốt 30 giây** trước khi hết, tổng **34.4s**.
+
+Vì chưa chắc chắn 100% "còn spinner" ở lô sau là spinner THẬT (Etsy đang xử lý thật) hay là script
+bắt nhầm 1 phần tử không liên quan (selector `[class*="spinner" i]`... vốn cố tình "dò rộng" nên có
+rủi ro khớp nhầm), thêm 1 log CHI TIẾT: lần đầu tiên bắt được 1 phần tử bị coi là spinner trong mỗi
+lượt `choEtsyXuLyAnh()`, in thẳng chính phần tử DOM đó ra Console (`console.log(..., spinner)`) —
+bấm vào để xem tag/class thật, thay vì chỉ đếm số lượng như log của v9.20. Nếu phần tử đó **không
+phải** spinner thật, sẽ biết ngay để thu hẹp lại selector.
+
+Thêm log này giúp lần báo lỗi tiếp theo (nếu spinner vẫn còn "lâu") có đủ dữ liệu để kết luận dứt
+điểm: do Etsy xử lý chậm thật (không sửa được từ script), hay do script đang bắt nhầm phần tử.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
