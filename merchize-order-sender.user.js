@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.19
+// @version      1.20
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.19';
+  const SCRIPT_VERSION = '1.20';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -260,9 +260,85 @@
     ].join('\n');
   }
 
-  // Tra SKU cho 1 dong. Mau ghep "A/B" (Etsy gop nhieu mau vao 1 lua chon) -> thu tung manh,
-  // chi nhan khi dung 1 manh khop catalog.
-  function traSku(catalog, title, color, size) {
+  // ====== BANG PHU TRONG SHEET: "Merchize SKU" va "Teb Print SKU" (giong Apps Script cu) ======
+  // Khoa tra cuu = title|color|size (viet thuong, bo khoang trang dau cuoi).
+  function makeKey(a, b, c) {
+    return [a, b, c].map((x) => str(x).toLowerCase()).join('|');
+  }
+
+  const MERCHIZE_TYPE_AU = 'Classic Unisex T-Shirt Comfort Colors 1717 (Made in AU)';
+  const MERCHIZE_TYPE_US = 'Classic Unisex T-Shirt Comfort Colors 1717 (Made in US)';
+
+  // Cung title+color+size co the co nhieu dong khac "type" (vd 1717 Made in AU / Made in US):
+  // don gui Uc uu tien AU, khong co thi US; nuoc khac luon US.
+  function resolveMerchizeMatch(matches, country) {
+    if (!matches || matches.length === 0) return null;
+    if (matches.length === 1) return matches[0];
+    const us = matches.find((m) => m.type === MERCHIZE_TYPE_US);
+    if (str(country).toLowerCase() === 'australia') {
+      return matches.find((m) => m.type === MERCHIZE_TYPE_AU) || us || matches[0];
+    }
+    return us || matches[0];
+  }
+
+  function bangTuDuLieu(values) {
+    const H = {};
+    (values[0] || []).forEach((h, i) => { if (str(h)) H[str(h)] = i; });
+    return { H, rows: values.slice(1) };
+  }
+
+  // Doc 2 sheet phu. Sheet nao khong co thi bo qua (tra ve bang rong).
+  async function docBangPhu(spreadsheetId) {
+    const doc = async (ten) => {
+      try {
+        const data = await sheetsApiFetch(`${spreadsheetId}/values/${encodeURIComponent(`'${ten}'`)}?valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
+        return bangTuDuLieu(data.values || []);
+      } catch (e) {
+        return { H: {}, rows: [] };
+      }
+    };
+    const merchize = {};
+    const m = await doc('Merchize SKU');
+    m.rows.forEach((r) => {
+      const key = makeKey(r[m.H.title], r[m.H.color], r[m.H.size]);
+      const sku = str(r[m.H.merchizeSku]);
+      if (key !== '||' && sku) (merchize[key] = merchize[key] || []).push({ type: str(r[m.H.type]), merchizeSku: sku });
+    });
+    const teb = {};
+    const t = await doc('Teb Print SKU');
+    t.rows.forEach((r) => {
+      const key = makeKey(r[t.H.title], r[t.H.color], r[t.H.size]);
+      const sku = str(r[t.H.SKU]);
+      if (key !== '||' && sku) teb[key] = sku;
+    });
+    return { merchize, teb };
+  }
+
+  function timVariantTheoSku(catalog, sku) {
+    for (const maSp of Object.keys(catalog.products)) {
+      const sp = catalog.products[maSp];
+      for (const k of Object.keys(sp.variants)) {
+        const v = sp.variants[k];
+        if ((typeof v === 'string' ? v : v.sku) === sku) return { sp, v: typeof v === 'string' ? null : v };
+      }
+    }
+    return null;
+  }
+
+  // Tra SKU cho 1 dong: uu tien sheet "Merchize SKU" (neu co), khong co thi tra catalog.
+  // Mau ghep "A/B" (Etsy gop nhieu mau vao 1 lua chon) -> thu tung manh, chi nhan khi dung 1
+  // manh khop catalog.
+  function traSku(catalog, title, color, size, country, bangPhu) {
+    const tuSheet = bangPhu && resolveMerchizeMatch(bangPhu.merchize[makeKey(title, color, size)], country);
+    if (tuSheet) {
+      const tim = timVariantTheoSku(catalog, tuSheet.merchizeSku);
+      return {
+        sku: tuSheet.merchizeSku,
+        productTitle: tuSheet.type || (tim && tim.sp.title) || title,
+        mauGui: color,
+        variant: tim ? tim.v : null
+      };
+    }
     const maSp = xacDinhMaSanPham(title);
     if (!maSp) return { loi: `không nhận ra loại áo "${title}"` };
     const sp = catalog.products[maSp];
@@ -522,7 +598,7 @@
   }
 
   // Kiem tra + dung payload cho 1 don. Tra ve { payload, skus, loi[] }.
-  function dungDon(don, catalog, tenTab) {
+  function dungDon(don, catalog, tenTab, bangPhu) {
     const loi = [];
     const skus = [];
     const dongCost = [];
@@ -555,7 +631,7 @@
       const title = cell(r, COL.title);
       const color = cell(r, COL.color);
       const size = cell(r, COL.size);
-      const tra = traSku(catalog, title, color, size);
+      const tra = traSku(catalog, title, color, size, cell(first, COL.country), bangPhu);
       // Mau ghep "A/B" da tra ra 1 mau cu the -> gui dung manh do thay vi ca chuoi goc.
       const mauGui = tra.mauGui || color;
       skus.push(tra.sku || '');
@@ -633,11 +709,12 @@
       donMap.get(ma).rows.push({ rowNumber: i + 1, r });
     });
     const canDien = Array.from(donMap.values()).filter((d) => !cell(d.rows[0].r, COL.baseCost));
+    const bangPhu = await docBangPhu(spreadsheetId);
     const list = [];
     const loi = [];
     const chiTiet = [];
     canDien.forEach((d) => {
-      const kq = dungDon(d, catalog, title);
+      const kq = dungDon(d, catalog, title, bangPhu);
       if (typeof kq.cost === 'number') {
         list.push({ row: d.rows[0].rowNumber, cost: kq.cost });
         chiTiet.push(`• ${d.orderNumber} ${kq.chiTietCost}`);
@@ -697,7 +774,7 @@
     });
     const dsDon = Array.from(donMap.entries()).filter(([, dong]) => {
       if (dong.some(({ r }) => cell(r, COL.tracking))) return false;
-      if (dong.some(({ r }) => /^Lỗi import/.test(cell(r, COL.status)))) return false;
+      if (dong.some(({ r }) => /^Lỗi import/.test(cell(r, COL.status)) || cell(r, COL.status) === 'Teb')) return false;
       const ngay = ngayTuO(cell(dong[0].r, COL.dateFulfill));
       return ngay && ngay >= moc;
     });
@@ -777,6 +854,61 @@
     ].filter(Boolean).join('\n');
   }
 
+  // ============ TEB PRINT (fulfill rieng cho 1 so account) ============
+  // Tab nao dung Teb: don gui US, chi 1 dong va tim duoc SKU trong sheet "Teb Print SKU" thi di
+  // Teb (ghi ra sheet "Teb: <tab>" de tai file len Teb), con lai gui Merchize.
+  const TEB_TABS = new Set(['ETSY_Turkiye 01']);
+  const STATUS_TEB = 'Teb';
+
+  function tebSkuCuaDon(don, tenTab, bangPhu) {
+    if (!TEB_TABS.has(tenTab) || don.rows.length !== 1) return '';
+    const r = don.rows[0].r;
+    if (cell(r, COL.country).toLowerCase() !== 'united states') return '';
+    return bangPhu.teb[makeKey(cell(r, COL.title), cell(r, COL.color), cell(r, COL.size))] || '';
+  }
+
+  // 1 dong theo dinh dang sheet Teb cu (20 cot, giong buildTebDestRow cua Apps Script).
+  function dongTeb(r, tebSku) {
+    const v = new Array(20).fill('');
+    v[1] = cell(r, COL.orderNumber);
+    v[2] = tebSku;
+    v[3] = cell(r, COL.quantity);
+    v[4] = cell(r, COL.name);
+    v[5] = cell(r, COL.phone);
+    v[6] = cell(r, COL.address1);
+    v[7] = cell(r, COL.address2);
+    v[8] = cell(r, COL.city);
+    v[9] = cell(r, COL.state);
+    v[10] = cell(r, COL.postalCode);
+    v[11] = cell(r, COL.country);
+    v[12] = cell(r, COL.designFront);
+    v[13] = cell(r, COL.designBack);
+    // Chi co designBack -> mockUpFront dien vao cot mockupBack (R), nguoc lai vao cot Q.
+    if (!cell(r, COL.designFront) && cell(r, COL.designBack)) v[17] = cell(r, COL.mockUpFront);
+    else v[16] = cell(r, COL.mockUpFront);
+    if (cell(r, COL.printingMethod).toUpperCase() === 'DTG') v[18] = cell(r, COL.printingMethod);
+    return v;
+  }
+
+  // Xoa du lieu cu (giu dong tieu de) roi ghi cac don Teb cua lan gui nay vao sheet "Teb: <tab>".
+  async function ghiSheetTeb(spreadsheetId, tenTab, dsTeb) {
+    const ten = 'Teb: ' + tenTab;
+    if (!Object.values(tenTabTheoGid).includes(ten)) {
+      await sheetsApiFetch(`${spreadsheetId}:batchUpdate`, {
+        method: 'POST', body: JSON.stringify({ requests: [{ addSheet: { properties: { title: ten } } }] })
+      });
+    }
+    await sheetsApiFetch(`${spreadsheetId}/values/${encodeURIComponent(`'${ten}'!A2:Z`)}:clear`, { method: 'POST', body: '{}' });
+    if (!dsTeb.length) return;
+    await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        valueInputOption: 'RAW',
+        data: [{ range: `'${ten}'!A2`, values: dsTeb.map((d) => dongTeb(d.rows[0].r, d.tebSku)) }]
+      })
+    });
+  }
+
   // ============ 3 CHUC NANG CHINH ============
   async function kiemTraHoacGui(statusEl, guiThat) {
     const catalog = docCatalogDaLuu();
@@ -787,8 +919,12 @@
     const store = layStore(title);
     if (guiThat && !store) throw new Error(`Tab "${title}" chưa cài store Merchize (Base URL + Access Token).`);
     const rows = await docTrangTinh(spreadsheetId, title);
-    const donList = gomDon(rows).map((d) => ({ ...d, ...dungDon(d, catalog, title) }));
-    if (donList.length === 0) return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
+    const bangPhu = await docBangPhu(spreadsheetId);
+    const tatCa = gomDon(rows).map((d) => ({ ...d, tebSku: tebSkuCuaDon(d, title, bangPhu) }));
+    const dsTeb = tatCa.filter((d) => d.tebSku);
+    const donList = tatCa.filter((d) => !d.tebSku).map((d) => ({ ...d, ...dungDon(d, catalog, title, bangPhu) }));
+    if (donList.length === 0 && dsTeb.length === 0) return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
+    const dongTebBaoCao = dsTeb.length ? [`${dsTeb.length} đơn đi Teb: ${dsTeb.map((d) => d.orderNumber).join(', ')}`] : [];
 
     const hopLe = donList.filter((d) => d.loi.length === 0);
     const coLoi = donList.filter((d) => d.loi.length > 0);
@@ -800,20 +936,26 @@
       donList.forEach((d) => d.rows.forEach(({ rowNumber, r }, i) => {
         updates.push({ row: rowNumber, values: [d.skus[i], cell(r, COL.status), cell(r, COL.merchizeId)] });
       }));
+      dsTeb.forEach((d) => {
+        const { rowNumber, r } = d.rows[0];
+        updates.push({ row: rowNumber, values: [d.tebSku, cell(r, COL.status), cell(r, COL.merchizeId)] });
+      });
       await damBaoTieuDe(spreadsheetId, title, rows);
       await ghiKetQua(spreadsheetId, title, updates);
       return [
-        `Trang "${title}": ${donList.length} đơn chờ gửi, ${hopLe.length} đơn hợp lệ, ${coLoi.length} đơn có lỗi.`,
-        'Đã điền Merchize SKU vào cột AB (chưa gửi gì lên Merchize).',
+        `Trang "${title}": ${donList.length} đơn chờ gửi Merchize, ${hopLe.length} đơn hợp lệ, ${coLoi.length} đơn có lỗi.`,
+        ...dongTebBaoCao,
+        'Đã điền SKU vào cột AB (chưa gửi gì lên Merchize / Teb).',
         ...dongLoi
       ].join('\n');
     }
 
-    if (hopLe.length === 0) {
+    if (hopLe.length === 0 && dsTeb.length === 0) {
       return [`Không có đơn hợp lệ để gửi (${coLoi.length} đơn lỗi):`, ...dongLoi].join('\n');
     }
     const ok = W.confirm(
       `Gửi ${hopLe.length} đơn trong trang "${title}" lên store Merchize:\n${store.baseUrl}` +
+      (dsTeb.length ? `\nvà ghi ${dsTeb.length} đơn đi Teb vào sheet "Teb: ${title}" (xoá dữ liệu cũ trong sheet đó)` : '') +
       (coLoi.length ? `\n(${coLoi.length} đơn lỗi sẽ được đánh dấu, không gửi)` : '') +
       (hopLe.length > 30 ? '\n\nSố đơn khá nhiều. Nếu đây là đơn cũ, hãy bấm Hủy rồi dùng nút "Đánh dấu dòng cũ".' : '')
     );
@@ -827,6 +969,12 @@
       updLoi.push({ row: rowNumber, values: [d.skus[i], STATUS_ERROR_PREFIX + d.loi.join('; '), ''] });
     }));
     await ghiKetQua(spreadsheetId, title, updLoi);
+
+    // Don Teb: ghi sheet Teb truoc, roi danh dau AC = "Teb" de khong bi gui lai.
+    if (dsTeb.length) {
+      await ghiSheetTeb(spreadsheetId, title, dsTeb);
+      await ghiKetQua(spreadsheetId, title, dsTeb.map((d) => ({ row: d.rows[0].rowNumber, values: [d.tebSku, STATUS_TEB, ''] })));
+    }
 
     let thanhCong = 0;
     const ketQuaGui = [];
@@ -860,7 +1008,8 @@
     }
 
     return [
-      `Trang "${title}": gửi thành công ${thanhCong}/${hopLe.length} đơn.`,
+      `Trang "${title}": gửi thành công ${thanhCong}/${hopLe.length} đơn lên Merchize.`,
+      ...(dsTeb.length ? [`Đã ghi ${dsTeb.length} đơn vào sheet "Teb: ${title}", tải file lên Teb.`] : []),
       ...ketQuaGui,
       coLoi.length ? `${coLoi.length} đơn không gửi vì lỗi dữ liệu:` : '',
       ...dongLoi

@@ -1378,6 +1378,23 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   script **Import Cost/Earnings** như cũ, script đó sẽ ghi đè số ước tính khi có cost thật.
 - Catalog lưu từ bản cũ chưa có giá: bấm **1. Cập nhật catalog** lại một lần.
 
+## Sheet "Merchize SKU" và Teb Print (v1.20, thay Apps Script cũ)
+
+Gộp logic Apps Script `processCurrentSheet` cũ vào nút **Kiểm tra** / **Gửi đơn**:
+
+- **SKU Merchize:** tra sheet **Merchize SKU** trước (cột `title`, `color`, `size`, `merchizeSku`,
+  `type`; khoá = title + color + size, không phân biệt hoa thường). Cùng khoá có nhiều `type`
+  (1717 Made in AU / Made in US): đơn gửi **Australia** ưu tiên AU, không có thì US; nước khác
+  luôn US. Không có trong sheet thì tra catalog API như trước.
+- **Teb Print** (tab trong `TEB_TABS`, hiện là **ETSY_Turkiye 01**): đơn gửi **United States**,
+  **chỉ 1 dòng**, và tìm được SKU trong sheet **Teb Print SKU** (cột `title`, `color`, `size`,
+  `SKU`) thì **không gửi Merchize** mà ghi vào sheet **Teb: ETSY_Turkiye 01** đúng định dạng cũ
+  (xoá dữ liệu cũ, giữ dòng tiêu đề) để tải file lên Teb; cột AB = SKU Teb, AC = `Teb`. Chỉ có
+  designBack thì mockUpFront ghi vào cột mockupBack (R). DTG ghi vào cột S.
+- Nút **Kiểm tra** báo trước đơn nào đi Teb. Worker và nút cập nhật tracking bỏ qua đơn `Teb`.
+- Sheet **Teb: ...** bị xoá và ghi lại **mỗi lần bấm Gửi đơn** có đơn Teb: tải file lên Teb trước
+  khi gửi đợt tiếp theo.
+
 ## Quy tắc tra SKU
 
 | Title (viết kiểu nào cũng được) | Mã Merchize |

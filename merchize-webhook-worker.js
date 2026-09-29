@@ -510,7 +510,8 @@ function donCanTra(rows) {
   });
   return Array.from(map.entries()).filter(([, dong]) => {
     if (dong.some(({ row }) => cell(row, COL.tracking))) return false;
-    if (dong.some(({ row }) => /^Lỗi import/.test(cell(row, COL.status)))) return false;
+    // Don di Teb (fulfill ben khac) khong co tren Merchize.
+    if (dong.some(({ row }) => /^Lỗi import/.test(cell(row, COL.status)) || cell(row, COL.status) === 'Teb')) return false;
     const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
     return ngay && ngay >= moc;
   });
