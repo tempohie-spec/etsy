@@ -1393,9 +1393,10 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   - Cột ghi: A ORDER DATE (`28/9/26`, từ Date Fulfill), B ORDER CODE, C SKU, D QUANTITY, E FULL
     NAME, F PHONE, G-H ADDRESS, I CITY, J REGION, K ZIP, L COUNTRY, M FRONT DESIGN, N BACK DESIGN,
     Q MOCKUP (chỉ có back design thì ghi vào R MOCKUP BACK), S NOTE = `DTG` nếu in DTG.
-- **Tracking Teb tự động:** Worker đọc sheet Teb (cột B ORDER CODE, T TRACKING, U DVVC) mỗi lần
-  chạy, điền AE/AF (dòng đầu của đơn) cho đơn `Teb` còn thiếu tracking, và báo `Tracking Teb mới`
-  trên Telegram. Cần: **Share file Teb** cho email service account (quyền xem là đủ) và thêm biến
+- **Tracking + cost Teb tự động:** Worker đọc sheet Teb mỗi lần chạy, theo ORDER CODE (cột B):
+  TRACKING (T) / DVVC (U) điền vào AE/AF cho đơn `Teb` còn thiếu tracking; **Total (AA)** điền vào
+  **Base Cost (Y)** (ghi đè cả chữ `chưa có cost` / `chưa ff`, chỉ ghi khi số khác). Chỉ ghi ở dòng
+  đầu của đơn. Telegram báo `Tracking Teb mới` / `Cost Teb`. Cần: **Share file Teb** cho email service account (quyền xem là đủ) và thêm biến
   Secret `TEB` trên Cloudflare:
 
   ```json
