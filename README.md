@@ -599,7 +599,21 @@ sang ô riêng ổn định. Từ lô thứ 2 trở đi (lưới đã có ít nh
 ảnh/lô như cũ. Chỉ ảnh hưởng listing đích đang trống hoàn toàn lúc bắt đầu Alt+V — không đổi gì với
 các trường hợp lưới đích đã có sẵn ảnh từ trước.
 
-### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
+### `soAnhCu === 0` không phải điều kiện đúng — kiểm tra lại chính cái `<input>` mỗi lô (v9.27)
+
+Ngay lần chạy kế tiếp, giả định ở v9.26 (chỉ ô gộp chung lúc lưới TRỐNG mới không ổn định, chỉ lô
+ĐẦU TIÊN mới cần lô nhỏ) bị chứng minh sai: log cho thấy lưới đích **đã có sẵn 5 ảnh từ trước** (đợt
+upload trước đó trong cùng phiên), vậy mà lô kế tiếp (5 ảnh) **vẫn** bị nhồi vào đúng ô gộp chung
+`id="(không id)"` và **vẫn kẹt y hệt** kiểu cũ (`3/5 có ảnh xem trước, 0 thẻ còn spinner`, đứng im).
+Tức là: ô gộp chung không chỉ xuất hiện khi lưới trống, và không chỉ ở lô đầu tiên — `soAnhCu === 0`
+chỉ là sự trùng hợp quan sát được trong các log trước đó, không phải nguyên nhân thật.
+
+Sửa lại theo đúng tín hiệu quan sát trực tiếp thay vì suy đoán gián tiếp: **trước MỖI lô** (không chỉ
+lô đầu), tự hỏi lại `timOChonAnhSanPham()` xem ô hiện tại có `id` hay không — hễ **không có `id`**
+(ô gộp chung) thì lô đó chỉ nhồi **1 ảnh**, bất kể đang là lô thứ mấy hay lưới đã có sẵn bao nhiêu
+ảnh. Ngay khi ô có `id` ổn định (`thumbnail-upload-...`) trở lại thì lô tiếp theo mới quay về đúng
+kích thước 5 ảnh như cũ. Cách này tự thích ứng theo đúng trạng thái thật của trang tại từng thời
+điểm, không còn dựa vào một điều kiện gián tiếp (`soAnhCu`) có thể sai trong các tình huống khác.
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
 động tích sẵn **"Bấm hộ Publish..."** làm mặc định — dù HTML vẫn ghi `checked` ở "Dừng lại, tôi tự
