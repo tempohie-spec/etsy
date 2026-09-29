@@ -408,6 +408,26 @@ Cũng thêm log kích thước từng ảnh (`console.log` dạng `Ảnh <tên>:
 — chưa có bằng chứng cho thấy dung lượng file là nguyên nhân, nhưng nếu lỗi còn tái diễn, log này
 cho dữ liệu cụ thể để kiểm tra thay vì phải đoán lại từ đầu.
 
+### "Không tìm thấy nút Publish copy with changes" dù ảnh đã lên đủ (v9.19)
+
+Log + ảnh chụp thực tế: toast báo `✅ Đã upload 10/10 ảnh ... ⚠️ không tìm thấy nút "Publish copy
+with changes"`, nhưng lưới ảnh lúc đó **vẫn còn vài thẻ đang hiện spinner xoay** (Etsy chưa xử lý
+xong hẳn) — `choEtsyXuLyAnh()` cũ chỉ kiểm tra **có `<img>` xem trước hay chưa**, mà `<img>` đó là
+Blob URL trình duyệt tự vẽ ngay lập tức nên có thể xuất hiện **trước** khi Etsy hoàn tất bước xử lý
+riêng của họ (thẻ vẫn phủ spinner đè lên trên). Script tưởng nhầm là đã "xong" ngay khi thấy đủ
+`<img>`, tiến luôn tới bước tìm nút Publish — nhưng nút đó vẫn đang **disabled** vì Etsy chưa xử lý
+xong, nên `timNutTheoNhan()` (chỉ chấp nhận nút không disabled) không tìm thấy.
+
+Hai thay đổi:
+
+1. `choEtsyXuLyAnh()` thêm kiểm tra **không còn spinner** trên từng thẻ ảnh mới (`dangXuLyRieng()`,
+   selector rộng kiểu `[role="progressbar"]`, `[aria-busy="true"]`, `[class*="spinner" i]`... — cùng
+   cách "dò rộng, không phụ thuộc 1 class cụ thể của Etsy" như `timThongBaoLoiUploadEtsy()`), và bắt
+   trạng thái "xong" phải **giữ nguyên qua 2 lần kiểm tra liên tiếp** (~1s/lần) mới tin — phòng khi
+   selector spinner đoán không khớp đúng markup thật của Etsy, 2 lần ổn định vẫn là một lớp bảo hiểm.
+2. Bước tìm nút **"Publish copy with changes"** đầu tiên đổi từ chờ cố định 600ms rồi kiểm tra
+   đúng 1 lần, sang chờ có polling tối đa 8s (`doiVaTimNutTheoNhan()`, giống 2 bước xác nhận sau
+   đó) — chấp nhận việc nút có thể còn disabled thêm vài giây sau khi ảnh cuối cùng đã xử lý xong.
 
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
