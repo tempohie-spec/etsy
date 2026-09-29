@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.23
+// @version      1.24
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.23';
+  const SCRIPT_VERSION = '1.24';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -836,10 +836,21 @@
     }));
     await ghiKetQua(spreadsheetId, title, updLoi);
 
-    // Don Teb: ghi sheet Teb truoc, roi danh dau AC = "Teb" de khong bi gui lai.
+    // Don Teb: ghi sheet Teb truoc, roi danh dau AC = "Teb" de khong bi gui lai. Ghi loi (vd khong
+    // co quyen sua file Teb) thi danh dau loi cho don Teb va VAN gui tiep don Merchize.
+    let loiTeb = '';
     if (dsTeb.length) {
-      await ghiSheetTeb(tebTarget, dsTeb);
-      await ghiKetQua(spreadsheetId, title, dsTeb.map((d) => ({ row: d.rows[0].rowNumber, values: [d.tebSku, STATUS_TEB, ''] })));
+      try {
+        await ghiSheetTeb(tebTarget, dsTeb);
+        await ghiKetQua(spreadsheetId, title, dsTeb.map((d) => ({ row: d.rows[0].rowNumber, values: [d.tebSku, STATUS_TEB, ''] })));
+      } catch (e) {
+        loiTeb = /\b403\b|PERMISSION_DENIED/.test(e.message)
+          ? 'tài khoản Google đang dùng không có quyền sửa file Teb'
+          : e.message.slice(0, 200);
+        await ghiKetQua(spreadsheetId, title, dsTeb.map((d) => ({
+          row: d.rows[0].rowNumber, values: [d.tebSku, STATUS_ERROR_PREFIX + 'không ghi được sheet Teb - ' + loiTeb, '']
+        })));
+      }
     }
 
     let thanhCong = 0;
@@ -875,7 +886,8 @@
 
     return [
       `Trang "${title}": gửi thành công ${thanhCong}/${hopLe.length} đơn lên Merchize.`,
-      ...(dsTeb.length ? [`Đã ghi ${dsTeb.length} đơn vào sheet Teb "${tebTarget.sheetTitle}".`] : []),
+      ...(dsTeb.length && !loiTeb ? [`Đã ghi ${dsTeb.length} đơn vào sheet Teb "${tebTarget.sheetTitle}".`] : []),
+      ...(loiTeb ? [`❌ ${dsTeb.length} đơn Teb chưa ghi được: ${loiTeb}. Cấp quyền Editor file Teb cho tài khoản này, rồi xoá ô AC các đơn đó và gửi lại.`] : []),
       ...ketQuaGui,
       coLoi.length ? `${coLoi.length} đơn không gửi vì lỗi dữ liệu:` : '',
       ...dongLoi
