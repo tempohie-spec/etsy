@@ -717,7 +717,17 @@ async function chayLich(env, event) {
         const maEtsy = str(o.external_order_number || (o.external_order_id || {}).id);
         const khoa = 'att:' + ((o.order_request_attentions || []).join(',') || o._id);
         // Nguoi dung da bao "xong" qua bot Telegram cho dung yeu cau nay -> khong nhac nua.
-        if (await env.EVENTS.get('done:' + khoa)) continue;
+        if (await env.EVENTS.get('done:' + khoa)) {
+          if (maEtsy && (await env.EVENTS.get('donema:' + maEtsy))) await env.EVENTS.delete('donema:' + maEtsy);
+          continue;
+        }
+        // Bao "xong" truoc khi lich kip luu attma (vd ngay sau khi deploy): tat yeu cau dang mo nay.
+        if (maEtsy && (await env.EVENTS.get('donema:' + maEtsy))) {
+          await env.EVENTS.put('done:' + khoa, '1', { expirationTtl: LUU_TOI_DA_GIAY });
+          await env.EVENTS.delete('donema:' + maEtsy);
+          apDungSuKien({ event_type: 'ORDER.REQUEST.DONE', resource: { external_number: maEtsy } }, duLieu, boGhi);
+          continue;
+        }
         // Ma don -> yeu cau dang mo, de lenh "xong <ma don>" tren Telegram biet tat yeu cau nao.
         const lienKet = JSON.stringify({ khoa, tab });
         if (maEtsy && (await env.EVENTS.get('attma:' + maEtsy)) !== lienKet) {
@@ -923,7 +933,12 @@ async function xuLyTinTelegram(env, msg) {
   const theoTab = {};
   for (const ma of cacMa) {
     const v = await env.EVENTS.get('attma:' + ma);
-    if (!v) { ketQua.push(`• ${ma}: không có yêu cầu nào đang mở`); continue; }
+    if (!v) {
+      // Chua co lien ket (lich chua chay toi don nay): ghi nho, lan chay toi se tat nhac.
+      await env.EVENTS.put('donema:' + ma, '1', { expirationTtl: 3 * 86400 });
+      ketQua.push(`• ${ma}: đã ghi nhận, lần cập nhật tới sẽ tắt nhắc và ghi AC`);
+      continue;
+    }
     const { khoa, tab } = JSON.parse(v);
     await env.EVENTS.put('done:' + khoa, '1', { expirationTtl: LUU_TOI_DA_GIAY });
     (theoTab[tab] = theoTab[tab] || []).push(ma);
