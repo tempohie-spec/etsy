@@ -549,7 +549,11 @@ async function chayLich(env, event) {
   //    TRACKING (T), DVVC (U) ghi vao AE/AF, Total (AA) ghi vao Base Cost (Y). Chi ghi dong dau
   //    cua don va chi khi gia tri khac hien tai.
   let cauHinhTeb = {};
-  try { cauHinhTeb = JSON.parse(env.TEB || '{}') || {}; } catch (e) { cauHinhTeb = {}; }
+  try {
+    cauHinhTeb = JSON.parse(env.TEB || '{}') || {};
+  } catch (e) {
+    await baoLoiHeThong(env, dem, 'Biến TEB không phải JSON hợp lệ.').catch(() => {});
+  }
   const soTien = (v) => {
     const t = str(v).replace(/[^0-9.\-]/g, '');
     return t === '' || isNaN(Number(t)) ? null : Math.round(Number(t) * 100) / 100;
@@ -557,11 +561,21 @@ async function chayLich(env, event) {
   for (const tab of Object.keys(cauHinhTeb)) {
     const cfg = cauHinhTeb[tab];
     const rows = duLieu[tab];
-    if (!rows || !cfg || !cfg.spreadsheetId || !cfg.sheet) continue;
+    if (!rows) {
+      await baoLoiHeThong(env, dem, `Tab "${tab}" trong biến TEB không có trong STORES.`).catch(() => {});
+      continue;
+    }
+    if (!cfg || !cfg.spreadsheetId || !cfg.sheet) {
+      await baoLoiHeThong(env, dem, `Biến TEB của tab "${tab}" thiếu spreadsheetId hoặc sheet.`).catch(() => {});
+      continue;
+    }
+    // Nhan don Teb theo ma don co trong sheet Teb (ca don cu tao bang Apps Script, AC = "Cu"/trong),
+    // tru don da gui Merchize.
     const canTeb = new Map();
     rows.forEach((row, i) => {
       const ma = cell(row, COL.orderNumber);
-      if (i === 0 || !ma || cell(row, COL.status) !== 'Teb') return;
+      const st = cell(row, COL.status);
+      if (i === 0 || !ma || st === 'Đã gửi' || /^Lỗi import/.test(st)) return;
       if (!canTeb.has(ma)) canTeb.set(ma, []);
       canTeb.get(ma).push({ rowNumber: i + 1, row });
     });
@@ -578,6 +592,9 @@ async function chayLich(env, event) {
         const tk = theoMa[ma];
         if (!tk) return;
         const { rowNumber, row } = dong[0];
+        dong.forEach(({ rowNumber: rn, row: r }) => {
+          if (cell(r, COL.status) !== 'Teb') boGhi.dat(tab, rn, COL.status, 'Teb');
+        });
         if (tk.tracking && !dong.some(({ row: r }) => cell(r, COL.tracking))) {
           boGhi.dat(tab, rowNumber, COL.tracking, tk.tracking);
           boGhi.dat(tab, rowNumber, COL.carrier, tk.dvvc);
