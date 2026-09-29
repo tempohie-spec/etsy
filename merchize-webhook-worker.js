@@ -7,7 +7,7 @@
 // - Lich (Cron Trigger, vd moi 30 phut hoac moi gio):
 //     1. Chay lai cac thong bao con cho trong KV.
 //     2. Tra API tracking cho don 10 ngay gan nhat chua co tracking -> dien tracking, ma RX, cost.
-//     4. Don Merchize "Request update" (can xu ly): ghi AC "Can xu ly: <note>" + Telegram 1 lan.
+//     4. Don Merchize "Request update" (can xu ly, tao trong 10 ngay): ghi AC "Can xu ly: <note>" + Telegram 1 lan.
 //     3. Don di Teb (AC = "Teb"): lay tracking + DVVC + Total (base cost) tu sheet Teb (bien TEB).
 // - GET /run?key=<1 trong SECRET_KEYS>: chay lich ngay lap tuc.
 //
@@ -678,6 +678,9 @@ async function chayLich(env, event) {
       const kq = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_CAN_XU_LY);
       for (const o of (kq && kq.orders) || []) {
         if (o.order_request_attention_status && o.order_request_attention_status !== 'open') continue;
+        // Chi xet don tao trong SO_NGAY_CAP_NHAT ngay gan nhat.
+        const taoLuc = Date.parse(o.created || o.paid_at || '');
+        if (!isNaN(taoLuc) && taoLuc < Date.now() - SO_NGAY_CAP_NHAT * 86400000) continue;
         const maEtsy = str(o.external_order_number || (o.external_order_id || {}).id);
         thongKe.canXuLy.push(maEtsy || str(o.code));
         const khoa = 'att:' + ((o.order_request_attentions || []).join(',') || o._id);

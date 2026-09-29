@@ -1480,7 +1480,7 @@ tên. **Mã đơn Merchize (AD), Tracking (AE), Hãng vận chuyển (AF), Ticke
 của đơn nhiều dòng (dòng sau nếu còn giá trị cũ sẽ bị xoá); AC ghi cho mọi dòng của đơn.
 Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không phải đơn nào cũng bị thu (vd đơn UK không bị thu).
 
-**Đơn cần xử lý (Request update):** mỗi lần chạy, với từng store Worker gọi
+**Đơn cần xử lý (Request update, chỉ đơn tạo trong 10 ngày gần nhất):** mỗi lần chạy, với từng store Worker gọi
 `GET <baseUrl>/order/orders/statistic-issues` (API nội bộ trang Orders). Có đơn `issue_request_update`
 thì lấy danh sách qua `search/v3?order_issue_type=issue_request_update`, yêu cầu mới thì lấy nội
 dung qua `/order/orders/<id>/require-attention`, ghi AC và nhắn Telegram `🛑 Đơn cần xử lý trên
