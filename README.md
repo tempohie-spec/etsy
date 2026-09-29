@@ -479,6 +479,29 @@ phải** spinner thật, sẽ biết ngay để thu hẹp lại selector.
 Thêm log này giúp lần báo lỗi tiếp theo (nếu spinner vẫn còn "lâu") có đủ dữ liệu để kết luận dứt
 điểm: do Etsy xử lý chậm thật (không sửa được từ script), hay do script đang bắt nhầm phần tử.
 
+### Lần thử tiếp theo: 0 thẻ ảnh xuất hiện suốt 2 lần thử liên tiếp (180s x 2) — thêm log xác nhận input nhận đủ file (v9.22)
+
+Log kế tiếp cho thấy tình huống **nặng hơn hẳn** 2 lần trước: `choEtsyXuLyAnh()` báo
+`0 thẻ đang có trên lưới` liên tục suốt **toàn bộ 180 giây**, rồi lô đó tự động **thử lại** (theo cơ
+chế đã có từ v9.7/v9.8) — và lần thử lại vẫn tiếp tục `0 thẻ` từ đầu, nghĩa là script đã chờ tổng
+cộng hơn 6 phút mà lưới ảnh không hề nhúc nhích. Đây không phải kiểu chậm "Etsy đang xử lý" như 2
+lần trước (số liệu ổn định, không tăng dần) — cần xác nhận file có thực sự vào được `<input>` hay
+không trước khi kết luận gì thêm.
+
+Đáng chú ý: log cùng lần đó cho thấy trong bước lấy ảnh, **3/5 ảnh sản phẩm gốc bị lỗi
+`GM_xmlhttpRequest không phản hồi sau 12s` ở CẢ 2 lần thử** (hết cả `SO_LAN_THU_LAI = 2`) và bị loại
+hẳn khỏi lô upload — cùng một kiểu lỗi mạng/CDN đã gặp nhiều lần trước đó trong quá trình phát triển
+(xem mục "Lỗi treo GM_xmlhttpRequest" phía trên), nhiều khả năng vẫn là mạng/CDN chập chờn phía
+người dùng tại thời điểm đó chứ không phải lỗi script.
+
+Thêm 1 log xác nhận ngay sau khi nhồi file vào `<input>`: in ra `id` của input, tên field cha (qua
+`timTruongChaTheoId()`), và **`input.files.length` đọc lại ngay sau khi gán** — để xác nhận chắc
+chắn (1) script có nhồi đúng `<input>` ảnh sản phẩm (không phải input video hay input sai do React
+vẽ lại) và (2) trình duyệt có thực sự ghi nhận đủ số file vào input hay không, NGAY TẠI THỜI ĐIỂM
+nhồi — tách bạch rõ 2 khả năng: nếu input nhận đúng đủ file mà sau đó vẫn không thẻ nào xuất hiện,
+nguyên nhân chắc chắn nằm ở phía Etsy (không đọc được sự kiện `change`, hoặc backend không xử lý),
+không còn là nghi vấn "nhồi sai/nhồi hỏng" từ phía script nữa.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
