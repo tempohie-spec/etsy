@@ -700,10 +700,10 @@ giải quyết dứt điểm — trong khi **chính người dùng tương tác 
 xuyên suốt cả quá trình debug.
 
 Nhân tiện, người dùng hỏi thêm: bảng chọn ảnh của listing này không hiện 2 lựa chọn "Sau khi upload
-xong" (Publish/Dừng) như bình thường — có liên quan không? **Không liên quan** — 2 lựa chọn đó chỉ
-hiện khi listing đích đang HOÀN TOÀN TRỐNG lúc mở bảng chọn; listing này đã có sẵn ảnh từ trước
-(dòng "Listing này đang có 2 ảnh" trong bảng chọn), nên chỉ hiện đúng 1 dòng cảnh báo cố định
-("Dừng lại sau khi upload...") như thiết kế — không phải dấu hiệu lỗi.
+xong" (Publish/Dừng) như bình thường — có liên quan không? Lúc đó trả lời "không liên quan" dựa trên
+dòng "Listing này đang có 2 ảnh" hiện trong bảng chọn — **nhưng người dùng khẳng định lại: listing
+đích thực tế đang HOÀN TOÀN TRỐNG, không hề có ảnh nào**. Nghĩa là chính con số "2 ảnh" đó mới là
+**sai** — và đây chính là đầu mối dẫn tới nguyên nhân gốc thật sự, xem mục v9.32 ngay dưới đây.
 
 Đổi hướng hẳn thay vì tiếp tục đoán thêm cách sửa code: **khi phát hiện ô upload đang ở dạng gộp
 chung ngay từ đầu (trước khi làm bất cứ điều gì khác)**, script dừng lại và hiện hộp thoại nhờ
@@ -715,6 +715,43 @@ mới tiếp tục toàn bộ phần còn lại (mở bảng chọn ảnh, tải
 Đây là hướng đi khác hẳn 4 lần sửa trước: **không cố script hoá thêm nữa**, mà đưa đúng 1 bước duy
 nhất (thêm 1 ảnh) — bước nhỏ nhất có thể — sang cho người dùng làm bằng tay, dựa trên bằng chứng
 chắc chắn nhất đã có: tương tác tay luôn thành công.
+
+### TÌM RA NGUYÊN NHÂN GỐC THẬT SỰ: `layCacTheAnh()` đếm nhầm cả phần tử "sortable" của Custom options (v9.32)
+
+Người dùng phản bác đúng chỗ: listing đích **thực tế đang trống hoàn toàn** (không phải "đã có 2
+ảnh" như dòng chữ trong bảng chọn), và chỉ ra mốc thời gian quan trọng — **lỗi này chỉ xuất hiện sau
+khi thêm tính năng điền nhiều Custom option cùng lúc (v9.18)**. Đặt 2 dữ kiện cạnh nhau — soi lại
+`layCacTheAnh()` (hàm đếm số ảnh đang có trên lưới, dùng
+`document.querySelectorAll('[aria-roledescription="sortable"]')`) — lộ ra đúng là hàm này **quét
+trên TOÀN BỘ `document`, không giới hạn trong khu vực lưới ảnh**.
+
+Listing của người dùng có 1 trường Custom option kiểu **"List of options"** với **2 lựa chọn**
+("Choose your favorite character"). Danh sách lựa chọn của trường này (nằm ở tab *Item Options*,
+không phải *Photo & Video*) **cũng được Etsy dựng bằng dnd-kit** (cho phép kéo sắp xếp lại thứ tự
+lựa chọn) nên **cũng mang `aria-roledescription="sortable"`** — giống hệt thuộc tính dùng để nhận
+diện thẻ ảnh. Etsy là SPA và rất có thể **không gỡ hẳn nội dung tab khác khỏi DOM khi chuyển tab**
+(chỉ ẩn bằng CSS) — nên khi đang ở tab Photo & Video, `document.querySelectorAll(...)` vẫn quét
+trúng cả 2 phần tử "sortable" đó từ tab Item Options đang ẩn, đếm nhầm thành **"2 ảnh"** dù thực tế
+listing chưa có ảnh nào. Đây chính là gốc rễ khiến `soAnhCu` sai — kéo theo lệch cả vị trí lát cắt
+(`slice`) khi kiểm tra thẻ ảnh mới trong `choEtsyXuLyAnh()`, tạo ra đúng triệu chứng "kẹt" đã thấy
+xuyên suốt (kiểm tra nhầm phần tử không phải ảnh, nên mãi mãi không thấy `<img>` xem trước).
+
+Mốc thời gian khớp hoàn toàn: trước v9.18, script vẫn tạo được 1 Custom option kiểu "List of
+options" (tính năng có từ v7.2), nhưng có lẽ các listing người dùng test trước đó chỉ dùng kiểu
+*Text box* (không có danh sách lựa chọn nào để đếm nhầm) — sự cố chỉ thật sự lộ ra khi bắt đầu test
+với listing có Custom option kiểu *List of options*.
+
+Sửa đúng gốc: thêm `timKhoiAnhSanPham()` — tìm khối cha mang id liên quan tới ảnh (ví dụ
+`field-listingImages`, dùng lại đúng cách dò của `timTruongChaTheoId()`) từ chính `<input>` ảnh sản
+phẩm đã xác định được. `layCacTheAnh()` giờ **quét bên trong khối đó**, không còn quét cả
+`document` — loại hẳn khả năng đếm nhầm phần tử sortable từ Custom options, Variations, hay bất kỳ
+khu vực nào khác của trang. Dự phòng: nếu không xác định được khối (ví dụ chưa mở đúng tab), vẫn
+quét cả trang như cũ — thà thừa còn hơn thiếu, giữ nguyên triết lý gốc của hàm này.
+
+Giữ nguyên hộp thoại "nhờ thêm 1 ảnh tay" của v9.31 làm lớp bảo vệ dự phòng — không rõ liệu ô
+"(không id)" gộp chung có phải hoàn toàn do lỗi đếm này gây ra hay là một vấn đề thật sự riêng biệt,
+nên chưa vội gỡ bỏ; nếu sau bản sửa này không còn gặp lại hộp thoại đó nữa, xem như xác nhận đây
+đúng là nguyên nhân duy nhất.
 
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 

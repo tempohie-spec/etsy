@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.31
+// @version      9.32
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.31';
+  const PHIEN_BAN = '9.32';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2750,6 +2750,30 @@
 
   let daCanhBaoGomNhom = false;
 
+  // Tim khoi CHA mang id lien quan toi anh (vd "field-listingImages", cung cach doan nhu
+  // timTruongChaTheoId) — dung de GIOI HAN vung tim the anh CHI trong khu vuc nay, KHONG duoc quet
+  // ca document. Ly do: cac vung sortable KHAC cua trang (vi du danh sach Options cua 1 truong
+  // Custom option kieu "List of options", cung dung dnd-kit nen cung mang
+  // aria-roledescription="sortable") co the con NAM AN trong DOM — Etsy la SPA, rat co the giu cac
+  // tab khac (Item Options...) o dang an (CSS) khi dang o tab Photo & Video, khong go han khoi DOM.
+  // Da xac nhan thuc te: 1 truong "List of options" co 2 lua chon lam soAnhCu (dem tu layCacTheAnh
+  // khi CHUA loc khu vuc) bao sai la "2 ảnh" du listing dich dang HOAN TOAN TRONG (0 anh that), keo
+  // theo toan bo phep tinh vi tri lo / cho o dung / kiem tra hoan tat o buoc sau deu lech theo.
+  function timKhoiAnhSanPham() {
+    const o = timOChonAnhSanPham();
+    if (!o) return null;
+    let vc = o.parentElement;
+    for (let buoc = 0; vc && buoc < 10; buoc++) {
+      if (vc.id) {
+        const id = vc.id.toLowerCase();
+        if (/video/.test(id)) return null;
+        if (/image|photo/.test(id)) return vc;
+      }
+      vc = vc.parentElement;
+    }
+    return null;
+  }
+
   // Moi anh trong luoi la mot phan tu co aria-roledescription="sortable".
   // Loc theo container danh sach dung nhat de khong dinh cac vung sortable khac cua trang.
   //
@@ -2761,7 +2785,12 @@
   // duoc, coi nhu gom nhom that bai — tra ve TAT CA thay vi mot con so sai lech: thua con hon
   // thieu, vi thieu se pha hong ca phep tinh soAnhCu / gioi han anh / buoc sap xep phia sau.
   function layCacTheAnh() {
-    const tatCa = [...document.querySelectorAll('[aria-roledescription="sortable"]')];
+    // Uu tien quet TRONG khoi anh san pham (loai bo hoan toan cac vung sortable khac cua trang —
+    // vi du Custom options). Neu khong tim duoc khoi (vd chua mo dung tab), du phong quet ca
+    // document nhu truoc — thua con hon thieu, giu nguyen triet ly cu cua ham nay.
+    const khoi = timKhoiAnhSanPham();
+    const goc = khoi || document;
+    const tatCa = [...goc.querySelectorAll('[aria-roledescription="sortable"]')];
     if (tatCa.length < 2) return tatCa;
 
     const nhomTheoCha = new Map();
