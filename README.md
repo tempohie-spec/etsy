@@ -1324,13 +1324,15 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
 
 1. Mở Google Sheet, **mở tab account cần cài**, bấm nút cam **Merchize** (kéo thả được).
 2. Điền **Base URL** của store đó và dán **Access Token** (trang API documents của store, tab
-   ACCESS TOKEN) → **Lưu store cho tab này**. Làm lại cho từng tab account.
+   ACCESS TOKEN) → **Lưu store Merchize cho tab này**. Làm lại cho từng tab account.
    - Tìm Base URL: đăng nhập đúng store trên seller.merchize.com → F12 → Network → Fetch/XHR →
      F5 → bấm 1 dòng bất kỳ → copy **Request URL** dán vào ô Base URL, script tự cắt tới
      `/bo-api` (vd `https://bo-group-1-2.merchize.com/zoi24ff/bo-api`).
    - Token chỉ lưu trong Violentmonkey trên máy này, không nằm trong Sheet hay GitHub.
-   - Khi panel đang mở, dòng trạng thái tự đổi theo tab đang chọn: **✅ đã có token** (kèm Base
-     URL) hoặc **❌ chưa có token**. Nút **Xem store của tab** dùng khi dòng này chưa hiện.
+   - Khi panel đang mở, dòng trạng thái tự đổi theo tab đang chọn: **✅ store Merchize <mã store>**
+     hoặc **❌ chưa có store Merchize**; tab dùng Teb hiện thêm **✅ Sheet Teb: <tên tab>**. Nút
+     store hiện luôn mã store (vd `Store Merchize: e36qbb2`), bấm để làm mới khi dòng trạng thái
+     chưa hiện.
 3. Bấm **1. Cập nhật catalog** (catalog dùng chung cho mọi store, chỉ cần làm 1 lần).
    Bấm lại khi Merchize thêm màu mới.
 4. Ở **mỗi tab account**, bấm **Đánh dấu dòng cũ** một lần: các dòng đang có sẽ ghi "Cũ" ở cột
@@ -1340,7 +1342,9 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
 
 1. Copy đơn từ file Excel dán vào tab account như bình thường, dán link design vào cột F/G.
 2. Bấm **2. Kiểm tra**: điền SKU vào cột AB và liệt kê đơn lỗi, chưa gửi gì lên Merchize.
-3. Sửa lỗi nếu có, bấm **3. Gửi đơn lên Merchize**.
+3. Sửa lỗi nếu có, bấm **3. Gửi đơn (Merchize + sheet Teb) và điền cost ước tính**: gửi đơn
+   lên Merchize, ghi đơn Teb vào sheet Teb (tab dùng Teb), điền Base Cost ước tính cho đơn gửi
+   Merchize thành công.
 
 Đơn chờ gửi = dòng có orderNumber (cột C) và cột AC còn trống. Dòng tổng màu xanh (không có
 orderNumber) bị bỏ qua.
@@ -1431,22 +1435,12 @@ Mã màu/size của Merchize khác nhau theo từng sản phẩm nên không t�
 - Không gửi nếu thiếu: tên/địa chỉ/city/postalCode, quốc gia không nhận ra, thiếu mockUp, thiếu
   cả 2 link design, hoặc không tra được SKU.
 
-## Cập nhật tracking + cost qua API (v1.15)
+## Tracking + cost thật
 
-Nút **Cập nhật tracking + cost qua API**: với tab đang mở, tra từng đơn có Date Fulfill (cột W)
-trong **10 ngày** gần nhất và **chưa có tracking** (cột AE trống), bỏ qua đơn `Lỗi import`, qua
-`GET /order/external/orders/tracking?external_number=...`. Dùng được cho cả đơn gửi trước khi
-có webhook, và bù các thông báo webhook bị sót.
-
-- AE / AF = `tracking_number` / `tracking_company` (nhiều gói thì nối bằng dấu phẩy); AC =
-  `Có tracking` (dòng `Cũ` giữ nguyên `Cũ`).
-- AD = mã RX lấy từ tên gói (`RD-35688-45358-F1` → `RD-35688-45358`).
-- Y (dòng đầu của đơn, **chỉ khi ô Y đang trống**) = tổng `fulfillment_cost` × số lượng − giảm giá + `shipping_cost`,
-  cộng thêm 3.5$ thuế nhập khẩu nếu nước nhận thuộc danh sách châu Âu (API không tính khoản này;
-  đã đối chiếu: đơn 4181224261 API 37.58 + 3.5 = 41.08 đúng cost thật).
-- Đơn chưa được Merchize xử lý (chưa có gói hàng) thì bỏ qua, lần sau tra lại.
-- Worker đã tự làm việc này mỗi giờ (xem phần Worker bên dưới); nút này dùng khi muốn cập nhật
-  ngay.
+Không có nút riêng trên Sheet: **Worker** tự tra tracking, mã RX và cost thật qua API 30 phút/lần
+(và khi mở `/run`), xem phần Worker bên dưới. Cost từ API = tổng `fulfillment_cost` × số lượng −
+giảm giá + `shipping_cost`, cộng 3.5$ thuế nhập khẩu nếu nước nhận thuộc danh sách châu Âu (đã đối
+chiếu: đơn 4181224261 API 37.58 + 3.5 = 41.08 đúng cost thật), chỉ điền khi ô Y đang trống.
 
 # Merchize Webhook - Cloudflare Worker (tự ghi vào Google Sheet)
 

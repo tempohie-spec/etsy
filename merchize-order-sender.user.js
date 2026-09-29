@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.21
+// @version      1.22
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.21';
+  const SCRIPT_VERSION = '1.22';
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -57,8 +57,7 @@
     ticket: 32         // AG
   };
   const OUTPUT_HEADERS = ['Merchize SKU', 'Trạng thái Merchize', 'Mã đơn Merchize'];
-  const TRACKING_HEADERS = ['Tracking', 'Hãng vận chuyển'];
-
+  
   // Bac gia goc Merchize dang ap dung cho store (tier1 = 0-999 don, tier2 = 1000-2999, tier3 = >3000).
   const TIER = 'tier1';
   // Thue nhap khau (Import Duty) tu 26/06/2026: 3.5$ MOI KIEN HANG (moi don) ship tu kho US
@@ -694,131 +693,6 @@
     ].join('\n');
   }
 
-  // ============ CAP NHAT TRACKING + COST HANG LOAT QUA API ============
-  // Chi xet don co Date Fulfill (cot W) trong SO_NGAY_CAP_NHAT ngay gan nhat va chua co tracking (AE).
-  const SO_NGAY_CAP_NHAT = 10;
-
-  function ngayTuO(v) {
-    const m = str(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
-  }
-
-  // Tu ket qua API -> { maRx, tracking, carrier, cost } (cost chua gom thue chau Au).
-  // fulfillment_cost tinh theo 1 cai (da doi chieu don so luong 1), nhan voi quantity.
-  function tomTatApiTracking(goi) {
-    const kq = { maRx: '', tracking: [], carrier: [], cost: 0, coGoi: goi.length > 0 };
-    goi.forEach((g) => {
-      if (!kq.maRx && g.name) kq.maRx = str(g.name).replace(/-F\d+$/i, '');
-      if (str(g.tracking_number)) {
-        kq.tracking.push(str(g.tracking_number));
-        if (str(g.tracking_company) && !kq.carrier.includes(str(g.tracking_company))) kq.carrier.push(str(g.tracking_company));
-      }
-      kq.cost += Number(g.shipping_cost) || 0;
-      (g.items || []).forEach((it) => {
-        kq.cost += (Number(it.fulfillment_cost) || 0) * (Number(it.quantity) || 1) - (Number(it.ffm_discount_amount) || 0);
-      });
-    });
-    return kq;
-  }
-
-  async function capNhatQuaApi(statusEl) {
-    const { spreadsheetId, title } = await layTrangTinhDangMo();
-    const store = layStore(title);
-    if (!store) throw new Error(`Tab "${title}" chưa cài store Merchize.`);
-    const rows = await docTrangTinh(spreadsheetId, title);
-    const moc = new Date();
-    moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
-
-    // Gom du cac dong cua don truoc roi moi loc (tracking chi ghi o dong dau cua don).
-    const donMap = new Map();
-    rows.forEach((r, i) => {
-      const ma = cell(r, COL.orderNumber);
-      if (i === 0 || !ma) return;
-      if (!donMap.has(ma)) donMap.set(ma, []);
-      donMap.get(ma).push({ rowNumber: i + 1, r });
-    });
-    const dsDon = Array.from(donMap.entries()).filter(([, dong]) => {
-      if (dong.some(({ r }) => cell(r, COL.tracking))) return false;
-      if (dong.some(({ r }) => /^Lỗi import/.test(cell(r, COL.status)) || cell(r, COL.status) === 'Teb')) return false;
-      const ngay = ngayTuO(cell(dong[0].r, COL.dateFulfill));
-      return ngay && ngay >= moc;
-    });
-    if (dsDon.length === 0) return `Trang "${title}": không có đơn nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất còn thiếu tracking.`;
-
-    const ghiText = [];
-    const ghiSo = [];
-    const loi = [];
-    let coTracking = 0;
-    let coCost = 0;
-    for (let i = 0; i < dsDon.length; i++) {
-      const [ma, dong] = dsDon[i];
-      log(statusEl, `⏳ Đang tra ${i + 1}/${dsDon.length}: ${ma}...`);
-      const traMa = async (m) => {
-        const { json } = await merchizeRequest(store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(m));
-        if (!json.success) throw new Error(json.message || 'Merchize từ chối');
-        return Array.isArray(json.data) ? json.data : [];
-      };
-      let goiHang;
-      try {
-        goiHang = await traMa(ma);
-        // Khong co goi hang nao: co the don da huy va gui lai voi hau to "a".
-        if (!goiHang.length && /\d$/.test(ma)) goiHang = await traMa(ma + 'a');
-      } catch (e) {
-        loi.push(`• ${ma}: ${e.message}`);
-        continue;
-      }
-      const kq = tomTatApiTracking(goiHang);
-      if (!kq.coGoi) continue;
-
-      const r0 = dong[0].r;
-      if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(r0, COL.country)))) kq.cost += THUE_NHAP_KHAU_CHAU_AU;
-      kq.cost = Math.round(kq.cost * 100) / 100;
-
-      // Ma RX, tracking, hang van chuyen chi ghi o dong dau; dong sau co gia tri cu thi xoa.
-      dong.forEach(({ rowNumber, r }, idx) => {
-        const o = (cot) => `'${title}'!${cot}${rowNumber}`;
-        const dat = (cot, col, v) => {
-          if (idx === 0) ghiText.push({ range: o(cot), values: [[v]] });
-          else if (cell(r, col)) ghiText.push({ range: o(cot), values: [['']] });
-        };
-        if (kq.maRx && (idx > 0 || cell(r, COL.merchizeId) !== kq.maRx)) dat('AD', COL.merchizeId, kq.maRx);
-        if (kq.tracking.length) {
-          dat('AE', COL.tracking, kq.tracking.join(', '));
-          dat('AF', COL.carrier, kq.carrier.join(', '));
-          // Giu nguyen "Cu" de don cu khong bao gio bi gui lai.
-          if (cell(r, COL.status) !== STATUS_OLD) ghiText.push({ range: o('AC'), values: [['Có tracking']] });
-        }
-      });
-      if (kq.tracking.length) coTracking++;
-      // Chi dien khi o Y trong: thue chau Au khong phai don nao cung bi thu (vd don UK).
-      if (kq.cost > 0 && !cell(r0, COL.baseCost)) {
-        ghiSo.push({ range: `'${title}'!Y${dong[0].rowNumber}`, values: [[kq.cost]] });
-        coCost++;
-      }
-      await sleep(150);
-    }
-
-    const h = rows[0] || [];
-    if (coTracking && !cell(h, COL.tracking) && !cell(h, COL.carrier)) {
-      ghiText.push({ range: `'${title}'!AE1:AF1`, values: [TRACKING_HEADERS] });
-    }
-    if (ghiText.length) {
-      await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
-        method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: ghiText })
-      });
-    }
-    if (ghiSo.length) {
-      await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
-        method: 'POST', body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: ghiSo })
-      });
-    }
-    return [
-      `Trang "${title}": tra ${dsDon.length} đơn, ${coTracking} đơn có tracking, cập nhật cost thật cho ${coCost} đơn.`,
-      loi.length ? `${loi.length} đơn lỗi:` : '',
-      ...loi
-    ].filter(Boolean).join('\n');
-  }
-
   // ============ TEB PRINT (fulfill rieng cho 1 so account) ============
   // Tab nao dung Teb: don gui US, chi 1 dong va tim duoc SKU trong sheet "Teb Print SKU" thi di
   // Teb (ghi noi tiep vao sheet Teb do nguoi dung chon), con lai gui Merchize.
@@ -1073,7 +947,7 @@
     const tokenInput = el('input', oCss);
     tokenInput.type = 'password';
     tokenInput.placeholder = 'Access Token của store này';
-    const saveTokenBtn = nut('Lưu store cho tab này', '#607d8b');
+    const saveTokenBtn = nut('Lưu store Merchize cho tab này', '#607d8b');
     const viewStoreBtn = nut('Xem store của tab', '#90a4ae');
     const tebInput = el('input', oCss);
     tebInput.placeholder = 'Link sheet Teb (mở đúng tab rồi copy link, chỉ tab dùng Teb)';
@@ -1090,15 +964,14 @@
 
     const catalogBtn = nut('1. Cập nhật catalog', '#2196F3');
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
-    const sendBtn = nut('3. Gửi đơn lên Merchize', '#4CAF50');
+    const sendBtn = nut('3. Gửi đơn (Merchize + sheet Teb) và điền cost ước tính', '#4CAF50');
     const costBtn = nut('Điền Base Cost ước tính cho đơn đã gửi', '#00897b');
     const oldBtn = nut('Đánh dấu dòng cũ (dùng 1 lần mỗi tab)', '#9e9e9e');
 
-    const apiBtn = nut('Cập nhật tracking + cost qua API', '#5d4037');
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, tebInput, tebBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, apiBtn, statusEl]
+    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, tebInput, tebBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
     document.body.appendChild(panel);
@@ -1159,7 +1032,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, viewStoreBtn, tebBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, apiBtn];
+    const tatCaNut = [saveTokenBtn, viewStoreBtn, tebBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1173,13 +1046,22 @@
       }
     }
 
+    // Hien store Merchize (ma store trong Base URL) va sheet Teb (neu tab dung Teb) cua tab dang mo.
     function hienStore(title) {
       const st = layStore(title);
-      storeInfo.textContent = st
-        ? `✅ Tab "${title}": đã có token\n${st.baseUrl}`
-        : `❌ Tab "${title}": chưa có token`;
+      const tenStore = st ? (st.baseUrl.match(/merchize\.com\/([^/]+)\/bo-api/i) || [])[1] || st.baseUrl : '';
+      const teb = docCacSheetTeb()[title];
+      const dong = [st
+        ? `✅ Tab "${title}": store Merchize ${tenStore} (đã có token)`
+        : `❌ Tab "${title}": chưa có store Merchize`];
+      if (TEB_TABS.has(title)) dong.push(teb ? `✅ Sheet Teb: ${teb.sheetTitle}` : '❌ Chưa chọn sheet Teb');
+      storeInfo.textContent = dong.join('\n');
       storeInfo.style.whiteSpace = 'pre-wrap';
       storeInfo.style.color = st ? '#2e7d32' : '#c62828';
+      viewStoreBtn.textContent = st ? `Store Merchize: ${tenStore}` : 'Xem store của tab';
+      tebInput.placeholder = teb
+        ? `Sheet Teb đang dùng: ${teb.sheetTitle} (dán link mới để đổi)`
+        : 'Link sheet Teb (mở đúng tab rồi copy link, chỉ tab dùng Teb)';
       if (document.activeElement !== baseInput) baseInput.value = st ? st.baseUrl : '';
       return storeInfo.textContent;
     }
@@ -1212,6 +1094,7 @@
     tebBtn.addEventListener('click', () => chay(async () => {
       const kq = await luuSheetTeb(tebInput.value);
       tebInput.value = '';
+      await xemStore();
       return kq;
     }));
     saveTokenBtn.addEventListener('click', () => chay(async () => {
@@ -1233,7 +1116,6 @@
     checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
     sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true)));
     costBtn.addEventListener('click', () => chay(() => dienBaseCost(statusEl)));
-    apiBtn.addEventListener('click', () => chay(() => capNhatQuaApi(statusEl)));
     oldBtn.addEventListener('click', () => chay(() => danhDauDongCu(statusEl)));
   }
 
