@@ -773,7 +773,7 @@ nữa, dọn nốt 2 thay đổi tạm thời từng thêm vào lúc chưa tìm 
    v9.30) — quay lại đúng 300ms trước khi bấm tab Photo & Video và 500ms trước khi bắt đầu upload,
    không phụ thuộc số ô cá nhân hoá vừa tạo nữa.
 
-### Vì sao nhồi theo lô 5 ảnh thay vì nhồi hết 1 lần? (nhắc lại)
+### Vì sao nhồi theo lô nhỏ (5, nay là 7 ảnh) thay vì nhồi hết 1 lần? (nhắc lại)
 
 Đây là câu hỏi người dùng hỏi lại giữa lúc dọn dẹp ở trên — nhắc lại nguyên nhân gốc (đã có từ v9.7,
 xem mục "Nhồi ảnh theo từng lô nhỏ..." phía dưới): **không liên quan gì đến lỗi ô gộp chung vừa sửa
@@ -793,6 +793,31 @@ Giải pháp: chia nhỏ ra **từng lô 5 ảnh** (`KICH_THUOC_LO_UPLOAD`), đ�
 (qua `choEtsyXuLyAnh()`, kiểm tra ảnh xem trước THẬT + không còn spinner) rồi mới nhồi lô tiếp theo
 — giảm tải cho backend upload của Etsy, tránh đúng kiểu lỗi 400 nói trên. Chi tiết đầy đủ xem mục
 "Nhồi ảnh theo từng lô nhỏ + phát hiện lỗi upload THẬT của Etsy (v9.7)" phía dưới.
+
+### Lô 7 ảnh + sửa 3 lỗi ở vòng thử lại upload (v9.35)
+
+**Lô 5 → 7 ảnh** (`KICH_THUOC_LO_UPLOAD = 7`): vẫn dưới ngưỡng 8 ảnh/lần đã từng gặp lỗi 400, nhưng
+20 ảnh giờ chỉ còn 3 lô (7+7+6) thay vì 4. Nếu thấy toast "File not uploaded" xuất hiện thường xuyên
+hơn thì hạ lại 6 hoặc 5.
+
+Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một lô **bị lỗi rồi thử lại**):
+
+1. **Toast lỗi cũ làm lần thử lại "thất bại" ngay lập tức.** Toast đỏ của lần hỏng trước vẫn còn trên
+   màn hình vài giây, nên lần thử lại vừa nhồi xong đã "thấy lỗi" trong 0 giây → đốt sạch cả 3 lượt
+   thử trong ~6s và nhồi trùng cả lô 3 lần mà chưa lần nào thật sự được chờ (khớp với log lỗi 500 trước
+   đây: các lần thử lại đều báo lỗi tức thì). Giờ trước mỗi lần nhồi, script bấm nút đóng (X) của toast
+   lỗi đang hiện (nếu có) và ghi nhớ những toast còn sót lại để **bỏ qua** — chỉ toast lỗi **mới** mới
+   tính là lỗi của lần nhồi này.
+2. **Đếm thẻ mới bị lệch sau lần thử hỏng.** Trước đây vị trí thẻ mới được tính cộng dồn
+   (`soAnhCu + số ảnh đã xong`). Nếu lần hỏng vẫn để lại vài ảnh đã lên được, phép cộng dồn lệch → script
+   lấy nhầm thẻ cũ làm "thẻ mới" và có thể báo xong khi các thẻ cuối vẫn còn đang xử lý. Giờ số thẻ được
+   **đo ngay trước mỗi lần nhồi**. Trước khi thử lại, script cũng chờ lưới "yên" (hết spinner, số thẻ
+   đứng yên, tối đa 20s) thay vì chờ cứng 3s, và log số thẻ chênh lệch để biết có ảnh bị lên trùng
+   không.
+3. **Toast "You can only add 20 photos and 2 videos per listing" không được nhận ra** → script ngồi chờ
+   tới hết 120s. Giờ câu này được bắt ngay (lý do `het_cho`, **không** thử lại vì vô ích), và trước mỗi
+   lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
+   còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
