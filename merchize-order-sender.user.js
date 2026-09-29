@@ -122,7 +122,7 @@
   // ====== QUY DOI TEN QUOC GIA -> MA 2 CHU (Merchize can "US", Sheet dang ghi "United States") ======
   let bangQuocGia = null;
   const BI_DANH_QUOC_GIA = {
-    'usa': 'US', 'united states of america': 'US', 'uk': 'GB', 'england': 'GB', 'scotland': 'GB',
+    'usa': 'US', 'united states of america': 'US', 'uk': 'GB', 'united kingdom': 'GB', 'england': 'GB', 'scotland': 'GB',
     'wales': 'GB', 'great britain': 'GB', 'turkey': 'TR', 'russia': 'RU', 'south korea': 'KR',
     'korea': 'KR', 'czech republic': 'CZ', 'holland': 'NL', 'the netherlands': 'NL', 'vietnam': 'VN'
   };
@@ -140,7 +140,8 @@
           for (let b = 65; b <= 90; b++) {
             const code = String.fromCharCode(a) + String.fromCharCode(b);
             const name = dn.of(code);
-            if (name && name !== code) bangQuocGia[name.toLowerCase()] = code;
+            // Giu ma dau tien (vd GB), khong de ma cu nhu "UK" ghi de.
+            if (name && name !== code && !bangQuocGia[name.toLowerCase()]) bangQuocGia[name.toLowerCase()] = code;
           }
         }
       } catch (e) { /* trinh duyet qua cu khong co Intl.DisplayNames - chi dung bang bi danh */ }

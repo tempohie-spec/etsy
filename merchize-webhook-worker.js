@@ -95,7 +95,8 @@ function maQuocGia(ten) {
         for (let b = 65; b <= 90; b++) {
           const code = String.fromCharCode(a) + String.fromCharCode(b);
           const name = dn.of(code);
-          if (name && name !== code) bangQuocGia[name.toLowerCase()] = code;
+          // Giu ma dau tien (vd GB), khong de ma cu nhu "UK" ghi de.
+          if (name && name !== code && !bangQuocGia[name.toLowerCase()]) bangQuocGia[name.toLowerCase()] = code;
         }
       }
     } catch (e) { /* khong co Intl.DisplayNames - chi dung bang bi danh */ }
