@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.32
+// @version      1.33
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @match        https://*.merchize.com/*
@@ -18,26 +18,39 @@
 (function () {
   'use strict';
 
-  // Tren trang quan tri Merchize: chi doc ten store (#SiteName) roi luu theo ma store trong link
-  // (vd .../t37fruz/...), de bang tren Google Sheets hien ten store thay vi ma.
+  // Tren trang Merchize (seller.merchize.com): doc ten store (#SiteName) va ma store (lay tu link API
+  // ma trang dang goi: .../<ma>/bo-api/...), luu lai de bang tren Google Sheets hien ten store.
   if (/(^|\.)merchize\.com$/i.test(location.hostname)) {
-    const maStore = location.pathname.split('/')[1] || '';
-    let lan = 0;
-    const hen = setInterval(() => {
+    const RE_MA = /merchize\.com\/([^/?#]+)\/bo-api\//i;
+    let maMoiNhat = '';
+    let lucMa = -1;
+    const xetEntry = (e) => {
+      const m = String(e.name || '').match(RE_MA);
+      if (m && e.startTime >= lucMa) { maMoiNhat = m[1]; lucMa = e.startTime; }
+    };
+    try {
+      performance.getEntriesByType('resource').forEach(xetEntry);
+      new PerformanceObserver((ds) => ds.getEntries().forEach(xetEntry)).observe({ type: 'resource', buffered: true });
+    } catch (x) { /* trinh duyet khong ho tro */ }
+    let tenCu = '';
+    let lucDoiTen = 0;
+    setInterval(() => {
       const e = document.getElementById('SiteName');
       const ten = e ? e.textContent.trim() : '';
-      if (ten && maStore) {
-        let all = {};
-        try { all = JSON.parse(GM_getValue('mz_site_names', '{}')) || {}; } catch (x) { /* bo qua */ }
-        if (all[maStore] !== ten) { all[maStore] = ten; GM_setValue('mz_site_names', JSON.stringify(all)); }
-        clearInterval(hen);
-      } else if (++lan > 120) clearInterval(hen);
-    }, 1000);
+      if (!ten) return;
+      // Doi tu store khac sang (Switch Store): chi ghep khi co request API sau luc doi ten,
+      // tranh ghep ten moi voi ma store cu. Lan dau mo trang thi ghep ngay.
+      if (ten !== tenCu) { lucDoiTen = tenCu ? performance.now() : 0; tenCu = ten; }
+      if (!maMoiNhat || lucMa < lucDoiTen) return;
+      let all = {};
+      try { all = JSON.parse(GM_getValue('mz_site_names', '{}')) || {}; } catch (x) { /* bo qua */ }
+      if (all[maMoiNhat] !== ten) { all[maMoiNhat] = ten; GM_setValue('mz_site_names', JSON.stringify(all)); }
+    }, 1500);
     return;
   }
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.32';
+  const SCRIPT_VERSION = '1.33';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
