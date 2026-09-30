@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.27
+// @version      1.28
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -17,7 +17,9 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.27';
+  const SCRIPT_VERSION = '1.28';
+  // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
+  const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -518,11 +520,28 @@
     return { spreadsheetId, title: active.title };
   }
 
-  async function docTrangTinh(spreadsheetId, title) {
-    const range = encodeURIComponent(`'${title}'!A:AG`);
+  // soDongCuoi: chi doc tieu de + N dong cuoi (theo cot orderNumber). Ket qua van danh so theo dong that:
+  // rows[i] la dong i+1, cac dong khong doc de trong (forEach tu bo qua).
+  async function docTrangTinh(spreadsheetId, title, soDongCuoi) {
+    const q = '&valueRenderOption=FORMATTED_VALUE';
     // FORMATTED_VALUE: lay dung chu dang hien tren o (giu nguyen postalCode "02720", orderNumber khong bi thanh 4.17E+09).
-    const data = await sheetsApiFetch(`${spreadsheetId}/values/${range}?valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
-    return data.values || [];
+    if (!soDongCuoi) {
+      const data = await sheetsApiFetch(`${spreadsheetId}/values/${encodeURIComponent(`'${title}'!A:AG`)}?${q.slice(1)}`, { method: 'GET' });
+      return data.values || [];
+    }
+    const dau = await sheetsApiFetch(`${spreadsheetId}/values:batchGet?ranges=${encodeURIComponent(`'${title}'!A1:AG1`)}&ranges=${encodeURIComponent(`'${title}'!C:C`)}${q}`, { method: 'GET' });
+    const vr = dau.valueRanges || [];
+    const header = ((vr[0] || {}).values || [])[0] || [];
+    const cotC = ((vr[1] || {}).values || []).map((x) => str((x || [])[0]));
+    const cuoi = cotC.length;
+    const kq = [header];
+    if (cuoi < 2) return kq;
+    let batDau = Math.max(2, cuoi - soDongCuoi + 1);
+    // Khong cat ngang don nhieu dong: lui len toi dong dau cua don.
+    while (batDau > 2 && cotC[batDau - 1] && cotC[batDau - 2] === cotC[batDau - 1]) batDau--;
+    const data = await sheetsApiFetch(`${spreadsheetId}/values/${encodeURIComponent(`'${title}'!A${batDau}:AG${cuoi}`)}?${q.slice(1)}`, { method: 'GET' });
+    (data.values || []).forEach((r, k) => { kq[batDau - 1 + k] = r; });
+    return kq;
   }
 
   // updates: [{ row: so dong 1-based, values: [AB, AC, AD] }]
@@ -668,7 +687,7 @@
     if (!catalog) throw new Error('Chưa có catalog. Bấm "Cập nhật catalog" trước.');
     log(statusEl, '⏳ Đang đọc trang tính...');
     const { spreadsheetId, title } = await layTrangTinhDangMo();
-    const rows = await docTrangTinh(spreadsheetId, title);
+    const rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
     const donMap = new Map();
     rows.forEach((r, i) => {
       const ma = cell(r, COL.orderNumber);
@@ -803,7 +822,7 @@
     const { spreadsheetId, title } = await layTrangTinhDangMo();
     const store = layStore(title);
     if (guiThat && !store) throw new Error(`Tab "${title}" chưa cài store Merchize (Base URL + Access Token).`);
-    const rows = await docTrangTinh(spreadsheetId, title);
+    const rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
     const bangPhu = await docBangPhu(spreadsheetId);
     const tatCa = gomDon(rows).map((d) => ({ ...d, tebSku: tebSkuCuaDon(d, title, bangPhu) }));
     const dsTeb = tatCa.filter((d) => d.tebSku);

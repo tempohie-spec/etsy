@@ -1349,6 +1349,10 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
 Đơn chờ gửi = dòng có orderNumber (cột C) và cột AC còn trống. Dòng tổng màu xanh (không có
 orderNumber) bị bỏ qua.
 
+Từ v1.28, Kiểm tra / Gửi đơn / Điền Base Cost ước tính chỉ đọc **100 dòng cuối** của tab (tính theo
+cột C, không cắt ngang đơn nhiều dòng). Đơn chờ gửi nằm cao hơn thì không được gửi; muốn đổi số
+dòng thì sửa `SO_DONG_CUOI` đầu script. Đánh dấu dòng cũ vẫn đọc cả tab.
+
 | Cột | Nội dung |
 |---|---|
 | AB | Merchize SKU tự tra |
