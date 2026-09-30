@@ -982,6 +982,12 @@ async function xuLyConfig(request, env) {
     if (!t.spreadsheetId || !t.sheet) return json({ ok: false, error: 'thiếu thông tin sheet Teb' }, 400);
     kv.teb[khoa] = t;
     ketQua.quyenTeb = await thuQuyen(env, dem, t.spreadsheetId, t.sheet);
+    if (ketQua.quyenTeb === 'ok') {
+      try {
+        const d = await sheetsFetch(env, dem, '?fields=properties.title', {}, t.spreadsheetId);
+        ketQua.tenFileTeb = str((d.properties || {}).title);
+      } catch (e) { /* khong lay duoc ten file, bo qua */ }
+    }
   }
   await env.EVENTS.put('cfg', JSON.stringify(kv));
   return json(ketQua);

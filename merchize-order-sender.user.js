@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.35
+// @version      1.36
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.35';
+  const SCRIPT_VERSION = '1.36';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -278,6 +278,14 @@
     try {
       const kq = await goiWorker('POST', '/config', { spreadsheetId: getSpreadsheetId(), sheet: title, ...phan });
       danhDauDaDongBo(title);
+      // Worker tra ve ten file Teb (service account doc duoc) -> luu de hien "✅ Sheet Teb: <ten file>".
+      if (kq.tenFileTeb) {
+        const all = docCacSheetTeb();
+        if (all[title] && all[title].fileTitle !== kq.tenFileTeb) {
+          all[title].fileTitle = kq.tenFileTeb;
+          GM_setValue('mz_teb_targets', JSON.stringify(all));
+        }
+      }
       const dong = [`Worker: đã cập nhật "${kq.khoa}".`];
       if (kq.quyenSheet && kq.quyenSheet !== 'ok') dong.push(`⚠️ Worker chưa vào được file này: ${kq.quyenSheet}. Hãy share file này cho ${kq.serviceAccount} (quyền Editor).`);
       if (kq.quyenTeb && kq.quyenTeb !== 'ok') dong.push(`⚠️ Worker chưa đọc được sheet Teb: ${kq.quyenTeb}. Hãy share file Teb cho ${kq.serviceAccount} (quyền xem là đủ).`);
@@ -1216,6 +1224,7 @@
     let moSuaStore = false;
     let moSuaTeb = false;
     let dangDongBo = false;
+    const daHoiTenTeb = new Set();
     function hienStore(title) {
       const st = layStore(title);
       const teb = docCacSheetTeb()[title];
@@ -1236,8 +1245,15 @@
       if (document.activeElement !== baseInput) baseInput.value = st ? st.baseUrl : '';
       workerBtn.style.display = docWorker() ? 'none' : 'block';
       if (st) thuLayTenStore(st, () => { if (tabDaHien === title) hienStore(title); });
-      // File Teb luu tu ban cu chua co ten file: lay ten (chi khi da dang nhap Google, khong bat popup).
-      if (teb && !teb.fileTitle && accessToken) {
+      // File Teb luu tu ban cu chua co ten file: nho Worker lay ten (gui lai sheet Teb len Worker),
+      // chua cai Worker thi lay bang Google cua ban (chi khi da dang nhap, khong bat popup).
+      if (teb && !teb.fileTitle && docWorker() && !dangDongBo && !daHoiTenTeb.has(title)) {
+        daHoiTenTeb.add(title);
+        dangDongBo = true;
+        dongBoWorker(title, { teb: { spreadsheetId: teb.spreadsheetId, sheet: teb.sheetTitle } })
+          .then(() => { if (tabDaHien === title) hienStore(title); })
+          .finally(() => { dangDongBo = false; });
+      } else if (teb && !teb.fileTitle && !docWorker() && accessToken) {
         sheetsApiFetch(`${teb.spreadsheetId}?fields=properties.title`, { method: 'GET' }).then((d) => {
           const all = docCacSheetTeb();
           if (!all[title] || !d.properties) return;
