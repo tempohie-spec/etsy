@@ -1342,14 +1342,14 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
 
 1. Copy đơn từ file Excel dán vào tab account như bình thường, dán link design vào cột F/G.
 2. Bấm **2. Kiểm tra**: điền SKU vào cột AB và liệt kê đơn lỗi, chưa gửi gì lên Merchize.
-3. Sửa lỗi nếu có, bấm **3. Gửi đơn (Merchize + sheet Teb) và điền cost ước tính**: gửi đơn
-   lên Merchize, ghi đơn Teb vào sheet Teb (tab dùng Teb), điền Base Cost ước tính cho đơn gửi
-   Merchize thành công.
+3. Sửa lỗi nếu có, bấm **3. Gửi đơn (Merchize + sheet Teb)**: gửi đơn lên Merchize, ghi đơn
+   Teb vào sheet Teb (tab dùng Teb). Từ v1.29 không điền cost ước tính vào Y nữa.
+4. Sau khi Merchize trừ tiền fulfill, bấm **Điền cost thật từ Merchize** (hoặc chờ Worker tự điền).
 
 Đơn chờ gửi = dòng có orderNumber (cột C) và cột AC còn trống. Dòng tổng màu xanh (không có
 orderNumber) bị bỏ qua.
 
-Từ v1.28, Kiểm tra / Gửi đơn / Điền Base Cost ước tính chỉ đọc **100 dòng cuối** của tab (tính theo
+Từ v1.28, Kiểm tra / Gửi đơn / Điền cost thật chỉ đọc **100 dòng cuối** của tab (tính theo
 cột C, không cắt ngang đơn nhiều dòng). Đơn chờ gửi nằm cao hơn thì không được gửi; muốn đổi số
 dòng thì sửa `SO_DONG_CUOI` đầu script. Đánh dấu dòng cũ vẫn đọc cả tab.
 
@@ -1364,10 +1364,17 @@ cancel: thêm hậu tố chữ vào orderNumber (vd `4181764944a`) vì Merchize 
 External number. Mã trong Sheet phải giống hệt mã đã gửi lên Merchize (Worker khớp đúng mã,
 không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4181764944a`.
 
-## Base Cost ước tính (cột Y, v1.5)
+## Cost thật (cột Y, v1.29)
 
-Khi gửi đơn thành công, script tự điền **Base Cost ước tính** vào cột Y ở dòng đầu của đơn (chỉ
-khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền Base Cost ước tính cho đơn đã gửi**.
+Nút **Điền cost thật từ Merchize**: với đơn `Đã gửi` / `Có tracking` trong 100 dòng cuối mà ô Y
+còn trống, script gọi API tracking của Merchize (`GET /order/external/orders/tracking`) và ghi
+Y = `fulfillment_cost` × số lượng − giảm giá + phí ship, cộng 3.5$ thuế nếu ship tới nước châu Âu
+trong `NUOC_THUE_CHAU_AU`. Merchize chỉ có cost sau khi trừ tiền fulfill, đơn chưa có sẽ được liệt
+kê "Merchize chưa tính cost". Worker cũng tự điền cost này mỗi lần chạy, và webhook fulfillment
+cost ghi đè bằng số tiền thực trừ. Số ước tính cũ đã có trong Y sẽ không bị ghi đè; muốn thay thì
+xoá ô Y rồi bấm nút.
+
+### Bảng giá ước tính cũ (code còn giữ để tham khảo, không ghi vào Sheet)
 
 - Giá gốc: `tiers` trong catalog theo cột A (`dtg_tier1` / `dtf_tier1`). Đổi bậc giá ở hằng số
   `TIER` nếu store lên tier2/tier3.
@@ -1378,13 +1385,9 @@ khi ô Y đang trống). Với đơn đã gửi từ trước, bấm **Điền B
   "additional item".
 - Phụ phí in 2 mặt: **+4.5$ mỗi sản phẩm** có cả link designFront và designBack (hằng số
   `PHU_PHI_MAT_SAU`).
-- Bảng kết quả của nút điền Base Cost ghi **chi tiết** từng đơn: giá gốc, phụ phí, dòng phí ship
-  đã chọn (zone/quốc gia, first/additional), để đối chiếu khi lệch cost thật.
 - Thuế nhập khẩu (từ 26/06/2026): **+3.5$ mỗi đơn** ship từ kho US tới 49 nước châu Âu (EU,
   Thụy Sĩ, Na Uy, Thổ Nhĩ Kỳ, Ukraine...), danh sách ở `NUOC_THUE_CHAU_AU`. **Không tính UK**: có
   trong thông báo của Merchize nhưng thực tế đơn UK không bị thu (đã đối chiếu 4 đơn).
-- **Chỉ là ước tính**: chưa gồm các surcharge khác. Cost thật vẫn lấy bằng
-  script **Import Cost/Earnings** như cũ, script đó sẽ ghi đè số ước tính khi có cost thật.
 - Catalog lưu từ bản cũ chưa có giá: bấm **1. Cập nhật catalog** lại một lần.
 
 ## Luật AU và Teb Print (v1.21, thay Apps Script cũ)

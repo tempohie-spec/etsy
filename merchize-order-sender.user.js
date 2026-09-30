@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.28
+// @version      1.29
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -17,7 +17,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.28';
+  const SCRIPT_VERSION = '1.29';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -126,7 +126,7 @@
   let bangQuocGia = null;
   const BI_DANH_QUOC_GIA = {
     'usa': 'US', 'united states of america': 'US', 'uk': 'GB', 'united kingdom': 'GB', 'england': 'GB', 'scotland': 'GB',
-    'wales': 'GB', 'great britain': 'GB', 'turkey': 'TR', 'russia': 'RU', 'south korea': 'KR',
+    'wales': 'GB', 'great britain': 'GB', 'germany': 'DE', 'turkey': 'TR', 'russia': 'RU', 'south korea': 'KR',
     'korea': 'KR', 'czech republic': 'CZ', 'holland': 'NL', 'the netherlands': 'NL', 'vietnam': 'VN'
   };
   function maQuocGia(ten) {
@@ -681,38 +681,56 @@
     });
   }
 
-  // Dien Base Cost uoc tinh cho cac don "Da gui" ma cot Y con trong (vd don gui tu ban cu).
+  // Dien cost THAT tu Merchize (API tracking: fulfillment_cost x so luong - giam gia + phi ship, + thue
+  // chau Au) cho don da gui tren Merchize ma cot Y con trong. Merchize chi co cost sau khi tru tien
+  // fulfill, don chua co thi bo qua (Worker cung tu dien sau).
   async function dienBaseCost(statusEl) {
-    const catalog = docCatalogDaLuu();
-    if (!catalog) throw new Error('Chưa có catalog. Bấm "Cập nhật catalog" trước.');
     log(statusEl, '⏳ Đang đọc trang tính...');
     const { spreadsheetId, title } = await layTrangTinhDangMo();
+    const store = layStore(title);
+    if (!store) throw new Error(`Tab "${title}" chưa cài store Merchize (Base URL + Access Token).`);
     const rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
     const donMap = new Map();
     rows.forEach((r, i) => {
       const ma = cell(r, COL.orderNumber);
-      if (i === 0 || !ma || cell(r, COL.status) !== STATUS_SENT) return;
-      if (!donMap.has(ma)) donMap.set(ma, { orderNumber: ma, rows: [], daGuiTruoc: false });
+      if (i === 0 || !ma || ![STATUS_SENT, 'Có tracking'].includes(cell(r, COL.status))) return;
+      if (!donMap.has(ma)) donMap.set(ma, { orderNumber: ma, rows: [] });
       donMap.get(ma).rows.push({ rowNumber: i + 1, r });
     });
     const canDien = Array.from(donMap.values()).filter((d) => !cell(d.rows[0].r, COL.baseCost));
+    if (canDien.length === 0) return `Trang "${title}": không có đơn nào còn trống cột Y.`;
     const list = [];
+    const chuaCo = [];
     const loi = [];
-    const chiTiet = [];
-    canDien.forEach((d) => {
-      const kq = dungDon(d, catalog, title);
-      if (typeof kq.cost === 'number') {
-        list.push({ row: d.rows[0].rowNumber, cost: kq.cost });
-        chiTiet.push(`• ${d.orderNumber} ${kq.chiTietCost}`);
-      } else {
-        loi.push(`• ${d.orderNumber}: ${kq.cost || kq.loi.join('; ')}`);
+    let daXong = 0;
+    const traMotDon = async (d) => {
+      try {
+        const { json } = await merchizeRequest(store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(d.orderNumber));
+        if (!json.success) throw new Error(json.message || 'lỗi API');
+        let cost = 0;
+        (Array.isArray(json.data) ? json.data : []).forEach((g) => {
+          cost += Number(g.shipping_cost) || 0;
+          (g.items || []).forEach((it) => {
+            cost += (Number(it.fulfillment_cost) || 0) * (Number(it.quantity) || 1) - (Number(it.ffm_discount_amount) || 0);
+          });
+        });
+        if (cost <= 0) { chuaCo.push(d.orderNumber); return; }
+        if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(d.rows[0].r, COL.country)))) cost += THUE_NHAP_KHAU_CHAU_AU;
+        list.push({ row: d.rows[0].rowNumber, cost: Math.round(cost * 100) / 100, ma: d.orderNumber });
+      } catch (e) {
+        loi.push(`• ${d.orderNumber}: ${e.message.slice(0, 120)}`);
+      } finally {
+        log(statusEl, `⏳ Đang lấy cost thật ${++daXong}/${canDien.length}...`);
       }
-    });
+    };
+    for (let i = 0; i < canDien.length; i += 5) await Promise.all(canDien.slice(i, i + 5).map(traMotDon));
     await ghiBaseCost(spreadsheetId, title, list);
     return [
-      `Đã điền Base Cost ước tính cho ${list.length}/${canDien.length} đơn "Đã gửi" còn trống cột Y.`,
-      ...loi, 'Chi tiết:', ...chiTiet
-    ].join('\n');
+      `Đã điền cost thật cho ${list.length}/${canDien.length} đơn còn trống cột Y.`,
+      ...list.map((x) => `• ${x.ma}: ${x.cost}`),
+      chuaCo.length ? `Merchize chưa tính cost (${chuaCo.length}): ${chuaCo.join(', ')}` : '',
+      ...loi
+    ].filter(Boolean).join('\n');
   }
 
   // ============ TEB PRINT (fulfill rieng cho 1 so account) ============
@@ -909,9 +927,6 @@
           // Ma RX-... that se do webhook dien vao cot AD sau (API chi tra ve ID lan import).
           maMerchize = '';
           thanhCong++;
-          if (typeof d.cost === 'number' && !cell(d.rows[0].r, COL.baseCost)) {
-            await ghiBaseCost(spreadsheetId, title, [{ row: d.rows[0].rowNumber, cost: d.cost }]);
-          }
         } else {
           trangThai = STATUS_ERROR_PREFIX + (json.message || 'Merchize từ chối');
         }
@@ -1020,8 +1035,8 @@
 
     const catalogBtn = nut('1. Cập nhật catalog', '#2196F3');
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
-    const sendBtn = nut('3. Gửi đơn (Merchize + sheet Teb) và điền cost ước tính', '#4CAF50');
-    const costBtn = nut('Điền Base Cost ước tính cho đơn đã gửi', '#00897b');
+    const sendBtn = nut('3. Gửi đơn (Merchize + sheet Teb)', '#4CAF50');
+    const costBtn = nut('Điền cost thật từ Merchize', '#00897b');
     const oldBtn = nut('Đánh dấu dòng cũ (dùng 1 lần mỗi tab)', '#9e9e9e');
 
 
