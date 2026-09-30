@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.31
+// @version      1.32
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
+// @match        https://*.merchize.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -17,8 +18,26 @@
 (function () {
   'use strict';
 
+  // Tren trang quan tri Merchize: chi doc ten store (#SiteName) roi luu theo ma store trong link
+  // (vd .../t37fruz/...), de bang tren Google Sheets hien ten store thay vi ma.
+  if (/(^|\.)merchize\.com$/i.test(location.hostname)) {
+    const maStore = location.pathname.split('/')[1] || '';
+    let lan = 0;
+    const hen = setInterval(() => {
+      const e = document.getElementById('SiteName');
+      const ten = e ? e.textContent.trim() : '';
+      if (ten && maStore) {
+        let all = {};
+        try { all = JSON.parse(GM_getValue('mz_site_names', '{}')) || {}; } catch (x) { /* bo qua */ }
+        if (all[maStore] !== ten) { all[maStore] = ten; GM_setValue('mz_site_names', JSON.stringify(all)); }
+        clearInterval(hen);
+      } else if (++lan > 120) clearInterval(hen);
+    }, 1000);
+    return;
+  }
+
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.31';
+  const SCRIPT_VERSION = '1.32';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -205,6 +224,38 @@
     });
   }
 
+  // Ten store: ma trong Base URL (vd t37fruz) -> ten lay tu #SiteName tren trang Merchize.
+  function maStoreCua(st) {
+    return st ? (st.baseUrl.match(/merchize\.com\/([^/]+)\/bo-api/i) || [])[1] || st.baseUrl : '';
+  }
+  function docTenStore() {
+    try { return JSON.parse(GM_getValue('mz_site_names', '{}')) || {}; } catch (e) { return {}; }
+  }
+  function tenStore(st) {
+    const ma = maStoreCua(st);
+    return docTenStore()[ma] || ma;
+  }
+  // Chua co ten: thu doc HTML trang quan tri cua store (neu co #SiteName), moi ma 1 lan.
+  const daThuTen = new Set();
+  function thuLayTenStore(st, xong) {
+    const ma = maStoreCua(st);
+    if (!ma || docTenStore()[ma] || daThuTen.has(ma)) return;
+    daThuTen.add(ma);
+    GM_xmlhttpRequest({
+      method: 'GET',
+      url: st.baseUrl.replace(/\/bo-api$/i, '/'),
+      timeout: 20000,
+      onload: (res) => {
+        const m = String(res.responseText || '').match(/id=["']SiteName["'][^>]*>([^<]+)</i);
+        if (!m || !str(m[1])) return;
+        const all = docTenStore();
+        all[ma] = str(m[1]);
+        GM_setValue('mz_site_names', JSON.stringify(all));
+        xong();
+      }
+    });
+  }
+
   // ============ DONG BO LEN WORKER (khoi sua bien STORES / TEB tren Cloudflare) ============
   // { url: "https://merchize-webhook.<ten>.workers.dev", key: "<1 trong SECRET_KEYS>" }
   function docWorker() {
@@ -238,6 +289,7 @@
     if (!docWorker()) return ['(Chưa cài Worker nên Worker chưa biết tab này. Bấm "Cài Worker" rồi "Đồng bộ tab này lên Worker".)'];
     try {
       const kq = await goiWorker('POST', '/config', { spreadsheetId: getSpreadsheetId(), sheet: title, ...phan });
+      danhDauDaDongBo(title);
       const dong = [`Worker: đã cập nhật "${kq.khoa}".`];
       if (kq.quyenSheet && kq.quyenSheet !== 'ok') dong.push(`⚠️ Worker chưa vào được file này: ${kq.quyenSheet}. Hãy share file này cho ${kq.serviceAccount} (quyền Editor).`);
       if (kq.quyenTeb && kq.quyenTeb !== 'ok') dong.push(`⚠️ Worker chưa đọc được sheet Teb: ${kq.quyenTeb}. Hãy share file Teb cho ${kq.serviceAccount} (quyền xem là đủ).`);
@@ -245,6 +297,24 @@
     } catch (e) {
       return ['⚠️ Chưa đồng bộ được lên Worker: ' + e.message];
     }
+  }
+
+  // Chu ky cau hinh cua tab (store + sheet Teb) da gui len Worker, de tu dong bo khi con thieu.
+  function chuKyTab(title) {
+    const st = layStore(title);
+    const teb = docCacSheetTeb()[title];
+    return [getSpreadsheetId(), st ? st.baseUrl + st.token.slice(-6) : '', teb ? teb.spreadsheetId + teb.sheetTitle : ''].join('|');
+  }
+  function docDaDongBo() {
+    try { return JSON.parse(GM_getValue('mz_synced', '{}')) || {}; } catch (e) { return {}; }
+  }
+  function danhDauDaDongBo(title) {
+    const all = docDaDongBo();
+    all[getSpreadsheetId() + '|' + title] = chuKyTab(title);
+    GM_setValue('mz_synced', JSON.stringify(all));
+  }
+  function canDongBo(title) {
+    return !!docWorker() && !!layStore(title) && docDaDongBo()[getSpreadsheetId() + '|' + title] !== chuKyTab(title);
   }
 
   async function caiWorker() {
@@ -259,8 +329,8 @@
     return `Đã kết nối Worker. Service account: ${kq.serviceAccount}\nWorker đang theo dõi ${Object.keys(kq.stores).length} tab: ${Object.keys(kq.stores).join(', ')}`;
   }
 
-  async function dongBoTabNay() {
-    const { title } = await layTrangTinhDangMo();
+  async function dongBoTabNay(tenTab) {
+    const title = tenTab || (await layTrangTinhDangMo()).title;
     const st = layStore(title);
     if (!st) throw new Error(`Tab "${title}" chưa có store Merchize. Lưu store trước.`);
     const teb = docCacSheetTeb()[title];
@@ -343,21 +413,32 @@
     return { H, rows: values.slice(1) };
   }
 
-  // Doc sheet "Teb Print SKU". Khong co sheet thi tra ve bang rong.
-  async function docBangPhu(spreadsheetId) {
-    const doc = async (ten) => {
-      try {
-        const data = await sheetsApiFetch(`${spreadsheetId}/values/${encodeURIComponent(`'${ten}'`)}?valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
-        return bangTuDuLieu(data.values || []);
-      } catch (e) {
-        return { H: {}, rows: [] };
-      }
-    };
+  // Doc tab "SKU LIST" trong file Teb cua tab (cot title / color / size / SKU, khong phan biet hoa
+  // thuong). Tab khong dung Teb thi tra ve bang rong.
+  async function docBangPhu(tebTarget) {
     const teb = {};
-    const t = await doc('Teb Print SKU');
-    t.rows.forEach((r) => {
-      const key = makeKey(r[t.H.title], r[t.H.color], r[t.H.size]);
-      const sku = str(r[t.H.SKU]);
+    if (!tebTarget) return { teb };
+    const data = await sheetsApiFetch(`${tebTarget.spreadsheetId}/values/${encodeURIComponent("'SKU LIST'")}?valueRenderOption=FORMATTED_VALUE`, { method: 'GET' })
+      .catch((e) => { throw new Error('Không đọc được tab "SKU LIST" của file Teb: ' + e.message.slice(0, 150)); });
+    const values = data.values || [];
+    // Dong tieu de: dong dau tien (trong 10 dong dau) co du cot SKU, color, size.
+    const tim = (h, ds) => h.findIndex((x) => ds.includes(str(x).toLowerCase()));
+    let hdr = -1;
+    let C = {};
+    for (let k = 0; k < Math.min(10, values.length) && hdr < 0; k++) {
+      const h = values[k] || [];
+      C = {
+        title: tim(h, ['title', 'product', 'product name', 'product title', 'name', 'tên sản phẩm']),
+        color: tim(h, ['color', 'colour', 'màu']),
+        size: tim(h, ['size']),
+        sku: tim(h, ['sku', 'teb sku', 'sku teb', 'sku teb print'])
+      };
+      if (C.color >= 0 && C.size >= 0 && C.sku >= 0 && C.title >= 0) hdr = k;
+    }
+    if (hdr < 0) throw new Error('Tab "SKU LIST" của file Teb thiếu cột title / color / size / SKU.');
+    values.slice(hdr + 1).forEach((r) => {
+      const key = makeKey(r[C.title], r[C.color], r[C.size]);
+      const sku = str(r[C.sku]);
       if (key !== '||' && sku) teb[key] = sku;
     });
     return { teb };
@@ -748,100 +829,6 @@
     });
   }
 
-  const soTien = (v) => {
-    const t = str(v).replace(/[^0-9.\-]/g, '');
-    return t === '' || isNaN(Number(t)) ? null : Math.round(Number(t) * 100) / 100;
-  };
-
-  // Doc sheet Teb cua tab: { ma don (cot B): Total (cot AA) }.
-  async function docTotalTeb(target) {
-    const q = ['B:B', 'AA:AA'].map((c) => 'ranges=' + encodeURIComponent(`'${target.sheetTitle}'!${c}`)).join('&');
-    const data = await sheetsApiFetch(`${target.spreadsheetId}/values:batchGet?${q}&valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
-    const [b, aa] = (data.valueRanges || []).map((v) => v.values || []);
-    const kq = {};
-    (b || []).forEach((r, i) => {
-      const ma = str((r || [])[0]);
-      const total = soTien(((aa || [])[i] || [])[0]);
-      if (ma && total !== null && total > 0) kq[ma] = total;
-    });
-    return kq;
-  }
-
-  // Dien cost THAT vao cot Y (ghi de ca so uoc tinh cu) cho cac don trong 100 dong cuoi:
-  // - Don Teb (co trong sheet Teb cua tab): lay Total (cot AA) cua sheet Teb.
-  // - Don Merchize: API tracking (fulfillment_cost x so luong - giam gia + phi ship, + thue chau Au).
-  //   Merchize chi co cost sau khi tru tien fulfill, don chua co thi bo qua.
-  async function dienBaseCost(statusEl) {
-    log(statusEl, '⏳ Đang đọc trang tính...');
-    const { spreadsheetId, title } = await layTrangTinhDangMo();
-    const store = layStore(title);
-    const tebTarget = docCacSheetTeb()[title];
-    const rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
-    const donMap = new Map();
-    rows.forEach((r, i) => {
-      const ma = cell(r, COL.orderNumber);
-      const st = cell(r, COL.status);
-      if (i === 0 || !ma || !st || st === STATUS_OLD || st.startsWith(STATUS_ERROR_PREFIX)) return;
-      if (!donMap.has(ma)) donMap.set(ma, { orderNumber: ma, rows: [] });
-      donMap.get(ma).rows.push({ rowNumber: i + 1, r });
-    });
-    const dsDon = Array.from(donMap.values());
-    if (dsDon.length === 0) return `Trang "${title}": không có đơn đã gửi nào trong ${SO_DONG_CUOI} dòng cuối.`;
-
-    const loi = [];
-    let totalTeb = {};
-    if (tebTarget) {
-      log(statusEl, '⏳ Đang đọc sheet Teb...');
-      try { totalTeb = await docTotalTeb(tebTarget); } catch (e) { loi.push('• Không đọc được sheet Teb: ' + e.message.slice(0, 150)); }
-    }
-
-    const ketQua = [];
-    const chuaCo = [];
-    const canApi = [];
-    dsDon.forEach((d) => {
-      if (totalTeb[d.orderNumber]) ketQua.push({ d, cost: totalTeb[d.orderNumber], nguon: 'Teb' });
-      else if (cell(d.rows[0].r, COL.status) === STATUS_TEB) chuaCo.push(d.orderNumber + ' (Teb)');
-      else canApi.push(d);
-    });
-    if (canApi.length && !store) loi.push(`• Tab "${title}" chưa cài store Merchize, bỏ qua ${canApi.length} đơn Merchize.`);
-
-    let daXong = 0;
-    const traMotDon = async (d) => {
-      try {
-        const { json } = await merchizeRequest(store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(d.orderNumber));
-        if (!json.success) throw new Error(json.message || 'lỗi API');
-        let cost = 0;
-        (Array.isArray(json.data) ? json.data : []).forEach((g) => {
-          cost += Number(g.shipping_cost) || 0;
-          (g.items || []).forEach((it) => {
-            cost += (Number(it.fulfillment_cost) || 0) * (Number(it.quantity) || 1) - (Number(it.ffm_discount_amount) || 0);
-          });
-        });
-        if (cost <= 0) { chuaCo.push(d.orderNumber); return; }
-        if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(d.rows[0].r, COL.country)))) cost += THUE_NHAP_KHAU_CHAU_AU;
-        ketQua.push({ d, cost: Math.round(cost * 100) / 100, nguon: 'Merchize' });
-      } catch (e) {
-        loi.push(`• ${d.orderNumber}: ${e.message.slice(0, 120)}`);
-      } finally {
-        log(statusEl, `⏳ Đang lấy cost thật từ Merchize ${++daXong}/${canApi.length}...`);
-      }
-    };
-    if (store) for (let i = 0; i < canApi.length; i += 5) await Promise.all(canApi.slice(i, i + 5).map(traMotDon));
-
-    // Chi ghi o Y khac so that (trong hoac so uoc tinh cu).
-    const doi = ketQua.filter((x) => soTien(cell(x.d.rows[0].r, COL.baseCost)) !== x.cost);
-    await ghiBaseCost(spreadsheetId, title, doi.map((x) => ({ row: x.d.rows[0].rowNumber, cost: x.cost })));
-    return [
-      `Cost thật: ${ketQua.length}/${dsDon.length} đơn có số, cập nhật ${doi.length} ô Y, ${ketQua.length - doi.length} ô đã đúng.`,
-      ...doi.map((x) => {
-        const cu = cell(x.d.rows[0].r, COL.baseCost);
-        return `• ${x.d.orderNumber} (${x.nguon}): ${cu ? cu + ' → ' : 'trống → '}${x.cost}`;
-      }),
-      chuaCo.length ? `Chưa có cost (${chuaCo.length}): ${chuaCo.join(', ')}` : '',
-      ...loi
-    ].filter(Boolean).join('\n');
-  }
-
   // ============ TEB PRINT (fulfill rieng cho 1 so account) ============
   // Tab nao dung Teb: don gui US, chi 1 dong va tim duoc SKU trong sheet "Teb Print SKU" thi di
   // Teb (ghi noi tiep vao sheet Teb do nguoi dung chon), con lai gui Merchize.
@@ -931,13 +918,14 @@
     if (!m) throw new Error('Link không phải link Google Sheet.');
     const g = str(link).match(/gid=(\d+)/);
     const gid = g ? Number(g[1]) : 0;
-    const data = await sheetsApiFetch(`${m[1]}?fields=sheets.properties`, { method: 'GET' });
+    const data = await sheetsApiFetch(`${m[1]}?fields=properties.title,sheets.properties`, { method: 'GET' });
     const p = (data.sheets || []).map((x) => x.properties).find((x) => x.sheetId === gid);
     if (!p) throw new Error('Không tìm thấy tab trong link (link cần có #gid=...).');
+    const tenFile = str((data.properties || {}).title);
     const all = docCacSheetTeb();
-    all[title] = { spreadsheetId: m[1], sheetTitle: p.title };
+    all[title] = { spreadsheetId: m[1], sheetTitle: p.title, fileTitle: tenFile };
     GM_setValue('mz_teb_targets', JSON.stringify(all));
-    return `Đã chọn sheet Teb cho tab "${title}": tab "${p.title}". Đơn Teb sẽ được ghi nối tiếp vào đó.`;
+    return `Đã chọn sheet Teb cho tab "${title}": file "${tenFile}", tab "${p.title}".`;
   }
 
   // ============ 3 CHUC NANG CHINH ============
@@ -950,10 +938,10 @@
     const store = layStore(title);
     if (guiThat && !store) throw new Error(`Tab "${title}" chưa cài store Merchize (Base URL + Access Token).`);
     const rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
-    const bangPhu = await docBangPhu(spreadsheetId);
+    const tebTarget = docCacSheetTeb()[title];
+    const bangPhu = await docBangPhu(tebTarget);
     const tatCa = gomDon(rows).map((d) => ({ ...d, tebSku: tebSkuCuaDon(d, title, bangPhu) }));
     const dsTeb = tatCa.filter((d) => d.tebSku);
-    const tebTarget = docCacSheetTeb()[title];
     if (guiThat && dsTeb.length && !tebTarget) {
       throw new Error(`Có ${dsTeb.length} đơn đi Teb nhưng tab "${title}" chưa chọn sheet Teb. Dán link sheet Teb rồi bấm "Lưu sheet Teb".`);
     }
@@ -989,10 +977,11 @@
       return [`Không có đơn hợp lệ để gửi (${coLoi.length} đơn lỗi):`, ...dongLoi].join('\n');
     }
     const ok = W.confirm(
-      `Gửi ${hopLe.length} đơn trong trang "${title}" lên store Merchize:\n${store.baseUrl}` +
-      (dsTeb.length ? `\nvà ghi nối tiếp ${dsTeb.length} đơn đi Teb vào sheet Teb "${tebTarget.sheetTitle}"` : '') +
-      (coLoi.length ? `\n(${coLoi.length} đơn lỗi sẽ được đánh dấu, không gửi)` : '') +
-      (hopLe.length > 30 ? '\n\nSố đơn khá nhiều. Nếu đây là đơn cũ, hãy bấm Hủy rồi dùng nút "Đánh dấu dòng cũ".' : '')
+      `Sẽ gửi ${hopLe.length} đơn lên Merchize (${tenStore(store)})` +
+      (dsTeb.length ? ` và ${dsTeb.length} đơn vào sheet Teb` : '') + ` từ tab "${title}".` +
+      (coLoi.length ? `\n${coLoi.length} đơn lỗi sẽ được đánh dấu, không gửi.` : '') +
+      '\n\nVui lòng điền "Cũ" vào cột Trạng thái (AC) cho những đơn hàng cũ để tránh gửi nhầm 1 đơn 2 lần.' +
+      '\n\nBấm OK để xác nhận gửi, Cancel để hủy.'
     );
     if (!ok) return 'Đã hủy, chưa gửi đơn nào.';
 
@@ -1060,25 +1049,6 @@
     ].filter(Boolean).join('\n');
   }
 
-  // Dung 1 lan cho moi tab: danh dau tat ca dong hien co la "Cu" de khong bi gui lai.
-  async function danhDauDongCu(statusEl) {
-    log(statusEl, '⏳ Đang đọc trang tính...');
-    const { spreadsheetId, title } = await layTrangTinhDangMo();
-    const rows = await docTrangTinh(spreadsheetId, title);
-    const donList = gomDon(rows);
-    if (donList.length === 0) return `Trang "${title}": không có dòng nào cần đánh dấu.`;
-    const soDong = donList.reduce((n, d) => n + d.rows.length, 0);
-    const ok = W.confirm(`Đánh dấu "${STATUS_OLD}" cho ${soDong} dòng (${donList.length} đơn) trong trang "${title}"?\nCác dòng này sẽ KHÔNG bao giờ được gửi lên Merchize.`);
-    if (!ok) return 'Đã hủy.';
-    await damBaoTieuDe(spreadsheetId, title, rows);
-    const updates = [];
-    donList.forEach((d) => d.rows.forEach(({ rowNumber, r }) => {
-      updates.push({ row: rowNumber, values: [cell(r, COL.merchizeSku), STATUS_OLD, cell(r, COL.merchizeId)] });
-    }));
-    await ghiKetQua(spreadsheetId, title, updates);
-    return `Đã đánh dấu ${soDong} dòng là "${STATUS_OLD}".`;
-  }
-
   // ============ GIAO DIEN NOI ============
   // Google Sheets bat Trusted Types CSP: khong dung innerHTML, chi createElement/appendChild.
   function log(el, text) {
@@ -1111,27 +1081,33 @@
       }
     } catch (e) { /* bo qua */ }
 
-    const panel = el('div', `position:fixed!important;z-index:${MAX_Z}!important;width:${PANEL_WIDTH}px;padding:14px;
+    const panel = el('div', `position:fixed!important;z-index:${MAX_Z}!important;width:${PANEL_WIDTH}px;box-sizing:border-box;padding:14px;
       background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);
       font-family:Arial,sans-serif;font-size:13px;display:none;`);
 
-    panel.appendChild(el('div', 'font-weight:bold;margin-bottom:8px;', 'Gửi đơn lên Merchize'));
-    panel.appendChild(el('div', 'font-size:12px;color:#777;margin-bottom:10px;',
-      'Chỉ làm việc trên trang tính đang mở. Đơn chờ gửi = dòng có orderNumber và cột AC còn trống.'));
-
     const oCss = 'width:100%;box-sizing:border-box;padding:6px;margin-bottom:6px;border:1px solid #ccc;border-radius:4px;';
-    const tokenLabel = el('div', 'font-size:12px;font-weight:bold;margin-bottom:4px;', 'Store Merchize của tab đang mở');
-    const storeInfo = el('div', 'font-size:12px;font-weight:bold;margin-bottom:6px;', '');
+    const dongCss = 'font-size:12px;font-weight:bold;margin-bottom:6px;cursor:pointer;white-space:pre-wrap;';
+    // 2 dong trang thai: bam vao dong da cai (✅) de hien o sua.
+    const storeInfo = el('div', dongCss, '');
+    storeInfo.title = 'Bấm để sửa store Merchize';
+    const tebInfo = el('div', dongCss, '');
+    tebInfo.title = 'Bấm để sửa sheet Teb';
+    const storeBox = el('div', 'margin-bottom:4px;');
     const baseInput = el('input', oCss);
     baseInput.placeholder = 'Base URL, vd ' + BASE_URL_GOI_Y;
     const tokenInput = el('input', oCss);
     tokenInput.type = 'password';
     tokenInput.placeholder = 'Access Token của store này';
+    const webhookInput = el('input', oCss);
+    webhookInput.type = 'password';
+    webhookInput.placeholder = 'Secret key webhook của store (Merchize > Webhook), nếu có';
     const saveTokenBtn = nut('Lưu store Merchize cho tab này', '#607d8b');
-    const viewStoreBtn = nut('Xem store của tab', '#90a4ae');
+    [baseInput, tokenInput, webhookInput, saveTokenBtn].forEach((x) => storeBox.appendChild(x));
+    const tebBox = el('div', 'margin-bottom:4px;');
     const tebInput = el('input', oCss);
     tebInput.placeholder = 'Link sheet Teb (mở đúng tab rồi copy link) nếu tab này dùng Teb';
     const tebBtn = nut('Lưu sheet Teb cho tab này', '#6d4c41');
+    [tebInput, tebBtn].forEach((x) => tebBox.appendChild(x));
 
     const catalogInfo = el('div', 'font-size:11px;color:#999;margin:4px 0 6px;');
     function capNhatCatalogInfo() {
@@ -1145,15 +1121,12 @@
     const catalogBtn = nut('1. Cập nhật catalog', '#2196F3');
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
     const sendBtn = nut('3. Gửi đơn (Merchize + sheet Teb)', '#4CAF50');
-    const costBtn = nut('Điền cost thật từ Merchize', '#00897b');
-    const oldBtn = nut('Đánh dấu dòng cũ (dùng 1 lần mỗi tab)', '#9e9e9e');
     const workerBtn = nut('Cài Worker (link + key, 1 lần)', '#455a64');
-    const syncBtn = nut('Đồng bộ tab này lên Worker', '#455a64');
 
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, tebInput, tebBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, workerBtn, syncBtn, statusEl]
+    [storeInfo, storeBox, tebInfo, tebBox, catalogInfo, catalogBtn, checkBtn, sendBtn, workerBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
 
@@ -1171,7 +1144,14 @@
     }
     giuNutTrongManHinh();
     window.addEventListener('resize', giuNutTrongManHinh);
-    try { GM_registerMenuCommand('Hiện lại nút Merchize (góc phải dưới)', datLaiViTriNut); } catch (e) { /* bo qua */ }
+    try {
+      GM_registerMenuCommand('Hiện lại nút Merchize (góc phải dưới)', datLaiViTriNut);
+      GM_registerMenuCommand('Cài / đổi Worker (link + key)', () => {
+        panel.style.display = 'block';
+        repositionPanel();
+        chay(caiWorkerVaHien);
+      });
+    } catch (e) { /* bo qua */ }
     document.body.appendChild(panel);
 
     function repositionPanel() {
@@ -1230,7 +1210,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, viewStoreBtn, tebBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, workerBtn, syncBtn];
+    const tatCaNut = [saveTokenBtn, tebBtn, catalogBtn, checkBtn, sendBtn, workerBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1244,23 +1224,45 @@
       }
     }
 
-    // Hien store Merchize (ma store trong Base URL) va sheet Teb (neu tab dung Teb) cua tab dang mo.
+    // Tab da cai store (va sheet Teb neu dung Teb) thi chi hien dong ✅, bam vao dong de hien o sua.
+    let moSuaStore = false;
+    let moSuaTeb = false;
+    let dangDongBo = false;
     function hienStore(title) {
       const st = layStore(title);
-      const tenStore = st ? (st.baseUrl.match(/merchize\.com\/([^/]+)\/bo-api/i) || [])[1] || st.baseUrl : '';
       const teb = docCacSheetTeb()[title];
-      const dong = [st
-        ? `✅ Tab "${title}": store Merchize ${tenStore} (đã có token)`
-        : `❌ Tab "${title}": chưa có store Merchize`];
-      if (laTabTeb(title)) dong.push(teb ? `✅ Sheet Teb: ${teb.sheetTitle}` : '❌ Chưa chọn sheet Teb');
-      storeInfo.textContent = dong.join('\n');
-      storeInfo.style.whiteSpace = 'pre-wrap';
+      const canTeb = laTabTeb(title);
+      storeInfo.textContent = st
+        ? `✅ Tab "${title}": ${tenStore(st)} (đã có token)`
+        : `❌ Tab "${title}": chưa có store Merchize`;
       storeInfo.style.color = st ? '#2e7d32' : '#c62828';
-      viewStoreBtn.textContent = st ? `Store Merchize: ${tenStore}` : 'Xem store của tab';
+      storeBox.style.display = !st || moSuaStore ? 'block' : 'none';
+      tebInfo.textContent = teb ? `✅ Sheet Teb: ${teb.fileTitle || teb.sheetTitle}` : '❌ Chưa chọn sheet Teb';
+      tebInfo.style.color = teb ? '#2e7d32' : '#c62828';
+      tebInfo.style.display = teb || canTeb ? 'block' : 'none';
+      // Tab chua dung Teb: o link Teb hien cung o sua store (de them Teb khi can).
+      tebBox.style.display = (canTeb && !teb) || moSuaTeb || !st || moSuaStore ? 'block' : 'none';
       tebInput.placeholder = teb
-        ? `Sheet Teb đang dùng: ${teb.sheetTitle} (dán link mới để đổi, để trống rồi bấm Lưu để bỏ)`
+        ? `Đang dùng: ${teb.fileTitle || teb.sheetTitle} / ${teb.sheetTitle} (dán link mới để đổi, để trống rồi bấm Lưu để bỏ)`
         : 'Link sheet Teb (mở đúng tab rồi copy link) nếu tab này dùng Teb';
       if (document.activeElement !== baseInput) baseInput.value = st ? st.baseUrl : '';
+      workerBtn.style.display = docWorker() ? 'none' : 'block';
+      if (st) thuLayTenStore(st, () => { if (tabDaHien === title) hienStore(title); });
+      // File Teb luu tu ban cu chua co ten file: lay ten (chi khi da dang nhap Google, khong bat popup).
+      if (teb && !teb.fileTitle && accessToken) {
+        sheetsApiFetch(`${teb.spreadsheetId}?fields=properties.title`, { method: 'GET' }).then((d) => {
+          const all = docCacSheetTeb();
+          if (!all[title] || !d.properties) return;
+          all[title].fileTitle = str(d.properties.title);
+          GM_setValue('mz_teb_targets', JSON.stringify(all));
+          if (tabDaHien === title) hienStore(title);
+        }).catch(() => {});
+      }
+      // Tab chua gui (hoac da doi) cau hinh len Worker: tu gui ngam.
+      if (!dangDongBo && canDongBo(title)) {
+        dangDongBo = true;
+        dongBoTabNay(title).then((kq) => { if (/⚠️/.test(kq)) log(statusEl, kq); }).catch(() => {}).finally(() => { dangDongBo = false; });
+      }
       return storeInfo.textContent;
     }
 
@@ -1276,30 +1278,47 @@
       const ten = tenTabNhanh();
       if (!ten) {
         if (tabDaHien === null) {
-          storeInfo.textContent = 'Bấm "Xem store của tab" để kiểm tra.';
+          storeInfo.textContent = 'Bấm vào đây để kiểm tra store của tab.';
           storeInfo.style.color = '#777';
         }
         return;
       }
       if (ten === tabDaHien) return;
       tabDaHien = ten;
+      moSuaStore = false;
+      moSuaTeb = false;
       hienStore(ten);
     }
     setInterval(capNhatStoreTheoTab, 500);
     window.addEventListener('hashchange', capNhatStoreTheoTab);
 
-    viewStoreBtn.addEventListener('click', () => chay(xemStore));
-    tebBtn.addEventListener('click', () => chay(async () => {
+    storeInfo.addEventListener('click', () => {
+      if (!tabDaHien) { chay(xemStore); return; }
+      moSuaStore = !moSuaStore;
+      hienStore(tabDaHien);
+    });
+    tebInfo.addEventListener('click', () => {
+      if (!tabDaHien) return;
+      moSuaTeb = !moSuaTeb;
+      hienStore(tabDaHien);
+    });
+    // Trong luc luu, tat tu dong bo (tranh 2 lan ghi cau hinh len Worker cung luc).
+    const khongTuDongBo = (fn) => async () => {
+      dangDongBo = true;
+      try { return await fn(); } finally { dangDongBo = false; }
+    };
+    tebBtn.addEventListener('click', () => chay(khongTuDongBo(async () => {
       const kq = await luuSheetTeb(tebInput.value);
       tebInput.value = '';
+      moSuaTeb = false;
       const { title } = await layTrangTinhDangMo();
       await xemStore();
       if (kq === 'Đã hủy.' || !layStore(title)) return kq;
       const teb = docCacSheetTeb()[title];
       const dong = await dongBoWorker(title, { teb: teb ? { spreadsheetId: teb.spreadsheetId, sheet: teb.sheetTitle } : null });
       return [kq, ...dong].join('\n');
-    }));
-    saveTokenBtn.addEventListener('click', () => chay(async () => {
+    })));
+    saveTokenBtn.addEventListener('click', () => chay(khongTuDongBo(async () => {
       const baseUrl = chuanHoaBaseUrl(baseInput.value);
       if (!baseUrl) throw new Error('Base URL không đúng dạng https://....merchize.com/<store>/bo-api');
       const { title } = await layTrangTinhDangMo();
@@ -1311,21 +1330,26 @@
       }
       luuStore(title, baseUrl, token);
       tokenInput.value = '';
+      const webhookKey = str(webhookInput.value);
+      webhookInput.value = '';
+      moSuaStore = false;
       await xemStore();
       const teb = docCacSheetTeb()[title];
       const dong = await dongBoWorker(title, {
-        store: { baseUrl, token },
+        store: { baseUrl, token, ...(webhookKey ? { webhookKey } : {}) },
         ...(teb ? { teb: { spreadsheetId: teb.spreadsheetId, sheet: teb.sheetTitle } } : {})
       });
       return [`Đã lưu store cho tab "${title}".`, ...dong].join('\n');
-    }));
+    })));
     catalogBtn.addEventListener('click', () => chay(() => capNhatCatalog(statusEl)));
     checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
     sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true)));
-    costBtn.addEventListener('click', () => chay(() => dienBaseCost(statusEl)));
-    oldBtn.addEventListener('click', () => chay(() => danhDauDongCu(statusEl)));
-    workerBtn.addEventListener('click', () => chay(caiWorker));
-    syncBtn.addEventListener('click', () => chay(dongBoTabNay));
+    const caiWorkerVaHien = async () => {
+      const kq = await caiWorker();
+      if (tabDaHien) hienStore(tabDaHien);
+      return kq;
+    };
+    workerBtn.addEventListener('click', () => chay(caiWorkerVaHien));
   }
 
   function safeInit() {

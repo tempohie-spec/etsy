@@ -452,8 +452,8 @@ async function luuCho(env, ev) {
 
 async function nhanWebhook(request, env, ctx) {
   const key = request.headers.get('merchize-webhook-key') || '';
-  const cacKey = str(env.SECRET_KEYS).split(',').map(str).filter(Boolean);
-  if (!cacKey.includes(key)) return json({ ok: false, error: 'invalid key' }, 401);
+  const cacKey = str(env.SECRET_KEYS).split(',').map(str).filter(Boolean).concat(env.WEBHOOK_KEYS || []);
+  if (!key || !cacKey.includes(key)) return json({ ok: false, error: 'invalid key' }, 401);
   let ev;
   try {
     ev = await request.json();
@@ -914,6 +914,8 @@ async function napCauHinh(env) {
   const e2 = Object.create(env);
   e2.STORES = gop('STORES', kv.stores);
   if (env.TEB || Object.keys(kv.teb || {}).length) e2.TEB = gop('TEB', kv.teb);
+  // Secret key webhook rieng cua tung store (nhap tren userscript), dung them voi SECRET_KEYS.
+  e2.WEBHOOK_KEYS = Object.values(kv.webhookKeys || {}).map(str).filter(Boolean);
   return e2;
 }
 
@@ -938,10 +940,11 @@ async function xuLyConfig(request, env) {
   let teb = {};
   try { teb = JSON.parse(envGop.TEB || '{}') || {}; } catch (e) { /* bien TEB sai, bo qua */ }
   const viTri = viTriTab(env, stores);
+  const kv = await docCfgKv(env);
   if (request.method === 'GET') {
     const ds = {};
     Object.keys(stores).forEach((k) => {
-      ds[k] = { baseUrl: str(stores[k].baseUrl), coToken: !!str(stores[k].token), spreadsheetId: viTri[k].id, sheet: viTri[k].sheet, teb: teb[k] || null };
+      ds[k] = { baseUrl: str(stores[k].baseUrl), coToken: !!str(stores[k].token), coWebhookKey: !!(kv.webhookKeys || {})[k], spreadsheetId: viTri[k].id, sheet: viTri[k].sheet, teb: teb[k] || null };
     });
     return json({ ok: true, serviceAccount: emailServiceAccount(env), stores: ds });
   }
@@ -953,13 +956,14 @@ async function xuLyConfig(request, env) {
   // khac thi them duoi ma file).
   let khoa = Object.keys(viTri).find((k) => viTri[k].id === spreadsheetId && viTri[k].sheet === sheet);
   if (!khoa) khoa = stores[sheet] ? `${sheet} (${spreadsheetId.slice(0, 6)})` : sheet;
-  const kv = await docCfgKv(env);
   kv.stores = kv.stores || {};
   kv.teb = kv.teb || {};
+  kv.webhookKeys = kv.webhookKeys || {};
   const ketQua = { ok: true, khoa, serviceAccount: emailServiceAccount(env) };
   if (body.store === null) {
     kv.stores[khoa] = null;
     kv.teb[khoa] = null;
+    delete kv.webhookKeys[khoa];
   } else if (body.store) {
     const cu = stores[khoa] || {};
     const token = str(body.store.token) || str(cu.token);
@@ -968,6 +972,7 @@ async function xuLyConfig(request, env) {
       return json({ ok: false, error: 'baseUrl hoặc token không hợp lệ' }, 400);
     }
     kv.stores[khoa] = { baseUrl, token, spreadsheetId, sheet };
+    if (str(body.store.webhookKey)) kv.webhookKeys[khoa] = str(body.store.webhookKey);
     ketQua.quyenSheet = await thuQuyen(env, dem, spreadsheetId, sheet);
   }
   if (body.teb === null) {

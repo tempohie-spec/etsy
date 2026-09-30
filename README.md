@@ -1364,52 +1364,29 @@ cancel: thêm hậu tố chữ vào orderNumber (vd `4181764944a`) vì Merchize 
 External number. Mã trong Sheet phải giống hệt mã đã gửi lên Merchize (Worker khớp đúng mã,
 không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4181764944a`.
 
-## Thêm account / file Sheet mới (v1.31, không cần sửa Cloudflare)
+## Bảng điều khiển (v1.32)
 
-Cài 1 lần trên mỗi máy: bấm **Cài Worker (link + key, 1 lần)**, nhập link Worker
-(`https://merchize-webhook.<tên>.workers.dev`) và 1 key trong `SECRET_KEYS`.
+- Tab đã cài đủ chỉ hiện 2 dòng: `✅ Tab "<tab>": <tên store> (đã có token)` và `✅ Sheet Teb: <tên
+  file Teb>`. Bấm vào dòng để hiện ô sửa. Tab chưa cài thì hiện sẵn các ô nhập.
+- Tên store lấy từ ô `#SiteName` trên trang quản trị Merchize: mở trang Merchize của store đó một lần
+  (script chạy cả trên `*.merchize.com`, chỉ đọc tên store). Chưa có tên thì hiện mã store.
+- SKU Teb tra trong tab **SKU LIST** của file Teb đã chọn cho tab (cột title / color / size / SKU,
+  không phân biệt hoa thường; dòng tiêu đề nằm trong 10 dòng đầu). Không dùng sheet Teb Print SKU nữa.
+- Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / sheet Teb, nhắc điền `Cũ` vào cột AC cho đơn cũ.
+- Đã bỏ nút Đánh dấu dòng cũ và Điền cost thật (Worker vẫn tự điền cost thật).
 
-Mỗi tab account mới:
+## Thêm account / file Sheet mới (không cần sửa Cloudflare)
 
-1. Mở tab, dán Base URL + Access Token, bấm **Lưu store Merchize cho tab này**. Script lưu trong
-   Violentmonkey và gửi luôn lên Worker (file + tên tab tự lấy theo tab đang mở).
-2. Tab dùng Teb: dán link sheet Teb, bấm **Lưu sheet Teb cho tab này** (cũng tự gửi lên Worker).
-3. Nếu script báo `⚠️ Worker chưa vào được file`: share file đó cho email service account hiện
-   trong thông báo (Sheet đơn: Editor, sheet Teb: quyền xem là đủ).
-4. Trên Merchize (Settings > Webhook của store mới): URL = link Worker, Secret key = key ở trên.
+Cài 1 lần trên mỗi máy: bấm **Cài Worker (link + key, 1 lần)** (hoặc menu Violentmonkey > Cài / đổi
+Worker), nhập link Worker và 1 key trong `SECRET_KEYS`.
 
-Tab đã cài từ trước: bấm **Đồng bộ tab này lên Worker** một lần. Worker lưu cấu hình trong KV
-(`cfg`, qua `GET/POST /config?key=`), ghi đè lên mục cùng tên trong biến `STORES` / `TEB`; hai biến
-này vẫn dùng được như cũ. Trùng tên tab ở 2 file khác nhau thì mục sau có thêm đuôi mã file.
-
-## Cost thật (cột Y, v1.30)
-
-Nút **Điền cost thật từ Merchize** xét mọi đơn đã gửi trong 100 dòng cuối (bỏ qua AC trống, `Cũ`,
-`Lỗi: ...`) và **ghi đè** ô Y nếu khác số thật (kể cả số ước tính cũ):
-
-- Đơn Teb (mã có trong sheet Teb của tab): lấy **Total (cột AA)** của sheet Teb.
-- Đơn Merchize: API tracking (`GET /order/external/orders/tracking`), Y = `fulfillment_cost` ×
-  số lượng − giảm giá + phí ship, cộng 3.5$ thuế nếu ship tới nước trong `NUOC_THUE_CHAU_AU`.
-- Kết quả hiện trong bảng của script: từng ô đã đổi (`số cũ → số mới`), số ô đã đúng, đơn chưa có
-  cost (Merchize chưa trừ tiền fulfill, hoặc sheet Teb chưa có Total).
-
-Worker vẫn tự điền cost khi ô Y trống, và webhook fulfillment cost ghi đè bằng số tiền thực trừ.
-
-### Bảng giá ước tính cũ (code còn giữ để tham khảo, không ghi vào Sheet)
-
-- Giá gốc: `tiers` trong catalog theo cột A (`dtg_tier1` / `dtf_tier1`). Đổi bậc giá ở hằng số
-  `TIER` nếu store lên tier2/tier3.
-- Phí ship: bảng `PHI_SHIP` trong code, lấy từ file catalog Excel của Merchize (zone US / EU /
-  ROW), vì `shipping_prices` của API trả về 0 cho US/EU. Sản phẩm không có trong bảng mới dùng
-  số của API. Merchize đổi phí ship thì sửa bảng này.
-  Sản phẩm có phí "first item" cao nhất tính first item, các sản phẩm/số lượng còn lại tính
-  "additional item".
-- Phụ phí in 2 mặt: **+4.5$ mỗi sản phẩm** có cả link designFront và designBack (hằng số
-  `PHU_PHI_MAT_SAU`).
-- Thuế nhập khẩu (từ 26/06/2026): **+3.5$ mỗi đơn** ship từ kho US tới 49 nước châu Âu (EU,
-  Thụy Sĩ, Na Uy, Thổ Nhĩ Kỳ, Ukraine...), danh sách ở `NUOC_THUE_CHAU_AU`. **Không tính UK**: có
-  trong thông báo của Merchize nhưng thực tế đơn UK không bị thu (đã đối chiếu 4 đơn).
-- Catalog lưu từ bản cũ chưa có giá: bấm **1. Cập nhật catalog** lại một lần.
+Mỗi tab account mới: dán Base URL, Access Token và **Secret key webhook** của store (Merchize >
+Webhook), bấm **Lưu store Merchize cho tab này**; tab dùng Teb thì dán link sheet Teb rồi bấm
+**Lưu sheet Teb cho tab này**. Script tự gửi lên Worker (Worker nhận webhook bằng secret key riêng
+của từng store, không cần thêm vào `SECRET_KEYS`). Tab đã cài từ trước được tự gửi lên Worker khi
+mở tab. Nếu script báo `⚠️ Worker chưa vào được file`: share file cho email service account trong
+thông báo (Sheet đơn: Editor, file Teb: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
+ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
 
 ## Luật AU và Teb Print (v1.21, thay Apps Script cũ)
 
