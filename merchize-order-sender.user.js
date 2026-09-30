@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.33
+// @version      1.34
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @match        https://*.merchize.com/*
@@ -12,6 +12,7 @@
 // @grant        GM_registerMenuCommand
 // @connect      merchize.com
 // @connect      workers.dev
+// @connect      merchize.store
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -50,7 +51,7 @@
   }
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.33';
+  const SCRIPT_VERSION = '1.34';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -248,7 +249,9 @@
     const ma = maStoreCua(st);
     return docTenStore()[ma] || ma;
   }
-  // Chua co ten: thu doc HTML trang quan tri cua store (neu co #SiteName), moi ma 1 lan.
+  // Chua co ten: hoi API cua Merchize (stores/by-slug/<ma>/authorize, settings "name"), moi ma 1 lan.
+  // Dung Access Token cua store; neu API doi dang nhap seller thi van con cach doc ten khi mo
+  // seller.merchize.com (o dau script).
   const daThuTen = new Set();
   function thuLayTenStore(st, xong) {
     const ma = maStoreCua(st);
@@ -256,13 +259,18 @@
     daThuTen.add(ma);
     GM_xmlhttpRequest({
       method: 'GET',
-      url: st.baseUrl.replace(/\/bo-api$/i, '/'),
+      url: `https://bo-master-1-eks.merchize.store/api/seller/stores/by-slug/${encodeURIComponent(ma)}/authorize`,
+      headers: { Authorization: 'Bearer ' + st.token },
       timeout: 20000,
       onload: (res) => {
-        const m = String(res.responseText || '').match(/id=["']SiteName["'][^>]*>([^<]+)</i);
-        if (!m || !str(m[1])) return;
+        let json = null;
+        try { json = JSON.parse(res.responseText); } catch (e) { return; }
+        const ds = (json && json.data && json.data.settings) || [];
+        const lay = (k) => str((ds.find((x) => x && x.key === k) || {}).value);
+        const ten = lay('name') || lay('general_name');
+        if (!ten) return;
         const all = docTenStore();
-        all[ma] = str(m[1]);
+        all[ma] = ten;
         GM_setValue('mz_site_names', JSON.stringify(all));
         xong();
       }
