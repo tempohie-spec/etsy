@@ -1367,9 +1367,7 @@ không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4
 - Tab đã cài đủ chỉ hiện 2 dòng: `✅ Tab "<tab>": <tên store> (đã có token)` và `✅ Sheet Teb: <tên
   file Teb>`. Bấm vào dòng để hiện ô sửa. Tab chưa cài thì hiện sẵn các ô nhập.
 - Tên store: script tự hỏi API Merchize `bo-master-1-eks.merchize.store/api/seller/stores/by-slug/<mã>/authorize`
-  (lấy `name`) bằng Access Token của store. Nếu API không trả tên: mở `seller.merchize.com` (trang Orders) của từng store một lần (Switch Store sang từng
-  store cũng được). Script đọc tên (`#SiteName`) và mã store trong link API trang đang gọi
-  (`.../<mã>/bo-api/...`), rồi lưu lại. Chưa có tên thì hiện mã store.
+  (lấy `name`) bằng Access Token của store. Chưa lấy được tên thì hiện mã store.
 - SKU Teb tra trong tab **SKU LIST** của file Teb đã chọn cho tab (cột title / color / size / SKU,
   không phân biệt hoa thường; dòng tiêu đề nằm trong 10 dòng đầu). Không dùng sheet Teb Print SKU nữa.
 - Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / sheet Teb, nhắc điền `Cũ` vào cột AC cho đơn cũ.
