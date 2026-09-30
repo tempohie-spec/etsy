@@ -1364,15 +1364,18 @@ cancel: thêm hậu tố chữ vào orderNumber (vd `4181764944a`) vì Merchize 
 External number. Mã trong Sheet phải giống hệt mã đã gửi lên Merchize (Worker khớp đúng mã,
 không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4181764944a`.
 
-## Cost thật (cột Y, v1.29)
+## Cost thật (cột Y, v1.30)
 
-Nút **Điền cost thật từ Merchize**: với đơn `Đã gửi` / `Có tracking` trong 100 dòng cuối mà ô Y
-còn trống, script gọi API tracking của Merchize (`GET /order/external/orders/tracking`) và ghi
-Y = `fulfillment_cost` × số lượng − giảm giá + phí ship, cộng 3.5$ thuế nếu ship tới nước châu Âu
-trong `NUOC_THUE_CHAU_AU`. Merchize chỉ có cost sau khi trừ tiền fulfill, đơn chưa có sẽ được liệt
-kê "Merchize chưa tính cost". Worker cũng tự điền cost này mỗi lần chạy, và webhook fulfillment
-cost ghi đè bằng số tiền thực trừ. Số ước tính cũ đã có trong Y sẽ không bị ghi đè; muốn thay thì
-xoá ô Y rồi bấm nút.
+Nút **Điền cost thật từ Merchize** xét mọi đơn đã gửi trong 100 dòng cuối (bỏ qua AC trống, `Cũ`,
+`Lỗi: ...`) và **ghi đè** ô Y nếu khác số thật (kể cả số ước tính cũ):
+
+- Đơn Teb (mã có trong sheet Teb của tab): lấy **Total (cột AA)** của sheet Teb.
+- Đơn Merchize: API tracking (`GET /order/external/orders/tracking`), Y = `fulfillment_cost` ×
+  số lượng − giảm giá + phí ship, cộng 3.5$ thuế nếu ship tới nước trong `NUOC_THUE_CHAU_AU`.
+- Kết quả hiện trong bảng của script: từng ô đã đổi (`số cũ → số mới`), số ô đã đúng, đơn chưa có
+  cost (Merchize chưa trừ tiền fulfill, hoặc sheet Teb chưa có Total).
+
+Worker vẫn tự điền cost khi ô Y trống, và webhook fulfillment cost ghi đè bằng số tiền thực trừ.
 
 ### Bảng giá ước tính cũ (code còn giữ để tham khảo, không ghi vào Sheet)
 

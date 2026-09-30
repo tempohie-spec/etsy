@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.29
+// @version      1.30
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -17,7 +17,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.29';
+  const SCRIPT_VERSION = '1.30';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -681,27 +681,63 @@
     });
   }
 
-  // Dien cost THAT tu Merchize (API tracking: fulfillment_cost x so luong - giam gia + phi ship, + thue
-  // chau Au) cho don da gui tren Merchize ma cot Y con trong. Merchize chi co cost sau khi tru tien
-  // fulfill, don chua co thi bo qua (Worker cung tu dien sau).
+  const soTien = (v) => {
+    const t = str(v).replace(/[^0-9.\-]/g, '');
+    return t === '' || isNaN(Number(t)) ? null : Math.round(Number(t) * 100) / 100;
+  };
+
+  // Doc sheet Teb cua tab: { ma don (cot B): Total (cot AA) }.
+  async function docTotalTeb(target) {
+    const q = ['B:B', 'AA:AA'].map((c) => 'ranges=' + encodeURIComponent(`'${target.sheetTitle}'!${c}`)).join('&');
+    const data = await sheetsApiFetch(`${target.spreadsheetId}/values:batchGet?${q}&valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
+    const [b, aa] = (data.valueRanges || []).map((v) => v.values || []);
+    const kq = {};
+    (b || []).forEach((r, i) => {
+      const ma = str((r || [])[0]);
+      const total = soTien(((aa || [])[i] || [])[0]);
+      if (ma && total !== null && total > 0) kq[ma] = total;
+    });
+    return kq;
+  }
+
+  // Dien cost THAT vao cot Y (ghi de ca so uoc tinh cu) cho cac don trong 100 dong cuoi:
+  // - Don Teb (co trong sheet Teb cua tab): lay Total (cot AA) cua sheet Teb.
+  // - Don Merchize: API tracking (fulfillment_cost x so luong - giam gia + phi ship, + thue chau Au).
+  //   Merchize chi co cost sau khi tru tien fulfill, don chua co thi bo qua.
   async function dienBaseCost(statusEl) {
     log(statusEl, '⏳ Đang đọc trang tính...');
     const { spreadsheetId, title } = await layTrangTinhDangMo();
     const store = layStore(title);
-    if (!store) throw new Error(`Tab "${title}" chưa cài store Merchize (Base URL + Access Token).`);
+    const tebTarget = docCacSheetTeb()[title];
     const rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
     const donMap = new Map();
     rows.forEach((r, i) => {
       const ma = cell(r, COL.orderNumber);
-      if (i === 0 || !ma || ![STATUS_SENT, 'Có tracking'].includes(cell(r, COL.status))) return;
+      const st = cell(r, COL.status);
+      if (i === 0 || !ma || !st || st === STATUS_OLD || st.startsWith(STATUS_ERROR_PREFIX)) return;
       if (!donMap.has(ma)) donMap.set(ma, { orderNumber: ma, rows: [] });
       donMap.get(ma).rows.push({ rowNumber: i + 1, r });
     });
-    const canDien = Array.from(donMap.values()).filter((d) => !cell(d.rows[0].r, COL.baseCost));
-    if (canDien.length === 0) return `Trang "${title}": không có đơn nào còn trống cột Y.`;
-    const list = [];
-    const chuaCo = [];
+    const dsDon = Array.from(donMap.values());
+    if (dsDon.length === 0) return `Trang "${title}": không có đơn đã gửi nào trong ${SO_DONG_CUOI} dòng cuối.`;
+
     const loi = [];
+    let totalTeb = {};
+    if (tebTarget) {
+      log(statusEl, '⏳ Đang đọc sheet Teb...');
+      try { totalTeb = await docTotalTeb(tebTarget); } catch (e) { loi.push('• Không đọc được sheet Teb: ' + e.message.slice(0, 150)); }
+    }
+
+    const ketQua = [];
+    const chuaCo = [];
+    const canApi = [];
+    dsDon.forEach((d) => {
+      if (totalTeb[d.orderNumber]) ketQua.push({ d, cost: totalTeb[d.orderNumber], nguon: 'Teb' });
+      else if (cell(d.rows[0].r, COL.status) === STATUS_TEB) chuaCo.push(d.orderNumber + ' (Teb)');
+      else canApi.push(d);
+    });
+    if (canApi.length && !store) loi.push(`• Tab "${title}" chưa cài store Merchize, bỏ qua ${canApi.length} đơn Merchize.`);
+
     let daXong = 0;
     const traMotDon = async (d) => {
       try {
@@ -716,19 +752,25 @@
         });
         if (cost <= 0) { chuaCo.push(d.orderNumber); return; }
         if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(d.rows[0].r, COL.country)))) cost += THUE_NHAP_KHAU_CHAU_AU;
-        list.push({ row: d.rows[0].rowNumber, cost: Math.round(cost * 100) / 100, ma: d.orderNumber });
+        ketQua.push({ d, cost: Math.round(cost * 100) / 100, nguon: 'Merchize' });
       } catch (e) {
         loi.push(`• ${d.orderNumber}: ${e.message.slice(0, 120)}`);
       } finally {
-        log(statusEl, `⏳ Đang lấy cost thật ${++daXong}/${canDien.length}...`);
+        log(statusEl, `⏳ Đang lấy cost thật từ Merchize ${++daXong}/${canApi.length}...`);
       }
     };
-    for (let i = 0; i < canDien.length; i += 5) await Promise.all(canDien.slice(i, i + 5).map(traMotDon));
-    await ghiBaseCost(spreadsheetId, title, list);
+    if (store) for (let i = 0; i < canApi.length; i += 5) await Promise.all(canApi.slice(i, i + 5).map(traMotDon));
+
+    // Chi ghi o Y khac so that (trong hoac so uoc tinh cu).
+    const doi = ketQua.filter((x) => soTien(cell(x.d.rows[0].r, COL.baseCost)) !== x.cost);
+    await ghiBaseCost(spreadsheetId, title, doi.map((x) => ({ row: x.d.rows[0].rowNumber, cost: x.cost })));
     return [
-      `Đã điền cost thật cho ${list.length}/${canDien.length} đơn còn trống cột Y.`,
-      ...list.map((x) => `• ${x.ma}: ${x.cost}`),
-      chuaCo.length ? `Merchize chưa tính cost (${chuaCo.length}): ${chuaCo.join(', ')}` : '',
+      `Cost thật: ${ketQua.length}/${dsDon.length} đơn có số, cập nhật ${doi.length} ô Y, ${ketQua.length - doi.length} ô đã đúng.`,
+      ...doi.map((x) => {
+        const cu = cell(x.d.rows[0].r, COL.baseCost);
+        return `• ${x.d.orderNumber} (${x.nguon}): ${cu ? cu + ' → ' : 'trống → '}${x.cost}`;
+      }),
+      chuaCo.length ? `Chưa có cost (${chuaCo.length}): ${chuaCo.join(', ')}` : '',
       ...loi
     ].filter(Boolean).join('\n');
   }
