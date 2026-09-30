@@ -10,6 +10,8 @@
 //     4. Don Merchize "Request update" (can xu ly, tao trong 10 ngay): ghi AC "Can xu ly: <note>" + Telegram 1 lan.
 //     3. Don di Teb (AC = "Teb"): lay tracking + DVVC + Total (base cost) tu sheet Teb (bien TEB).
 // - GET /run?key=<1 trong SECRET_KEYS>: chay lich ngay lap tuc.
+// - GET/POST /config?key=<1 trong SECRET_KEYS>: userscript gui store + sheet Teb cua tung tab (luu KV
+//   "cfg", ghi de len bien STORES / TEB), khong can sua bien tren Cloudflare khi them account.
 // - GET /telegram-setup?key=<1 trong SECRET_KEYS>: cai 1 lan de tra loi bot ("xong") tat nhac don
 //   can xu ly; POST /telegram nhan tin nhan tu Telegram.
 //
@@ -892,6 +894,98 @@ async function chayLich(env, event) {
   };
 }
 
+
+// ============ CAU HINH TU USERSCRIPT (KV "cfg") ============
+// Userscript gui store / sheet Teb cua tung tab len day (POST /config), khoi sua bien STORES, TEB
+// tren Cloudflare. KV ghi de len muc cung ten trong bien; gia tri null = xoa muc do.
+async function docCfgKv(env) {
+  try { return JSON.parse((await env.EVENTS.get('cfg')) || '{}') || {}; } catch (e) { return {}; }
+}
+
+async function napCauHinh(env) {
+  const kv = await docCfgKv(env);
+  const gop = (bien, them) => {
+    let goc = {};
+    try { goc = JSON.parse(env[bien] || '{}') || {}; } catch (e) { return env[bien]; }
+    const kq = { ...goc, ...(them || {}) };
+    Object.keys(kq).forEach((k) => { if (!kq[k]) delete kq[k]; });
+    return JSON.stringify(kq);
+  };
+  const e2 = Object.create(env);
+  e2.STORES = gop('STORES', kv.stores);
+  if (env.TEB || Object.keys(kv.teb || {}).length) e2.TEB = gop('TEB', kv.teb);
+  return e2;
+}
+
+function emailServiceAccount(env) {
+  try { return JSON.parse(env.GOOGLE_SERVICE_ACCOUNT).client_email || ''; } catch (e) { return ''; }
+}
+
+// Thu doc 1 o de biet service account co vao duoc file khong.
+async function thuQuyen(env, dem, spreadsheetId, sheet) {
+  try {
+    await sheetsFetch(env, dem, `/values/${encodeURIComponent(`'${sheet}'!A1`)}`, {}, spreadsheetId);
+    return 'ok';
+  } catch (e) {
+    return /\b403\b|PERMISSION/.test(e.message) ? 'chưa share' : e.message.slice(0, 200);
+  }
+}
+
+async function xuLyConfig(request, env) {
+  const dem = taoBoDem();
+  const envGop = await napCauHinh(env);
+  const stores = docCauHinhStores(envGop);
+  let teb = {};
+  try { teb = JSON.parse(envGop.TEB || '{}') || {}; } catch (e) { /* bien TEB sai, bo qua */ }
+  const viTri = viTriTab(env, stores);
+  if (request.method === 'GET') {
+    const ds = {};
+    Object.keys(stores).forEach((k) => {
+      ds[k] = { baseUrl: str(stores[k].baseUrl), coToken: !!str(stores[k].token), spreadsheetId: viTri[k].id, sheet: viTri[k].sheet, teb: teb[k] || null };
+    });
+    return json({ ok: true, serviceAccount: emailServiceAccount(env), stores: ds });
+  }
+  const body = await request.json().catch(() => null);
+  const spreadsheetId = str(body && body.spreadsheetId);
+  const sheet = str(body && body.sheet);
+  if (!spreadsheetId || !sheet) return json({ ok: false, error: 'thiếu spreadsheetId / sheet' }, 400);
+  // Ten muc: muc dang tro toi dung file + tab nay; chua co thi dung ten tab (trung ten tab o file
+  // khac thi them duoi ma file).
+  let khoa = Object.keys(viTri).find((k) => viTri[k].id === spreadsheetId && viTri[k].sheet === sheet);
+  if (!khoa) khoa = stores[sheet] ? `${sheet} (${spreadsheetId.slice(0, 6)})` : sheet;
+  const kv = await docCfgKv(env);
+  kv.stores = kv.stores || {};
+  kv.teb = kv.teb || {};
+  const ketQua = { ok: true, khoa, serviceAccount: emailServiceAccount(env) };
+  if (body.store === null) {
+    kv.stores[khoa] = null;
+    kv.teb[khoa] = null;
+  } else if (body.store) {
+    const cu = stores[khoa] || {};
+    const token = str(body.store.token) || str(cu.token);
+    const baseUrl = str(body.store.baseUrl);
+    if (!/^https:\/\/[a-z0-9.-]+\.merchize\.com\/[^/]+\/bo-api$/i.test(baseUrl) || !token) {
+      return json({ ok: false, error: 'baseUrl hoặc token không hợp lệ' }, 400);
+    }
+    kv.stores[khoa] = { baseUrl, token, spreadsheetId, sheet };
+    ketQua.quyenSheet = await thuQuyen(env, dem, spreadsheetId, sheet);
+  }
+  if (body.teb === null) {
+    kv.teb[khoa] = null;
+  } else if (body.teb) {
+    const t = { spreadsheetId: str(body.teb.spreadsheetId), sheet: str(body.teb.sheet) };
+    if (!t.spreadsheetId || !t.sheet) return json({ ok: false, error: 'thiếu thông tin sheet Teb' }, 400);
+    kv.teb[khoa] = t;
+    ketQua.quyenTeb = await thuQuyen(env, dem, t.spreadsheetId, t.sheet);
+  }
+  await env.EVENTS.put('cfg', JSON.stringify(kv));
+  return json(ketQua);
+}
+
+function dungKey(env, url) {
+  return str(env.SECRET_KEYS).split(',').map(str).filter(Boolean).includes(url.searchParams.get('key') || '');
+}
+
 // ============ BOT TELEGRAM: bao "xong" de tat nhac don can xu ly ============
 // Chuoi bi mat cho webhook Telegram, sinh tu bot token (khong can them bien moi truong).
 async function bimatTelegram(env) {
@@ -967,6 +1061,12 @@ async function xuLyTinTelegram(env, msg) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // Store / sheet Teb tung tab do userscript gui len: GET xem, POST luu (?key=<1 trong SECRET_KEYS>).
+    if (url.pathname === '/config' && (request.method === 'GET' || request.method === 'POST')) {
+      if (!dungKey(env, url)) return json({ ok: false, error: 'invalid key' }, 401);
+      try { return await xuLyConfig(request, env); } catch (e) { return json({ ok: false, error: e.message }, 500); }
+    }
+    env = await napCauHinh(env);
     if (request.method === 'POST' && url.pathname === '/') return nhanWebhook(request, env, ctx);
     if (request.method === 'GET' && url.pathname === '/') return json({ ok: true, service: 'merchize-webhook' });
     // Telegram gui tin nhan cua ban toi bot ve day (sau khi mo /telegram-setup 1 lan).
@@ -1007,6 +1107,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    env = await napCauHinh(env);
     ctx.waitUntil(chayLich(env, event).catch((e) => baoLoiHeThong(env, taoBoDem(), 'Lịch chạy lỗi: ' + e.message)));
   }
 };

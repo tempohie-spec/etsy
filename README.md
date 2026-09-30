@@ -1364,6 +1364,24 @@ cancel: thêm hậu tố chữ vào orderNumber (vd `4181764944a`) vì Merchize 
 External number. Mã trong Sheet phải giống hệt mã đã gửi lên Merchize (Worker khớp đúng mã,
 không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4181764944a`.
 
+## Thêm account / file Sheet mới (v1.31, không cần sửa Cloudflare)
+
+Cài 1 lần trên mỗi máy: bấm **Cài Worker (link + key, 1 lần)**, nhập link Worker
+(`https://merchize-webhook.<tên>.workers.dev`) và 1 key trong `SECRET_KEYS`.
+
+Mỗi tab account mới:
+
+1. Mở tab, dán Base URL + Access Token, bấm **Lưu store Merchize cho tab này**. Script lưu trong
+   Violentmonkey và gửi luôn lên Worker (file + tên tab tự lấy theo tab đang mở).
+2. Tab dùng Teb: dán link sheet Teb, bấm **Lưu sheet Teb cho tab này** (cũng tự gửi lên Worker).
+3. Nếu script báo `⚠️ Worker chưa vào được file`: share file đó cho email service account hiện
+   trong thông báo (Sheet đơn: Editor, sheet Teb: quyền xem là đủ).
+4. Trên Merchize (Settings > Webhook của store mới): URL = link Worker, Secret key = key ở trên.
+
+Tab đã cài từ trước: bấm **Đồng bộ tab này lên Worker** một lần. Worker lưu cấu hình trong KV
+(`cfg`, qua `GET/POST /config?key=`), ghi đè lên mục cùng tên trong biến `STORES` / `TEB`; hai biến
+này vẫn dùng được như cũ. Trùng tên tab ở 2 file khác nhau thì mục sau có thêm đuôi mã file.
+
 ## Cost thật (cột Y, v1.30)
 
 Nút **Điền cost thật từ Merchize** xét mọi đơn đã gửi trong 100 dòng cuối (bỏ qua AC trống, `Cũ`,

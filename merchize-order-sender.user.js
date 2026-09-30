@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.30
+// @version      1.31
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -10,6 +10,7 @@
 // @grant        unsafeWindow
 // @grant        GM_registerMenuCommand
 // @connect      merchize.com
+// @connect      workers.dev
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -17,7 +18,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.30';
+  const SCRIPT_VERSION = '1.31';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -202,6 +203,72 @@
         ontimeout: () => reject(new Error('Merchize không phản hồi (quá 60 giây).'))
       });
     });
+  }
+
+  // ============ DONG BO LEN WORKER (khoi sua bien STORES / TEB tren Cloudflare) ============
+  // { url: "https://merchize-webhook.<ten>.workers.dev", key: "<1 trong SECRET_KEYS>" }
+  function docWorker() {
+    try { return JSON.parse(GM_getValue('mz_worker', 'null')); } catch (e) { return null; }
+  }
+
+  function goiWorker(method, path, body) {
+    const wk = docWorker();
+    if (!wk) return Promise.reject(new Error('Chưa cài Worker (bấm "Cài Worker").'));
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method,
+        url: `${wk.url}${path}${path.includes('?') ? '&' : '?'}key=${encodeURIComponent(wk.key)}`,
+        headers: { 'Content-Type': 'application/json' },
+        data: body ? JSON.stringify(body) : undefined,
+        timeout: 30000,
+        onload: (res) => {
+          let json = null;
+          try { json = JSON.parse(res.responseText); } catch (e) { /* khong phai JSON */ }
+          if (!json || !json.ok) reject(new Error(`Worker trả về ${res.status}: ${(json && json.error) || 'lỗi'}`));
+          else resolve(json);
+        },
+        onerror: () => reject(new Error('Không kết nối được tới Worker.')),
+        ontimeout: () => reject(new Error('Worker không phản hồi.'))
+      });
+    });
+  }
+
+  // Gui store + sheet Teb cua tab len Worker. phan: { store?, teb? } (null = xoa). Tra ve cac dong bao cao.
+  async function dongBoWorker(title, phan) {
+    if (!docWorker()) return ['(Chưa cài Worker nên Worker chưa biết tab này. Bấm "Cài Worker" rồi "Đồng bộ tab này lên Worker".)'];
+    try {
+      const kq = await goiWorker('POST', '/config', { spreadsheetId: getSpreadsheetId(), sheet: title, ...phan });
+      const dong = [`Worker: đã cập nhật "${kq.khoa}".`];
+      if (kq.quyenSheet && kq.quyenSheet !== 'ok') dong.push(`⚠️ Worker chưa vào được file này: ${kq.quyenSheet}. Hãy share file này cho ${kq.serviceAccount} (quyền Editor).`);
+      if (kq.quyenTeb && kq.quyenTeb !== 'ok') dong.push(`⚠️ Worker chưa đọc được sheet Teb: ${kq.quyenTeb}. Hãy share file Teb cho ${kq.serviceAccount} (quyền xem là đủ).`);
+      return dong;
+    } catch (e) {
+      return ['⚠️ Chưa đồng bộ được lên Worker: ' + e.message];
+    }
+  }
+
+  async function caiWorker() {
+    const cu = docWorker() || {};
+    const url = str(W.prompt('Link Worker (vd https://merchize-webhook.<tên>.workers.dev):', cu.url || ''));
+    if (!url) return 'Đã hủy.';
+    if (!/^https:\/\/[^/]+\.workers\.dev\/?$/i.test(url)) throw new Error('Link Worker phải có dạng https://....workers.dev');
+    const key = str(W.prompt('SECRET_KEY của Worker (1 trong các key trong biến SECRET_KEYS):', cu.key || ''));
+    if (!key) return 'Đã hủy.';
+    GM_setValue('mz_worker', JSON.stringify({ url: url.replace(/\/$/, ''), key }));
+    const kq = await goiWorker('GET', '/config');
+    return `Đã kết nối Worker. Service account: ${kq.serviceAccount}\nWorker đang theo dõi ${Object.keys(kq.stores).length} tab: ${Object.keys(kq.stores).join(', ')}`;
+  }
+
+  async function dongBoTabNay() {
+    const { title } = await layTrangTinhDangMo();
+    const st = layStore(title);
+    if (!st) throw new Error(`Tab "${title}" chưa có store Merchize. Lưu store trước.`);
+    const teb = docCacSheetTeb()[title];
+    const dong = await dongBoWorker(title, {
+      store: { baseUrl: st.baseUrl, token: st.token },
+      teb: teb ? { spreadsheetId: teb.spreadsheetId, sheet: teb.sheetTitle } : null
+    });
+    return dong.join('\n');
   }
 
   // ============ CATALOG: ma san pham -> { "mau|size": SKU variant } ============
@@ -1080,11 +1147,13 @@
     const sendBtn = nut('3. Gửi đơn (Merchize + sheet Teb)', '#4CAF50');
     const costBtn = nut('Điền cost thật từ Merchize', '#00897b');
     const oldBtn = nut('Đánh dấu dòng cũ (dùng 1 lần mỗi tab)', '#9e9e9e');
+    const workerBtn = nut('Cài Worker (link + key, 1 lần)', '#455a64');
+    const syncBtn = nut('Đồng bộ tab này lên Worker', '#455a64');
 
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, tebInput, tebBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, statusEl]
+    [tokenLabel, storeInfo, baseInput, tokenInput, saveTokenBtn, viewStoreBtn, tebInput, tebBtn, catalogInfo, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, workerBtn, syncBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
 
@@ -1161,7 +1230,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, viewStoreBtn, tebBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn];
+    const tatCaNut = [saveTokenBtn, viewStoreBtn, tebBtn, catalogBtn, checkBtn, sendBtn, costBtn, oldBtn, workerBtn, syncBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1223,8 +1292,12 @@
     tebBtn.addEventListener('click', () => chay(async () => {
       const kq = await luuSheetTeb(tebInput.value);
       tebInput.value = '';
+      const { title } = await layTrangTinhDangMo();
       await xemStore();
-      return kq;
+      if (kq === 'Đã hủy.' || !layStore(title)) return kq;
+      const teb = docCacSheetTeb()[title];
+      const dong = await dongBoWorker(title, { teb: teb ? { spreadsheetId: teb.spreadsheetId, sheet: teb.sheetTitle } : null });
+      return [kq, ...dong].join('\n');
     }));
     saveTokenBtn.addEventListener('click', () => chay(async () => {
       const baseUrl = chuanHoaBaseUrl(baseInput.value);
@@ -1239,13 +1312,20 @@
       luuStore(title, baseUrl, token);
       tokenInput.value = '';
       await xemStore();
-      return `Đã lưu store cho tab "${title}" (chỉ lưu trong Violentmonkey trên máy này).`;
+      const teb = docCacSheetTeb()[title];
+      const dong = await dongBoWorker(title, {
+        store: { baseUrl, token },
+        ...(teb ? { teb: { spreadsheetId: teb.spreadsheetId, sheet: teb.sheetTitle } } : {})
+      });
+      return [`Đã lưu store cho tab "${title}".`, ...dong].join('\n');
     }));
     catalogBtn.addEventListener('click', () => chay(() => capNhatCatalog(statusEl)));
     checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
     sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true)));
     costBtn.addEventListener('click', () => chay(() => dienBaseCost(statusEl)));
     oldBtn.addEventListener('click', () => chay(() => danhDauDongCu(statusEl)));
+    workerBtn.addEventListener('click', () => chay(caiWorker));
+    syncBtn.addEventListener('click', () => chay(dongBoTabNay));
   }
 
   function safeInit() {
