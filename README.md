@@ -1335,23 +1335,21 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
      chưa hiện.
 3. Bấm **1. Cập nhật catalog** (catalog dùng chung cho mọi store, chỉ cần làm 1 lần).
    Bấm lại khi Merchize thêm màu mới.
-4. Ở **mỗi tab account**, bấm **Đánh dấu dòng cũ** một lần: các dòng đang có sẽ ghi "Cũ" ở cột
-   AC để không bị gửi lên Merchize lần nữa.
+4. Ở **mỗi tab account**, điền `Cũ` vào cột AC của các đơn cũ để không bị gửi lên Merchize lần nữa.
 
 ## Dùng hàng ngày
 
 1. Copy đơn từ file Excel dán vào tab account như bình thường, dán link design vào cột F/G.
 2. Bấm **2. Kiểm tra**: điền SKU vào cột AB và liệt kê đơn lỗi, chưa gửi gì lên Merchize.
 3. Sửa lỗi nếu có, bấm **3. Gửi đơn (Merchize + sheet Teb)**: gửi đơn lên Merchize, ghi đơn
-   Teb vào sheet Teb (tab dùng Teb). Từ v1.29 không điền cost ước tính vào Y nữa.
-4. Sau khi Merchize trừ tiền fulfill, bấm **Điền cost thật từ Merchize** (hoặc chờ Worker tự điền).
+   Teb vào sheet Teb (tab dùng Teb). Cost thật do Worker tự điền vào Y.
 
 Đơn chờ gửi = dòng có orderNumber (cột C) và cột AC còn trống. Dòng tổng màu xanh (không có
 orderNumber) bị bỏ qua.
 
-Từ v1.28, Kiểm tra / Gửi đơn / Điền cost thật chỉ đọc **100 dòng cuối** của tab (tính theo
+Từ v1.28, Kiểm tra / Gửi đơn chỉ đọc **100 dòng cuối** của tab (tính theo
 cột C, không cắt ngang đơn nhiều dòng). Đơn chờ gửi nằm cao hơn thì không được gửi; muốn đổi số
-dòng thì sửa `SO_DONG_CUOI` đầu script. Đánh dấu dòng cũ vẫn đọc cả tab.
+dòng thì sửa `SO_DONG_CUOI` đầu script.
 
 | Cột | Nội dung |
 |---|---|
@@ -1395,7 +1393,7 @@ ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
   thì dùng 1717US. Bấm **1. Cập nhật catalog** một lần để tải thêm 1717AU.
 - **Teb Print** (tab **đã lưu sheet Teb** bằng nút Lưu sheet Teb, hoặc ETSY_Turkiye 01), luật giữ
   như cũ; bỏ dùng Teb: để trống ô link rồi bấm Lưu. Đơn gửi
-  **United States**, **chỉ 1 dòng**, tìm được SKU trong sheet **Teb Print SKU** (cột `title`,
+  **United States**, **chỉ 1 dòng**, tìm được SKU trong tab **SKU LIST** của file Teb (cột `title`,
   `color`, `size`, `SKU`) thì **không gửi Merchize** mà **ghi nối tiếp vào sheet Teb do bạn
   chọn**; cột AB = SKU Teb, AC = `Teb`.
   - Chọn sheet Teb: mở file Teb, mở đúng tab, copy link (có `#gid=`) → trên bảng Merchize ở tab
@@ -1418,7 +1416,7 @@ ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
     "ETSY_OlavenStore": { "spreadsheetId": "<ID file Teb>", "sheet": "<tên tab trong file Teb>" } }
   ```
 
-  Tab dùng Teb cần có sheet **Teb Print SKU** trong **cùng file** với tab đó (để tra SKU Teb).
+  File Teb cần có tab **SKU LIST** (để tra SKU Teb).
 
 ## Quy tắc tra SKU
 
