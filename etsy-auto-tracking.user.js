@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      4.4
+// @version      4.3
 // @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
 // @grant        GM_setValue
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '4.4';
+  const SCRIPT_VERSION = '4.3';
 
   // Manual overrides if the automatic substring match picks the wrong
   // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -379,7 +379,6 @@
   let sheetMap = null; // orderId -> { tracking, carrier }
   let sheetMapByName = null; // normalized customer name -> { tracking, carrier } (fallback)
   let sheetOrder = null; // order ids, in the order they appear in the sheet
-  let sheetSkippedOldIds = null; // orderId -> date string, for orders filtered out as too old (diagnostics)
 
   function extractSheetIdAndGid(url) {
     const idMatch = (url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -507,7 +506,6 @@
     const colOrder = findColPriority(header, [
       ['ORDER CODE'],
       ['ORDER ID'],
-      ['ORDERNUMBER', 'ORDER NUMBER'],
       ['MA DON', 'MÃ ĐƠN'],
       ['ORDER'],
     ]);
@@ -518,36 +516,15 @@
       ['CARRIER'],
       ['VAN CHUYEN', 'VẬN CHUYỂN'],
     ]);
-    // "DATE" alone is risky on sheets with hidden columns (a hidden column
-    // whose header happens to contain "date" could get matched instead of
-    // the real one) — try likely full phrases before the bare fallback.
-    const colDate = findColPriority(header, [
-      ['ORDER DATE'],
-      ['DATE FULFILL', 'FULFILL DATE'],
-      ['NGAY DAT', 'NGÀY ĐẶT', 'NGAY GIAO', 'NGÀY GIAO'],
-      ['DATE', 'NGAY', 'NGÀY'],
-    ]);
+    const colDate = findColPriority(header, [['ORDER DATE'], ['DATE', 'NGAY', 'NGÀY']]);
 
     if (colOrder === -1 || colTracking === -1) {
       return { ok: false, header, colOrder, colTracking };
     }
 
-    // Surface exactly which column was picked for each field — with hidden
-    // columns and varying sheet layouts, a wrong match here silently breaks
-    // matching/filtering with no other visible symptom.
-    log(
-      '  Sheet columns ->',
-      `ORDER: "${header[colOrder]}"`,
-      colName !== -1 ? `NAME: "${header[colName]}"` : 'NAME: (none)',
-      `TRACKING: "${header[colTracking]}"`,
-      colCarrier !== -1 ? `DVVC: "${header[colCarrier]}"` : 'DVVC: (none)',
-      colDate !== -1 ? `DATE: "${header[colDate]}"` : 'DATE: (none, no age filter applied)'
-    );
-
     const map = {};
     const mapByName = {};
     const order = [];
-    const skippedOldIds = {}; // orderId -> parsed date (YYYY-MM-DD) that got it filtered, for diagnostics
     let count = 0;
     let skippedOld = 0;
     for (let i = 1; i < rows.length; i++) {
@@ -561,7 +538,6 @@
         const date = parseSheetDate(cells[colDate]);
         if (date && !isWithinRecentDays(date, RECENT_DAYS_LIMIT)) {
           skippedOld++;
-          skippedOldIds[orderId] = date.toISOString().slice(0, 10);
           continue;
         }
       }
@@ -574,7 +550,7 @@
       }
       count++;
     }
-    return { ok: true, map, mapByName, order, count, rowCount: rows.length - 1, skippedOld, skippedOldIds };
+    return { ok: true, map, mapByName, order, count, rowCount: rows.length - 1, skippedOld };
   }
 
   function lookupTracking(orderId, customerName) {
@@ -585,14 +561,9 @@
       entry = sheetMapByName[normalizeName(customerName)];
       byName = !!entry;
     }
-    if (entry) {
-      return { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName };
-    }
-    // Not matched — check if it was actually present but filtered out for
-    // being older than RECENT_DAYS_LIMIT, so that reason surfaces instead of
-    // a plain "not found" that looks identical to a genuine non-match.
-    const skippedDate = sheetSkippedOldIds && sheetSkippedOldIds[orderId];
-    return { orderId, found: false, skippedDate };
+    return entry
+      ? { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName }
+      : { orderId, found: false };
   }
 
   // Returns true if a real "open modal / fill / submit" attempt happened
@@ -613,11 +584,7 @@
     const result = lookupTracking(orderId, customerName);
 
     if (!result.found) {
-      if (result.skippedDate) {
-        log(`  found in Sheet but order date ${result.skippedDate} is older than ${RECENT_DAYS_LIMIT}d -> skipped`);
-      } else {
-        log('  not found in Sheet -> skipped (no modal opened)');
-      }
+      log('  not found in Sheet -> skipped (no modal opened)');
       return false;
     }
     log(result.byName ? '  found (by customer name):' : '  found:', result.tracking, '/', result.carrier);
@@ -825,7 +792,6 @@
     const combinedMap = {};
     const combinedMapByName = {};
     const combinedOrder = [];
-    const combinedSkippedOldIds = {};
     const errors = [];
     let okCount = 0;
     let totalSkippedOld = 0;
@@ -846,7 +812,6 @@
         combinedMap[orderId] = result.map[orderId];
       }
       Object.assign(combinedMapByName, result.mapByName);
-      Object.assign(combinedSkippedOldIds, result.skippedOldIds);
     }
 
     if (!okCount) {
@@ -858,7 +823,6 @@
     sheetMap = combinedMap;
     sheetMapByName = combinedMapByName;
     sheetOrder = combinedOrder;
-    sheetSkippedOldIds = combinedSkippedOldIds;
     localStorage.setItem('at_sheet_urls', urlsText);
 
     let msg = `Đã tải ${combinedOrder.length} đơn từ ${okCount}/${urls.length} link.`;
