@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.36
+// @version      1.37
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.36';
+  const SCRIPT_VERSION = '1.37';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -84,8 +84,19 @@
   // "Comfort-AdultTee"...) sang ma san pham Merchize. Thu tu quan trong: toddler va
   // sweatshirt/hoodie phai xet truoc vi title cua chung cung co the chua chu "adult".
   // Sweatshirt/hoodie tre em chua co trong bang -> tra ve null de bao loi, khong gui nham size nguoi lon.
+  // Loai ao them (nut "Thêm loại áo"): [{ tu: ["gildan", "youth"], ma: "<ma Merchize>" }]. Title chua
+  // du cac tu khoa thi dung ma do; xet truoc cac luat co san.
+  function docLoaiAoThem() {
+    try { return JSON.parse(GM_getValue('mz_loai_ao_them', '[]')) || []; } catch (e) { return []; }
+  }
+  function cacMaSanPham() {
+    return Array.from(new Set(MA_SAN_PHAM.concat(docLoaiAoThem().map((x) => x.ma))));
+  }
+
   function xacDinhMaSanPham(title) {
     const t = String(title || '').toLowerCase().replace(/[^a-z]/g, '');
+    const them = docLoaiAoThem().find((x) => x.tu.length && x.tu.every((w) => t.includes(w)));
+    if (them) return them.ma;
     if (t.includes('toddler')) return '3321US';
     if (t.includes('sweatshirt') || t.includes('hoodie')) {
       if (t.includes('youth') || t.includes('kid')) return null;
@@ -337,6 +348,27 @@
     return dong.join('\n');
   }
 
+  // Sua danh sach loai ao them: moi dong "tu khoa trong title = ma san pham Merchize".
+  function suaLoaiAoThem() {
+    const cu = docLoaiAoThem().map((x) => `${x.tu.join(' ')} = ${x.ma}`).join('; ');
+    const v = W.prompt(
+      'Loại áo thêm, mỗi loại dạng "từ khóa trong title = mã sản phẩm Merchize", cách nhau dấu chấm phẩy.\n' +
+      'Vd: gildan youth = 5000BUS; gildan adult = 5000US\n(để trống = xoá hết)', cu);
+    if (v === null) return 'Đã hủy.';
+    const ds = [];
+    for (const phan of str(v).split(';').map(str).filter(Boolean)) {
+      const m = phan.match(/^(.+?)=\s*([A-Za-z0-9-]+)$/);
+      if (!m) throw new Error(`Sai dạng: "${phan}" (cần "từ khóa = mã").`);
+      const tu = m[1].toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z]/g, '')).filter(Boolean);
+      if (!tu.length) throw new Error(`Thiếu từ khóa: "${phan}".`);
+      ds.push({ tu, ma: m[2].toUpperCase() });
+    }
+    GM_setValue('mz_loai_ao_them', JSON.stringify(ds));
+    return ds.length
+      ? `Đã lưu ${ds.length} loại áo thêm:\n${ds.map((x) => `• "${x.tu.join(' ')}" → ${x.ma}`).join('\n')}\nBấm "1. Cập nhật catalog" để tải SKU của các mã này.`
+      : 'Đã xoá hết loại áo thêm.';
+  }
+
   // ============ CATALOG: ma san pham -> { "mau|size": SKU variant } ============
   function docCatalogDaLuu() {
     try { return JSON.parse(GM_getValue('mz_catalog', 'null')); } catch (e) { return null; }
@@ -351,7 +383,7 @@
     log(statusEl, '⏳ Đang tải catalog Merchize...');
     const products = [];
     for (let page = 1; page <= 10; page++) {
-      const q = `?limit=50&page=${page}&search=${encodeURIComponent(MA_SAN_PHAM.join(','))}`;
+      const q = `?limit=50&page=${page}&search=${encodeURIComponent(cacMaSanPham().join(','))}`;
       const { json } = await merchizeRequest(store, 'GET', '/product/catalog' + q);
       if (!json.success) throw new Error('Tải catalog lỗi: ' + (json.message || 'không rõ'));
       const list = (json.data && json.data.products) || [];
@@ -388,7 +420,7 @@
       baoCao.push(`• ${p.sku}: ${soVariant} variant - ${p.title}`);
     });
 
-    const thieu = MA_SAN_PHAM.filter((m) => !catalog.products[m]);
+    const thieu = cacMaSanPham().filter((m) => !catalog.products[m]);
     GM_setValue('mz_catalog', JSON.stringify(catalog));
     return [
       `Đã lưu catalog ${Object.keys(catalog.products).length} sản phẩm:`,
@@ -1115,6 +1147,7 @@
     capNhatCatalogInfo();
 
     const catalogBtn = nut('1. Cập nhật catalog', '#2196F3');
+    const loaiAoBtn = nut('Thêm loại áo (từ khóa = mã Merchize)', '#78909c');
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
     const sendBtn = nut('3. Gửi đơn (Merchize + sheet Teb)', '#4CAF50');
     const workerBtn = nut('Cài Worker (link + key, 1 lần)', '#455a64');
@@ -1122,7 +1155,7 @@
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [storeInfo, storeBox, tebInfo, tebBox, catalogInfo, catalogBtn, checkBtn, sendBtn, workerBtn, statusEl]
+    [storeInfo, storeBox, tebInfo, tebBox, catalogInfo, catalogBtn, loaiAoBtn, checkBtn, sendBtn, workerBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
 
@@ -1206,7 +1239,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, tebBtn, catalogBtn, checkBtn, sendBtn, workerBtn];
+    const tatCaNut = [saveTokenBtn, tebBtn, catalogBtn, loaiAoBtn, checkBtn, sendBtn, workerBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1346,6 +1379,7 @@
       return [`Đã lưu store cho tab "${title}".`, ...dong].join('\n');
     })));
     catalogBtn.addEventListener('click', () => chay(() => capNhatCatalog(statusEl)));
+    loaiAoBtn.addEventListener('click', () => chay(async () => suaLoaiAoThem()));
     checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
     sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true)));
     const caiWorkerVaHien = async () => {

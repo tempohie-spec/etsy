@@ -1371,6 +1371,9 @@ không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4
 - SKU Teb tra trong tab **SKU LIST** của file Teb đã chọn cho tab (cột title / color / size / SKU,
   không phân biệt hoa thường; dòng tiêu đề nằm trong 10 dòng đầu). Không dùng sheet Teb Print SKU nữa.
 - Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / sheet Teb, nhắc điền `Cũ` vào cột AC cho đơn cũ.
+- **Thêm loại áo** (v1.37): bấm nút, nhập `từ khóa trong title = mã sản phẩm Merchize` (nhiều loại cách
+  nhau dấu `;`, vd `gildan youth = <mã>`), rồi bấm **1. Cập nhật catalog**. Title chứa đủ các từ khóa thì
+  dùng mã đó (xét trước các luật có sẵn). Mã sản phẩm lấy trong Product Catalog của Merchize.
 - Đã bỏ nút Đánh dấu dòng cũ và Điền cost thật (Worker vẫn tự điền cost thật).
 
 ## Thêm account / file Sheet mới (không cần sửa Cloudflare)
