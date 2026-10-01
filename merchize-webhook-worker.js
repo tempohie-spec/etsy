@@ -915,7 +915,7 @@ async function chayLich(env, event) {
   const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.teb.length || thongKe.tebCost.length ||
     thongKe.canXuLy.length;
   await guiTelegram(env, dem, [
-    `🔄 Cập nhật tự động lúc ${gioVN(luc)}`,
+    `🔄 Cập nhật tự động lúc ${gioVN(luc)}` + (tiep ? `. Lần chạy tiếp theo: ${tiep}` : ''),
     muc('Tracking mới', thongKe.tracking),
     muc('Tracking Teb mới', thongKe.teb),
     muc('Cost thật', thongKe.cost),
@@ -924,7 +924,7 @@ async function chayLich(env, event) {
       thongKe.canXuLy.map((x) => `  • ${x.tab} | ${x.ma}: ${x.note || 'xem trên Merchize'}`).join('\n') : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
-    `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.` + (tiep ? ` Lần chạy tiếp theo: ${tiep}` : ''),
+    `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.`,
     dongSoDu.length ? 'Số dư:\n' + dongSoDu.join('\n') : ''
   ].filter(Boolean).join('\n'));
 
