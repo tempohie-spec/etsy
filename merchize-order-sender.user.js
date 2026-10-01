@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.38
+// @version      1.39
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.38';
+  const SCRIPT_VERSION = '1.39';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -469,7 +469,8 @@
       const sku = str(r[C.sku]);
       if (key !== '||' && sku) teb[key] = sku;
     });
-    return { teb };
+    const h = values[hdr];
+    return { teb, cot: ['title', 'color', 'size', 'sku'].map((k) => `${k}="${str(h[C[k]])}"`).join(', ') };
   }
 
   // Tra SKU cho 1 dong tu catalog. Mau ghep "A/B" (Etsy gop nhieu mau vao 1 lua chon) -> thu
@@ -874,7 +875,7 @@
   function tebSkuCuaDon(don, tenTab, bangPhu) {
     if (!laTabTeb(tenTab) || don.rows.length !== 1) return '';
     const r = don.rows[0].r;
-    if (cell(r, COL.country).toLowerCase() !== 'united states') return '';
+    if (maQuocGia(cell(r, COL.country)) !== 'US') return '';
     return bangPhu.teb[makeKey(cell(r, COL.title), cell(r, COL.color), cell(r, COL.size))] || '';
   }
 
@@ -979,6 +980,18 @@
     const donList = tatCa.filter((d) => !d.tebSku).map((d) => ({ ...d, ...dungDon(d, catalog, title) }));
     if (donList.length === 0 && dsTeb.length === 0) return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
     const dongTebBaoCao = dsTeb.length ? [`${dsTeb.length} đơn đi Teb: ${dsTeb.map((d) => d.orderNumber).join(', ')}`] : [];
+    if (!tebTarget) dongTebBaoCao.push(`Tab "${title}" chưa chọn sheet Teb nên mọi đơn gửi Merchize.`);
+    // Chan doan Teb: don US 1 dong khong tim thay SKU trong SKU LIST (de so voi SKU LIST).
+    if (tebTarget) {
+      const khongKhop = tatCa.filter((d) => !d.tebSku && d.rows.length === 1 && maQuocGia(cell(d.rows[0].r, COL.country)) === 'US');
+      const mau = Object.keys(bangPhu.teb).slice(0, 3);
+      dongTebBaoCao.push(`SKU LIST: ${Object.keys(bangPhu.teb).length} dòng (cột ${bangPhu.cot})` +
+        (mau.length ? `, ví dụ: ${mau.map((k) => `"${k}"`).join('; ')}` : ''));
+      if (khongKhop.length) {
+        dongTebBaoCao.push(`${khongKhop.length} đơn US 1 dòng không có trong SKU LIST (title | color | size):`,
+          ...khongKhop.slice(0, 10).map((d) => { const r = d.rows[0].r; return `• ${d.orderNumber}: "${makeKey(cell(r, COL.title), cell(r, COL.color), cell(r, COL.size))}"`; }));
+      }
+    }
 
     const hopLe = donList.filter((d) => d.loi.length === 0);
     const coLoi = donList.filter((d) => d.loi.length > 0);
@@ -1270,9 +1283,10 @@
         : `❌ Tab "${title}": chưa có store Merchize`;
       storeInfo.style.color = st ? '#2e7d32' : '#c62828';
       storeBox.style.display = !st || moSuaStore ? 'block' : 'none';
-      tebInfo.textContent = teb ? `✅ Sheet Teb: ${teb.fileTitle || teb.sheetTitle}` : '❌ Chưa chọn sheet Teb';
-      tebInfo.style.color = teb ? '#2e7d32' : '#c62828';
-      tebInfo.style.display = teb || canTeb ? 'block' : 'none';
+      tebInfo.textContent = teb ? `✅ Sheet Teb: ${teb.fileTitle || teb.sheetTitle}`
+        : canTeb ? '❌ Chưa chọn sheet Teb' : 'Tab này chưa dùng Teb, mọi đơn gửi Merchize (bấm để chọn sheet Teb)';
+      tebInfo.style.color = teb ? '#2e7d32' : canTeb ? '#c62828' : '#777';
+      tebInfo.style.display = 'block';
       // Tab chua dung Teb: o link Teb hien cung o sua store (de them Teb khi can).
       tebBox.style.display = (canTeb && !teb) || moSuaTeb || !st || moSuaStore ? 'block' : 'none';
       tebInput.placeholder = teb
