@@ -1476,6 +1476,32 @@ GM_setValue là kho riêng của từng trình duyệt, nên Copy ở Chrome th�
 và "Chỉ điền giá" ưu tiên đọc Clipboard, không có mới dùng dữ liệu đã lưu trong trình duyệt. Lần đầu trình duyệt
 có thể hỏi quyền đọc Clipboard: bấm Cho phép. Không Copy thứ khác vào Clipboard giữa lúc Copy và Dán.
 
+### Dán thẳng từ Google Sheets (v9.36)
+
+Không cần listing nguồn nữa: bảng giá/size/màu nằm trên Google Sheets thì copy thẳng từ đó.
+
+1. Trên Sheets, bôi chọn vùng bảng **kèm dòng tiêu đề** (vd `A2:E60` — dòng "Type & Size | Giá Sale 30% |
+   Giá List Etsy | 2-sided | Color"; dòng tiêu đề lớn kiểu "Tshirt 2D" chọn lẫn vào cũng được) → `Ctrl+C`.
+2. Sang trang tạo/sửa listing, bấm **🎨 Dán variations**. Script nhận ra Clipboard là bảng (TSV) và mở hộp thoại:
+   - **Variation 1** (mặc định tên `Style & Size`) lấy từ cột tên (tiêu đề có size/style/type).
+   - **Giá lấy từ cột**: chọn 1 trong các cột số (Giá Sale / Giá List Etsy / 2-sided...). Mặc định là cột
+     chọn lần trước, lần đầu là cột có chữ "List"/"Etsy".
+   - **Variation 2** (mặc định `Color`) lấy từ cột màu, không đặt giá. Bỏ tick nếu không cần.
+   - Phần xem trước báo số option, khoảng giá, các dòng **bị bỏ qua vì cột giá đang trống** (vd các dòng
+     Gildan chưa có giá — Etsy khoá switch Visible khi giá trống nên không tạo dòng ẩn không giá được), các
+     dòng có chữ **"Sold out"** (vẫn tạo nhưng tắt Visible), và **chặn dán** nếu có tên dài quá
+     **20 ký tự** hoặc bị trùng (Etsy sẽ cắt/từ chối, làm lệch bước điền giá).
+3. Bấm **Dán vào Etsy** → chạy đúng luồng "Dán variations" cũ (tạo variation → Prices vary → Apply → điền giá).
+
+Đổi giá trên sheet sau này: copy lại bảng rồi bấm **💲 Chỉ điền giá** ở listing đã có variations — chỉ ghi đè
+giá, khớp theo tên option. Tên variation và cột giá đã chọn được nhớ cho lần sau; dữ liệu lần dán gần nhất cũng được
+lưu như "Copy variations" nên lần sau Clipboard không còn bảng thì vẫn dán lại được.
+
+**Gợi ý cho gọn sheet:** giá trong bảng hiện tại theo đúng công thức `List = Sale / 0.7` và
+`2-sided = (Sale + 6) / 0.7` (làm tròn 2 số) — chỉ cần nhập tay cột Giá Sale, 2 cột kia để công thức
+(`=ROUND(B3/(1-$H$1),2)`, `=ROUND((B3+$H$2)/(1-$H$1),2)` với `H1 = 30%`, `H2 = 6`), đổi % giảm giá hay phụ
+thu 2 mặt chỉ sửa 1 ô.
+
 # Etsy Auto Tracking — Tự động điền tracking từ Merchize
 
 Userscript thứ hai trong repo này, độc lập với script phía trên.

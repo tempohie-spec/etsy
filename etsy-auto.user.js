@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.35
+// @version      9.36
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.35';
+  const PHIEN_BAN = '9.36';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -3866,6 +3866,275 @@
       }
     }
 
+    // ================== DAN THANG TU GOOGLE SHEETS (v9.36) ==================
+    // Boi chon vung bang tren Google Sheets (co dong tieu de cang tot) -> Ctrl+C -> bam "Dan
+    // variations" (hoac "Chi dien gia"). Sheets chep ra dang TSV (o cach nhau bang Tab, dong cach
+    // nhau bang xuong dong). Script tu nhan:
+    //   - cot TEN (option co gia, vd "Type & Size"): cot chu, uu tien tieu de co size/style/type
+    //   - cac cot GIA: cot ma >= 80% o co gia tri la so -> nguoi dung chon 1 cot trong hop thoai
+    //   - cot MAU (vd "Color"): cot chu con lai, uu tien tieu de co color/mau — doc lap voi cot ten
+    // Dong khong co gia o cot gia da chon thi BO QUA (Etsy khoa switch Visible khi gia trong, nen
+    // khong tao duoc dong "an" khong gia); dong co chu "sold out" thi tao nhung tat Visible.
+
+    const KHOA_TUY_CHON_SHEET = 'etsy_variations_sheet_prefs_v1';
+    const DO_DAI_TOI_DA_TEN = 20; // gioi han ky tu ten option cua Etsy
+
+    function docTuyChonSheet() {
+      try {
+        const s =
+          typeof GM_getValue === 'function' ? GM_getValue(KHOA_TUY_CHON_SHEET, '') : localStorage.getItem(KHOA_TUY_CHON_SHEET);
+        return s ? JSON.parse(s) : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
+    // Chi la tien ich nho lua chon lan sau — loi ghi khong duoc chan viec dan
+    function ghiTuyChonSheet(o) {
+      try {
+        const s = JSON.stringify(o);
+        if (typeof GM_setValue === 'function') GM_setValue(KHOA_TUY_CHON_SHEET, s);
+        else localStorage.setItem(KHOA_TUY_CHON_SHEET, s);
+      } catch (e) {
+        canhBao('Khong luu duoc lua chon dan tu Sheets:', e);
+      }
+    }
+
+    // "$24.99" / "24,99" / "1,234.50" -> "24.99"; khong phai so -> ''
+    function chuanGia(s) {
+      let t = String(s || '').replace(/[\s$€£₫]/g, '');
+      if (!t) return '';
+      if (t.includes(',') && t.includes('.')) t = t.replace(/,/g, '');
+      else if (t.includes(',')) t = t.replace(',', '.');
+      if (!/^\d+(\.\d+)?$/.test(t)) return '';
+      return Number(t).toFixed(2);
+    }
+
+    // TSV cua Google Sheets: o chua Tab/xuong dong/dau " duoc boc trong "..." (" ben trong nhan doi)
+    function tachTsv(s) {
+      const hang = [];
+      let dong = [];
+      let o = '';
+      let trongNhay = false;
+      for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (trongNhay) {
+          if (c !== '"') o += c;
+          else if (s[i + 1] === '"') {
+            o += '"';
+            i++;
+          } else trongNhay = false;
+        } else if (c === '"' && o === '') trongNhay = true;
+        else if (c === '\t') {
+          dong.push(o);
+          o = '';
+        } else if (c === '\n' || c === '\r') {
+          if (c === '\r' && s[i + 1] === '\n') i++;
+          dong.push(o);
+          hang.push(dong);
+          dong = [];
+          o = '';
+        } else o += c;
+      }
+      if (o !== '' || dong.length) {
+        dong.push(o);
+        hang.push(dong);
+      }
+      return hang.map((d) => d.map((x) => x.replace(/\s+/g, ' ').trim()));
+    }
+
+    // Tra ve { cacTen:[{ten, gia:{cot: '24.99'}}], cacCotGia:[{j, ten}], cacMau:[], tieuDeCotTen,
+    // tieuDeCotMau } hoac null neu chuoi khong giong 1 bang copy tu Sheets.
+    function tachBangTuSheet(chuoi) {
+      const s = String(chuoi || '');
+      if (!s.includes('\t')) return null;
+      const hang = tachTsv(s).filter((d) => d.some(Boolean));
+      if (hang.length < 2) return null;
+      const soCot = Math.max(...hang.map((d) => d.length));
+
+      // Dong tieu de: >= 2 o chu (khong phai so) va co tu khoa size/style/type/color. Dong tieu de
+      // lon kieu "Tshirt 2D" (o gop) chi co 1 o nen khong bi nham.
+      const iTieuDe = hang.findIndex(
+        (d) => d.filter((x) => x && !chuanGia(x)).length >= 2 && /size|style|type|kiểu|colou?r|màu/i.test(d.join(' '))
+      );
+      const tieuDe = iTieuDe >= 0 ? hang[iTieuDe] : [];
+      const duLieu = hang.slice(iTieuDe + 1);
+      const giaTriCot = (j) => duLieu.map((d) => d[j] || '').filter(Boolean);
+      const tenCot = (j) => tieuDe[j] || `Cột ${String.fromCharCode(65 + j)}`;
+
+      const cotSo = [];
+      const cotChu = [];
+      for (let j = 0; j < soCot; j++) {
+        const gt = giaTriCot(j);
+        if (!gt.length) continue;
+        (gt.filter(chuanGia).length >= gt.length * 0.8 ? cotSo : cotChu).push(j);
+      }
+      if (!cotChu.length) return null;
+
+      let jTen = cotChu.find((j) => /size|style|type|kiểu/i.test(tieuDe[j] || ''));
+      if (jTen === undefined) jTen = cotChu[0];
+      let jMau = cotChu.find((j) => j !== jTen && /colou?r|màu/i.test(tieuDe[j] || ''));
+      if (jMau === undefined) jMau = cotChu.filter((j) => j !== jTen).pop();
+      if (!cotSo.length && jMau === undefined) return null;
+
+      const cacTen = duLieu
+        .filter((d) => d[jTen])
+        .map((d) => ({ ten: d[jTen], gia: Object.fromEntries(cotSo.map((j) => [j, chuanGia(d[j])])) }));
+      if (!cacTen.length) return null;
+      return {
+        cacTen,
+        cacCotGia: cotSo.map((j) => ({ j, ten: tenCot(j) })),
+        cacMau: jMau === undefined ? [] : giaTriCot(jMau),
+        tieuDeCotTen: tenCot(jTen),
+        tieuDeCotMau: jMau === undefined ? '' : tenCot(jMau),
+      };
+    }
+
+    // Tu bang + lua chon trong hop thoai -> danh sach variations dung dinh dang cua Copy variations,
+    // kem cac canh bao/loi de hien truoc khi dan.
+    function taoDsTuSheet(bang, chon) {
+      const boQua = [];
+      const an = [];
+      const loi = [];
+      const coGia = chon.jGia !== null;
+
+      const luaChonTen = [];
+      for (const r of bang.cacTen) {
+        const gia = coGia ? r.gia[chon.jGia] : '';
+        if (coGia && !gia) {
+          boQua.push(r.ten);
+          continue;
+        }
+        const hien = !/sold\s*out|hết hàng/i.test(r.ten);
+        if (!hien) an.push(r.ten);
+        luaChonTen.push({ ten: r.ten, gia, hien });
+      }
+
+      const ds = [{ ten: chon.tenBien1.trim(), coGia, luaChon: luaChonTen }];
+      if (chon.coMau && bang.cacMau.length) {
+        ds.push({ ten: chon.tenBien2.trim(), coGia: false, luaChon: bang.cacMau.map((ten) => ({ ten, gia: '', hien: true })) });
+      }
+
+      for (const v of ds) {
+        if (!v.ten) loi.push('Tên variation đang để trống');
+        if (!v.luaChon.length) loi.push(`"${v.ten}" không còn option nào`);
+        const daGap = new Set();
+        for (const o of v.luaChon) {
+          const doDai = [...o.ten].length;
+          if (doDai > DO_DAI_TOI_DA_TEN) loi.push(`"${o.ten}" dài ${doDai} ký tự (tối đa ${DO_DAI_TOI_DA_TEN})`);
+          if (daGap.has(chuan(o.ten))) loi.push(`"${o.ten}" bị trùng trong "${v.ten}"`);
+          daGap.add(chuan(o.ten));
+        }
+      }
+      if (ds.length > 1 && chuan(ds[0].ten) === chuan(ds[1].ten)) loi.push('2 variation đang trùng tên');
+      return { ds, boQua, an, loi };
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    }
+
+    // Hop thoai xem truoc + chon cot gia. Tra ve Promise<ds | null> (null = huy).
+    function moHopThoaiSheet(bang) {
+      return new Promise((xong) => {
+        const tc = docTuyChonSheet();
+        const cotGiaMacDinh =
+          bang.cacCotGia.find((c) => chuan(c.ten) === chuan(tc.tieuDeCotGia)) ||
+          bang.cacCotGia.find((c) => /list|etsy/i.test(c.ten)) ||
+          bang.cacCotGia[0];
+
+        const nen = document.createElement('div');
+        nen.id = 'ea-var-sheet-modal';
+        nen.style.cssText =
+          'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.45);display:flex;align-items:center;' +
+          'justify-content:center;font:14px sans-serif;color:#111827';
+        const radioGia = bang.cacCotGia
+          .map(
+            (c) =>
+              `<label style="display:block;margin:2px 0;cursor:pointer"><input type="radio" name="ea-sheet-gia" value="${c.j}"` +
+              `${c === cotGiaMacDinh ? ' checked' : ''}> ${escHtml(c.ten)}</label>`
+          )
+          .join('');
+        const oNhap = 'width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;margin-top:3px';
+        nen.innerHTML = `
+          <div style="background:#fff;border-radius:10px;padding:18px 20px;width:min(460px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto;box-shadow:0 10px 30px rgba(0,0,0,.3)">
+            <div style="font-size:16px;font-weight:bold;margin-bottom:10px">📋 Dán variations từ Google Sheets</div>
+            <label style="display:block;font-weight:bold">Variation 1 — ${bang.cacTen.length} dòng từ cột "${escHtml(bang.tieuDeCotTen)}"
+              <input id="ea-sheet-ten1" autocomplete="off" style="${oNhap}" value="${escHtml(tc.tenBien1 || 'Style & Size')}">
+            </label>
+            <div style="margin:10px 0 4px;font-weight:bold">Giá lấy từ cột</div>
+            ${radioGia}
+            <label style="display:block;margin:2px 0;cursor:pointer"><input type="radio" name="ea-sheet-gia" value=""${cotGiaMacDinh ? '' : ' checked'}> Không đặt giá theo variation</label>
+            ${
+              bang.cacMau.length
+                ? `<label style="display:block;margin-top:10px;font-weight:bold;cursor:pointer"><input type="checkbox" id="ea-sheet-comau"${tc.coMau === false ? '' : ' checked'}> Variation 2 — ${bang.cacMau.length} lựa chọn từ cột "${escHtml(bang.tieuDeCotMau)}"</label>
+                   <input id="ea-sheet-ten2" autocomplete="off" style="${oNhap}" value="${escHtml(tc.tenBien2 || 'Color')}">`
+                : ''
+            }
+            <div id="ea-sheet-xemtruoc" style="margin-top:12px;padding:8px 10px;background:#F3F4F6;border-radius:6px;font-size:13px;line-height:1.5;white-space:pre-line"></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+              <button id="ea-sheet-huy" style="padding:7px 14px;border:1px solid #D1D5DB;background:#fff;border-radius:6px;cursor:pointer">Huỷ</button>
+              <button id="ea-sheet-dan" style="padding:7px 14px;border:none;background:#15803D;color:#fff;font-weight:bold;border-radius:6px;cursor:pointer">Dán vào Etsy</button>
+            </div>
+          </div>`;
+        document.body.appendChild(nen);
+
+        const $ = (id) => nen.querySelector('#' + id);
+        const docChon = () => {
+          const r = nen.querySelector('input[name="ea-sheet-gia"]:checked');
+          return {
+            jGia: r && r.value !== '' ? Number(r.value) : null,
+            tenBien1: $('ea-sheet-ten1').value,
+            tenBien2: $('ea-sheet-ten2')?.value || 'Color',
+            coMau: !!$('ea-sheet-comau')?.checked,
+          };
+        };
+
+        let ketQua = null;
+        const capNhat = () => {
+          const chon = docChon();
+          ketQua = taoDsTuSheet(bang, chon);
+          const v1 = ketQua.ds[0];
+          const cacGia = v1.luaChon.map((o) => Number(o.gia)).filter((n) => n > 0);
+          const dong = [
+            `✅ "${v1.ten}": ${v1.luaChon.length} option` +
+              (cacGia.length ? `, giá ${Math.min(...cacGia).toFixed(2)} → ${Math.max(...cacGia).toFixed(2)}` : ''),
+          ];
+          if (ketQua.ds[1]) dong.push(`✅ "${ketQua.ds[1].ten}": ${ketQua.ds[1].luaChon.length} option (không đặt giá)`);
+          if (ketQua.boQua.length) {
+            dong.push(`⏭ Bỏ qua ${ketQua.boQua.length} dòng không có giá ở cột này: ${ketQua.boQua.slice(0, 4).join(', ')}${ketQua.boQua.length > 4 ? '...' : ''}`);
+          }
+          if (ketQua.an.length) dong.push(`🙈 Tạo nhưng tắt Visible: ${ketQua.an.join(', ')}`);
+          ketQua.loi.slice(0, 6).forEach((l) => dong.push('❌ ' + l));
+          if (ketQua.loi.length > 6) dong.push(`❌ ... và ${ketQua.loi.length - 6} lỗi khác`);
+          $('ea-sheet-xemtruoc').textContent = dong.join('\n');
+          const nut = $('ea-sheet-dan');
+          nut.disabled = ketQua.loi.length > 0;
+          nut.style.opacity = nut.disabled ? '0.5' : '1';
+          nut.style.cursor = nut.disabled ? 'not-allowed' : 'pointer';
+        };
+        nen.addEventListener('input', capNhat);
+        nen.addEventListener('change', capNhat);
+        capNhat();
+
+        const dong = (kq) => {
+          nen.remove();
+          xong(kq);
+        };
+        $('ea-sheet-huy').onclick = () => dong(null);
+        nen.addEventListener('mousedown', (e) => {
+          if (e.target === nen) dong(null);
+        });
+        $('ea-sheet-dan').onclick = () => {
+          if (!ketQua || ketQua.loi.length) return;
+          const chon = docChon();
+          const cot = bang.cacCotGia.find((c) => c.j === chon.jGia);
+          ghiTuyChonSheet({ tenBien1: chon.tenBien1.trim(), tenBien2: chon.tenBien2.trim(), coMau: chon.coMau, tieuDeCotGia: cot ? cot.ten : '' });
+          dong(ketQua.ds);
+        };
+      });
+    }
+
     // Thu CA HAI duong: tuy trinh duyet / ban Violentmonkey ma 1 trong 2 co the im lang khong an
     async function ghiClipboard(chuoi) {
       let daGhi = false;
@@ -3903,6 +4172,18 @@
         ghiLuu({ luc: Date.now(), variations: tuClipboard });
           log('Dung du lieu tu Clipboard');
         return tuClipboard;
+      }
+      // Clipboard dang la 1 vung bang copy tu Google Sheets -> hop thoai chon cot gia roi dan
+      const tuSheet = tachBangTuSheet(chuoi);
+      if (tuSheet) {
+        log('Clipboard la bang Google Sheets:', tuSheet);
+        const ds = await moHopThoaiSheet(tuSheet);
+        if (!ds) {
+          hienThongBao('Đã huỷ dán từ Google Sheets', VANG);
+          return null;
+        }
+        ghiLuu({ luc: Date.now(), variations: ds });
+        return ds;
       }
       const luu = docLuu();
       if (luu?.variations?.length) {
@@ -4500,8 +4781,8 @@
       <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu + upload ảnh (Alt+V)</button>
       <div id="ea-bienthe-khung" style="display:flex;flex-direction:column;gap:6px;">
         <button id="ea-btn-var-copy" style="padding:6px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🎨 Copy variations</button>
-        <button id="ea-btn-var-paste" style="padding:6px 12px;background:#15803D;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🎨 Dán variations</button>
-        <button id="ea-btn-var-price" style="padding:6px 12px;background:#0F766E;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">💲 Chỉ điền giá</button>
+        <button id="ea-btn-var-paste" title="Dán variations đã Copy, hoặc dán thẳng vùng bảng vừa copy (Ctrl+C) từ Google Sheets" style="padding:6px 12px;background:#15803D;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🎨 Dán variations</button>
+        <button id="ea-btn-var-price" title="Variations đã có sẵn: chỉ điền lại giá (cũng nhận bảng copy từ Google Sheets — dùng khi đổi giá trên sheet)" style="padding:6px 12px;background:#0F766E;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">💲 Chỉ điền giá</button>
       </div>
       <button id="ea-btn-lls" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🔎 Lấy link bảng size (trang này)</button>
       <button id="ea-btn-bangsize" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">📐 Ảnh bảng size (<span id="ea-bangsize-dem">0</span>)</button>
