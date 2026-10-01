@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.37
+// @version      9.38
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.37';
+  const PHIEN_BAN = '9.38';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -334,7 +334,7 @@
       // Chi gui URL + co "nghi la bang size" (1/0), KHONG gui nguyen chu alt:
       // alt cua Etsy co the dai ca doan, ma ben nhan chi can biet co bo tick san hay khong.
       const cum = danhSachAnh
-        .map((a) => `${a.url}${NGAN_CACH_TRONG_ANH}${laAnhBangSize(a.alt) ? '1' : '0'}`)
+        .map((a) => `${a.url}${NGAN_CACH_TRONG_ANH}${laBangSizeCuaAnh(a) ? '1' : '0'}`)
         .join(NGAN_CACH_GIUA_ANH);
       goi += `${NGAN_CACH_ANH}${cum}`;
     }
@@ -512,10 +512,12 @@
     const daThay = new Set();
     const danhSach = [];
 
+    const rongTheoId = layKichThuocGocTheoId();
     const them = (url, alt) => {
       if (daThay.has(url)) return;
       daThay.add(url);
-      danhSach.push({ url, alt: (alt || '').trim() });
+      const id = idAnhTuUrl(url);
+      danhSach.push({ url, alt: (alt || '').trim(), rong: (id && rongTheoId.get(id)) || 0 });
     };
 
     const cacMuc = khoi.querySelectorAll('li, [data-carousel-pagination-item]');
@@ -544,6 +546,7 @@
         danhSach
       );
       if (danhSach.length > 0) {
+        danhDauBangSize(danhSach);
         return { danhSach, nguon: 'carousel' };
       }
       console.warn('[Etsy Auto] Khối carousel không chứa link ảnh 75x75 nào, chuyển sang quét cả trang');
@@ -821,7 +824,7 @@
     // Bo qua ngay tu dau nhung anh nghi la bang size (cung dieu kien "tu bo tick san" o buoc
     // upload — xem laAnhBangSize()), vi day la tai xuong may nen khong co buoc chon lai nhu
     // bang chon anh upload — bo hang truoc, chu khong bo tick de nguoi dung tu chon.
-    const danhSachUrl = danhSachGoc.filter((a) => !laAnhBangSize(a.alt));
+    const danhSachUrl = danhSachGoc.filter((a) => !laBangSizeCuaAnh(a));
     const soBoQuaBangSize = danhSachGoc.length - danhSachUrl.length;
 
     if (danhSachUrl.length === 0) {
@@ -1979,6 +1982,82 @@
     return RE_ANH_BANG_SIZE.test(alt || '');
   }
 
+  // Anh da duoc danhDauBangSize() cham (co .bang) thi dung ket qua do, khong thi chi xet alt
+  function laBangSizeCuaAnh(a) {
+    return typeof a.bang === 'boolean' ? a.bang : laAnhBangSize(a.alt);
+  }
+
+  // "https://i.etsystatic.com/.../il_fullxfull.7910169490_p63x.jpg" -> "7910169490"
+  function idAnhTuUrl(url) {
+    const m = /\/il_[^/.]+\.(\d+)_/.exec(url || '');
+    return m ? m[1] : '';
+  }
+
+  // id anh -> chieu rong GOC (data-original-image-width) — chi co tren cac <img> cua khung anh lon
+  // (data-carousel-pane), khong co tren thumbnail 75x75 cua khoi phan trang.
+  function layKichThuocGocTheoId() {
+    const ketQua = new Map();
+    for (const img of document.querySelectorAll('img[data-original-image-width]')) {
+      const id =
+        img.closest('[data-image-id]')?.getAttribute('data-image-id') ||
+        idAnhTuUrl(img.getAttribute('data-src-zoom-image') || img.getAttribute('src'));
+      const rong = Number(img.getAttribute('data-original-image-width'));
+      if (id && rong) ketQua.set(id, rong);
+    }
+    return ketQua;
+  }
+
+  // Cham co .bang cho TUNG anh cua listing nguon, xet CA DANH SACH chu khong chi tung alt rieng le
+  // (v9.38). Alt khong du: nhieu shop de alt = "tieu de listing + image N" cho ca anh bang size —
+  // da gap: 5 anh bang size lien nhau, 3 anh co alt "size chart" (Etsy tu mo ta), 2 anh chi co
+  // "... image 9"/"... image 10". Them 2 luat dua tren dac diem chung cua moi shop:
+  //   - 'kep'      : anh nam KEP GIUA 2 anh da biet la bang size, cach nhau toi da 3 anh — shop
+  //                  gom bang size thanh 1 cum lien nhau (thuong o cuoi). Gioi han 3 de 1 alt nham
+  //                  (vd ao "birth chart" khop chu "chart") khong keo ca listing vao.
+  //   - 'kichthuoc': chieu rong goc TRUNG voi 1 anh bang size da biet VA KHAC chieu rong pho bien
+  //                  nhat cua anh san pham — bang size lam tu template rieng nen kich thuoc khac
+  //                  anh mockup (da gap: ao deu 2000px, bang size 3000/2700px).
+  // Chi la goi y bo tick san — nguoi dung van tick lai duoc trong bang chon.
+  function danhDauBangSize(danhSach) {
+    danhSach.forEach((a) => {
+      a.bang = laAnhBangSize(a.alt);
+      if (a.bang) a.lyDoBang = 'alt';
+    });
+    const viTriBang = danhSach.map((a, i) => (a.bang ? i : -1)).filter((i) => i >= 0);
+    if (!viTriBang.length) return danhSach;
+
+    for (let k = 1; k < viTriBang.length; k++) {
+      const khoangTrong = viTriBang[k] - viTriBang[k - 1] - 1;
+      if (khoangTrong < 1 || khoangTrong > 3) continue;
+      for (let i = viTriBang[k - 1] + 1; i < viTriBang[k]; i++) {
+        danhSach[i].bang = true;
+        danhSach[i].lyDoBang = 'kep';
+      }
+    }
+
+    const rongBangSize = new Set(danhSach.filter((a) => a.bang && a.rong).map((a) => a.rong));
+    const demRongSanPham = new Map();
+    danhSach.filter((a) => !a.bang && a.rong).forEach((a) => demRongSanPham.set(a.rong, (demRongSanPham.get(a.rong) || 0) + 1));
+    if (rongBangSize.size && demRongSanPham.size) {
+      const rongSanPham = [...demRongSanPham.entries()].sort((x, y) => y[1] - x[1])[0][0];
+      danhSach.forEach((a) => {
+        if (!a.bang && a.rong && a.rong !== rongSanPham && rongBangSize.has(a.rong)) {
+          a.bang = true;
+          a.lyDoBang = 'kichthuoc';
+        }
+      });
+    }
+
+    const themMoi = danhSach.filter((a) => a.lyDoBang && a.lyDoBang !== 'alt');
+    if (themMoi.length) {
+      console.log(
+        `[Etsy Auto] Nhận thêm ${themMoi.length} ảnh bảng size không có chữ "size chart" trong alt:`,
+        themMoi.map((a) => `#${danhSach.indexOf(a) + 1} (${a.lyDoBang === 'kep' ? 'kẹp giữa các bảng size' : `cùng kích thước ${a.rong}px với bảng size`})`)
+      );
+    }
+    return danhSach;
+  }
+
   // Doi link full size -> link thumbnail nho de ve bang chon cho nhe (khong tai anh goc nhieu MB)
   function linhThuNho(url) {
     return url.replace('il_fullxfull', 'il_180x135');
@@ -2048,8 +2127,8 @@
         return;
       }
 
-      const nghi = danhSach.filter((a) => laAnhBangSize(a.alt));
-      const conLai = danhSach.filter((a) => !laAnhBangSize(a.alt));
+      const nghi = danhSach.filter((a) => laBangSizeCuaAnh(a));
+      const conLai = danhSach.filter((a) => !laBangSizeCuaAnh(a));
       const danhSachHienThi = [...nghi, ...conLai];
 
       const lop = document.createElement('div');
@@ -2090,7 +2169,7 @@
       function ve() {
         luoi.innerHTML = danhSachHienThi
           .map((a, i) => {
-            const laBangSize = laAnhBangSize(a.alt);
+            const laBangSize = laBangSizeCuaAnh(a);
             const daCo = daCoTrongThuVien(a.url);
             return `
           <div style="border:2px solid ${laBangSize ? '#A78BFA' : '#E5E7EB'};border-radius:8px;overflow:hidden;position:relative;background:#F9FAFB;">

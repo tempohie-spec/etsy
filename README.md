@@ -819,6 +819,26 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Nhận bảng size cả khi alt không ghi "size chart" (v9.38)
+
+Trước đây script chỉ nhận bảng size qua **alt** của ảnh (`size chart`, `size guide`, `measurement`, `chart`...).
+Gặp thực tế: listing có 5 ảnh bảng size liền nhau, nhưng chỉ 3 ảnh có alt kiểu "May include: ... color chart ... size
+chart" (Etsy tự mô tả); 2 ảnh còn lại alt chỉ là "*tiêu đề listing* image 9" / "image 10" nên bị tick nhầm.
+
+Không dùng cách "nhớ mặt ảnh" vì listing nguồn lấy từ nhiều shop, mỗi shop một kiểu bảng size. Thay vào đó xét
+**cả danh sách ảnh** của listing nguồn (`danhDauBangSize()`), thêm 2 luật áp dụng được cho mọi shop:
+
+1. **Kẹp giữa** (`kep`): ảnh nằm giữa 2 ảnh đã biết là bảng size, cách nhau tối đa 3 ảnh → cũng là bảng size (shop gom
+   bảng size thành 1 cụm). Giới hạn 3 để 1 alt nhận nhầm (vd áo "birth chart" khớp chữ "chart") không kéo cả
+   listing vào.
+2. **Cùng kích thước** (`kichthuoc`): chiều rộng gốc (`data-original-image-width` trên ảnh lớn của carousel) **trùng**
+   với một bảng size đã biết **và khác** chiều rộng phổ biến nhất của ảnh sản phẩm → bảng size (bảng size làm từ
+   template riêng nên kích thước khác ảnh mockup; ví dụ trên: áo đều 2000px, bảng size 3000/2700px).
+
+Hai luật chỉ chạy khi listing có **ít nhất 1 ảnh** được alt nhận là bảng size. Kết quả chỉ là bỏ tick sẵn, vẫn tick lại
+được. Console in rõ ảnh nào được nhận thêm và vì sao. Việc chấm điểm diễn ra ở **trang nguồn** (lúc Alt+G/Alt+C), nên trang
+nguồn cần chạy bản 9.38. Áp dụng cho cả bảng chọn ảnh upload, tải ảnh xuống máy và hộp thoại lấy link bảng size.
+
 ### Video bị đếm nhầm thành ảnh (v9.37)
 
 Listing chỉ có **1 video, 0 ảnh** nhưng bảng chọn ảnh báo "Listing này đang có **1** ảnh" và khoá luôn lựa chọn
