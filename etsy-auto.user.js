@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.36
+// @version      9.37
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.36';
+  const PHIEN_BAN = '9.37';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -1984,20 +1984,25 @@
     return url.replace('il_fullxfull', 'il_180x135');
   }
 
+  // So "N remaining" ghi trong o "Add photos" (chi tinh anh, khong tinh video). null neu khong thay.
+  // Lay phan tu co text NGAN NHAT trong so cac phan tu khop, de bat dung o do chu khong phai mot
+  // khoi cha to dung chua ca "Add videos ... 1 remaining".
+  function docSoConLaiTuOAddPhotos() {
+    const cacUngVien = [...document.querySelectorAll('div, button, label, span')].filter(
+      (el) => /add\s+photos/i.test(el.textContent) && /\d+\s*remaining/i.test(el.textContent)
+    );
+    if (!cacUngVien.length) return null;
+    const goNhat = cacUngVien.reduce((a, b) => (b.textContent.length < a.textContent.length ? b : a));
+    const khop = goNhat.textContent.match(/(\d+)\s*remaining/i);
+    return khop ? Number(khop[1]) : null;
+  }
+
   // Con bao nhieu cho trong cho anh moi? Doc thang tu trang, vi Etsy da doi gioi han
   // (10 -> 20 anh) va co the con doi nua — han so cung trong script se sai am tham.
   function laySoAnhConLai(soAnhDangCo) {
     // Cach 1 (chac nhat): o "Add photos" tu ghi "N remaining".
-    // Lay phan tu co text NGAN NHAT trong so cac phan tu khop, de bat dung o do chu khong
-    // phai mot khoi cha to dung chua ca "Add videos ... 2 remaining".
-    const cacUngVien = [...document.querySelectorAll('div, button, label, span')].filter(
-      (el) => /add\s+photos/i.test(el.textContent) && /\d+\s*remaining/i.test(el.textContent)
-    );
-    if (cacUngVien.length) {
-      const goNhat = cacUngVien.reduce((a, b) => (b.textContent.length < a.textContent.length ? b : a));
-      const khop = goNhat.textContent.match(/(\d+)\s*remaining/i);
-      if (khop) return Number(khop[1]);
-    }
+    const soConLai = docSoConLaiTuOAddPhotos();
+    if (soConLai !== null) return soConLai;
 
     // Cach 2: dong "Add up to N photos and M videos" o dau muc
     const khopTong = document.body.textContent.match(/add\s+up\s+to\s+(\d+)\s+photos?/i);
@@ -2768,7 +2773,7 @@
   // nhom theo container do. Neu nhom "lon nhat" van chi chiem mot phan nho trong tong so the tim
   // duoc, coi nhu gom nhom that bai — tra ve TAT CA thay vi mot con so sai lech: thua con hon
   // thieu, vi thieu se pha hong ca phep tinh soAnhCu / gioi han anh / buoc sap xep phia sau.
-  function layCacTheAnh() {
+  function layCacTheMedia() {
     // Uu tien quet TRONG khoi anh san pham (loai bo hoan toan cac vung sortable khac cua trang —
     // vi du Custom options). Neu khong tim duoc khoi (vd chua mo dung tab), du phong quet ca
     // document nhu truoc — thua con hon thieu, giu nguyen triet ly cu cua ham nay.
@@ -2801,6 +2806,72 @@
       return tatCa;
     }
     return lonNhat;
+  }
+
+  // The VIDEO nam CHUNG luoi keo-tha voi anh (cung aria-roledescription="sortable") — da gap thuc
+  // te (v9.37): listing chi co 1 video, 0 anh, script bao "đang có 1 ảnh" va khoa luon lua chon
+  // "Bấm hộ Publish". Chua co HTML that cua the video nen nhan dien theo dau hieu:
+  //   - co <video>/<source>, hoac <img> co src kieu .mp4 / duong dan /video
+  //   - phan tu KHONG phai <img> (nut Play, nhan the...) co aria-label/title/data-testid chua
+  //     video/play. KHONG xet alt/title cua <img>: Etsy co the lay tieu de listing lam alt, vd
+  //     "Video Game Shirt" se lam MOI anh bi coi la video.
+  function laTheVideo(the) {
+    if (the.querySelector('video, source')) return true;
+    if ([...the.querySelectorAll('img')].some((img) => /\.mp4|\/videos?\//i.test(img.getAttribute('src') || ''))) return true;
+    const cacEl = [the, ...the.querySelectorAll('[aria-label], [title], [data-testid]')].filter((el) => el.tagName !== 'IMG');
+    return cacEl.some((el) =>
+      ['aria-label', 'title', 'data-testid'].some((a) => /\bvideos?\b|\bplay\b/i.test(el.getAttribute(a) || ''))
+    );
+  }
+
+  // So video Etsy tu bao = "and N videos" - "M remaining" cua o "Add video". null neu khong doc duoc.
+  function soVideoTheoTrang() {
+    const khopTong = document.body.textContent.match(/add\s+up\s+to\s+\d+\s+photos?\s+and\s+(\d+)\s+videos?/i);
+    const cacO = [...document.querySelectorAll('div, button, label, span')].filter(
+      (el) => /add\s+videos?/i.test(el.textContent) && /\d+\s*remaining/i.test(el.textContent)
+    );
+    if (!khopTong || !cacO.length) return null;
+    const goNhat = cacO.reduce((a, b) => (b.textContent.length < a.textContent.length ? b : a));
+    const khop = goNhat.textContent.match(/(\d+)\s*remaining/i);
+    return khop ? Math.max(0, Number(khopTong[1]) - Number(khop[1])) : null;
+  }
+
+  // Chi cac the ANH (bo the video). Dung cho moi phep dem/cat lat the anh moi ben duoi.
+  // CHOT AN TOAN: neu so the bi coi la video NHIEU HON so video Etsy bao (khong doc duoc thi lay
+  // toi da 2 — gioi han video/listing), coi nhu nhan dien nham -> tra ve tat ca nhu truoc v9.37.
+  function layCacTheAnh() {
+    const tatCa = layCacTheMedia();
+    const chiAnh = tatCa.filter((t) => !laTheVideo(t));
+    if (chiAnh.length === tatCa.length) return tatCa; // khong co video: khoi quet trang (ham nay goi moi giay)
+    const toiDaVideo = soVideoTheoTrang() ?? 2;
+    return tatCa.length - chiAnh.length > toiDaVideo ? tatCa : chiAnh;
+  }
+
+  // So anh Etsy TU BAO tren trang = "Add up to N photos" - "M remaining" (o "Add photos" chi dem
+  // anh, khong dem video). null neu khong doc duoc ca 2 con so.
+  function soAnhTheoTrang() {
+    const khopTong = document.body.textContent.match(/add\s+up\s+to\s+(\d+)\s+photos?/i);
+    const conLai = docSoConLaiTuOAddPhotos();
+    if (!khopTong || conLai === null) return null;
+    return Math.max(0, Number(khopTong[1]) - conLai);
+  }
+
+  let daLogLechSoAnh = false;
+
+  // So anh dang co: uu tien con so CHINH Etsy tinh (soAnhTheoTrang), doi chieu voi so the anh tren
+  // luoi; lech nhau thi log 1 lan kem HTML cac the de xem the nao bi nhan nham.
+  function demSoAnhDangCo() {
+    const cacThe = layCacTheAnh();
+    const theoTrang = soAnhTheoTrang();
+    if (theoTrang !== null && theoTrang !== cacThe.length && !daLogLechSoAnh) {
+      daLogLechSoAnh = true;
+      console.warn(
+        `[Etsy Auto] Etsy báo ${theoTrang} ảnh nhưng lưới có ${cacThe.length} thẻ (đã bỏ thẻ video) — dùng số của Etsy. ` +
+          'HTML các thẻ (gửi lại nếu thấy đếm sai):',
+        cacThe.map((t) => t.outerHTML.slice(0, 600))
+      );
+    }
+    return theoTrang !== null ? theoTrang : cacThe.length;
   }
 
   // "Chu ky" de nhan ra 1 the anh cu the sau khi luoi ve lai — dung de kiem tra sap xep co an khong
@@ -3065,7 +3136,7 @@
       return;
     }
 
-    const soAnhCu = layCacTheAnh().length;
+    const soAnhCu = demSoAnhDangCo();
     const conLai = laySoAnhConLai(soAnhCu);
     console.log(`[Etsy Auto] Lưới đang có ${soAnhCu} ảnh, trang báo còn chỗ cho ${conLai} ảnh nữa`);
     if (conLai === 0) {

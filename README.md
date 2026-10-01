@@ -819,6 +819,22 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Video bị đếm nhầm thành ảnh (v9.37)
+
+Listing chỉ có **1 video, 0 ảnh** nhưng bảng chọn ảnh báo "Listing này đang có **1** ảnh" và khoá luôn lựa chọn
+"Bấm hộ Publish" (lựa chọn đó chỉ mở khi lưới đích trống). Nguyên nhân: thẻ video nằm **chung lưới kéo-thả** với
+ảnh (cùng `aria-roledescription="sortable"`), nên `layCacTheAnh()` đếm cả video.
+
+Sửa:
+- **Số ảnh đang có lấy theo con số chính Etsy tính**: "Add up to 20 photos" trừ "N remaining" của ô *Add photos*
+  (ô này chỉ đếm ảnh, không đếm video). Không đọc được hai số đó thì mới đếm thẻ trên lưới như cũ. Nếu hai cách lệch
+  nhau, Console in cảnh báo kèm HTML các thẻ để gửi lại.
+- **Bỏ thẻ video khỏi lưới khi đếm/chờ ảnh mới**: thẻ có `<video>`/`<source>`, ảnh có src `.mp4`/`/video/`, hoặc
+  nút/nhãn (không phải `<img>`) có aria-label/title/data-testid chứa "video"/"play". Không xét `alt` của ảnh vì
+  Etsy có thể lấy tiêu đề listing làm alt (vd "Video Game Shirt" sẽ làm mọi ảnh bị coi là video).
+- **Chốt an toàn**: nếu số thẻ bị coi là video nhiều hơn số video Etsy báo (đọc từ "and 2 videos" trừ "N remaining"
+  của ô *Add video*; không đọc được thì tối đa 2), coi như nhận diện nhầm và đếm tất cả như trước v9.37.
+
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
 Sau v9.11, người dùng báo: chọn **"Bấm hộ Publish..."** một lần, thì **lần mở bảng chọn kế tiếp** tự
