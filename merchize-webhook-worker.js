@@ -546,6 +546,8 @@ const QUERY_CAN_XU_LY = 'artwork_status=&external_number=&fulfillment_created_at
   '&limit=100&order_issue_type=issue_request_update&order_status=&page=1&paid_at_from=&paid_at_to=' +
   '&payment_status=&push_to_fulfillment_progress=&shipment_status=&shipped_at_from=&shipped_at_to=' +
   '&tracking_status=&validate_shipping_address=';
+// 100 don moi nhat cua store (khong loc), de lay ma RX theo ma don Etsy.
+const QUERY_DON_MOI = QUERY_CAN_XU_LY.replace('order_issue_type=issue_request_update', 'order_issue_type=');
 
 async function merchizeFetch(dem, store, method, path, body) {
   const res = await goi(dem, store.baseUrl.replace(/\/+$/, '') + path, {
@@ -773,7 +775,26 @@ async function chayLich(env, event) {
     if (!store || !store.baseUrl || !store.token) continue;
     const ds = donCanTra(duLieu[tab] || []);
     tongCanTra += ds.length;
-    const coRx = ds.filter(([, dong]) => /^[A-Z]{2}-\d+-\d+$/.test(cell(dong[0].row, COL.merchizeId)));
+    const laRx = (v) => /^[A-Z]{2}-\d+-\d+$/.test(v);
+    // Don chua co ma RX (AD trong): 1 request search/v3 lay 100 don moi nhat cua store -> ma RX theo ma
+    // don Etsy, ghi luon vao AD de tra tracking theo lo 50 don thay vi tra tung don.
+    if (ds.some(([, dong]) => !laRx(cell(dong[0].row, COL.merchizeId))) && dem.n < GIOI_HAN_REQUEST - 10) {
+      try {
+        const kq = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_DON_MOI);
+        const rxTheoMa = {};
+        ((kq && kq.orders) || []).forEach((o) => {
+          const ma = str(o.external_order_number || (o.external_order_id || {}).id);
+          if (ma && laRx(str(o.code))) rxTheoMa[ma] = str(o.code);
+        });
+        ds.forEach(([ma, dong]) => {
+          const r0 = dong[0].row;
+          if (laRx(cell(r0, COL.merchizeId)) || !rxTheoMa[ma]) return;
+          boGhi.dat(tab, dong[0].rowNumber, COL.merchizeId, rxTheoMa[ma]);
+          r0[COL.merchizeId] = rxTheoMa[ma];
+        });
+      } catch (e) { /* loi tam thoi, tra tung don nhu cu */ }
+    }
+    const coRx = ds.filter(([, dong]) => laRx(cell(dong[0].row, COL.merchizeId)));
     const chuaRx = ds.filter((d) => !coRx.includes(d));
     for (let i = 0; i < coRx.length && dem.n < GIOI_HAN_REQUEST - 4; i += 50) {
       const phan = coRx.slice(i, i + 50);

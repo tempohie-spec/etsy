@@ -1464,6 +1464,8 @@ Chạy 24/7, **không cần mở Sheet**:
   tra API tracking cho đơn 10 ngày gần nhất còn thiếu tracking để bù thông báo bị sót.
 
 - File code: [`merchize-webhook-worker.js`](merchize-webhook-worker.js)
+- Đơn chưa có mã RX (AD trống): mỗi store 1 request `search/v3` lấy 100 đơn mới nhất, ghi mã RX vào AD rồi
+  tra tracking theo lô 50 đơn/request; chỉ đơn không có trong 100 đơn đó mới tra từng đơn.
 - Tối ưu mỗi lần chạy: tra tracking song song 6 đơn/lần; đơn cũ tra trước; bỏ qua đơn fulfill
   hôm nay (chưa thể có tracking); số dư lưu 1 giờ;
   hạn mức request tính trước nên không bao giờ vượt 50. Muốn cập nhật nhanh hơn: đặt lịch
