@@ -574,7 +574,8 @@ function donCanTra(rows) {
   });
   return Array.from(map.entries()).filter(([, dong]) => {
     if (dong.some(({ row }) => cell(row, COL.tracking))) return false;
-    // Don loi (chua gui duoc / loi import) va don di Teb khong co tren Merchize.
+    // Don chua gui (AC trong), don loi (chua gui duoc / loi import) va don di Teb khong co tren Merchize.
+    if (!cell(dong[0].row, COL.status)) return false;
     if (dong.some(({ row }) => /^Lỗi/.test(cell(row, COL.status)) || cell(row, COL.status) === 'Teb')) return false;
     const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
     return ngay && ngay >= moc;
