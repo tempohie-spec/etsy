@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.37
+// @version      1.38
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.37';
+  const SCRIPT_VERSION = '1.38';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -709,10 +709,13 @@
     const vr = dau.valueRanges || [];
     const header = ((vr[0] || {}).values || [])[0] || [];
     const cotC = ((vr[1] || {}).values || []).map((x) => str((x || [])[0]));
-    const cuoi = cotC.length;
+    // Chi tinh dong co ma don o cot C (bo qua dong soan san ben duoi: o trong, cong thuc ra rong...).
+    const dongCoMa = [];
+    cotC.forEach((v, i) => { if (i > 0 && v) dongCoMa.push(i + 1); });
     const kq = [header];
-    if (cuoi < 2) return kq;
-    let batDau = Math.max(2, cuoi - soDongCuoi + 1);
+    if (!dongCoMa.length) return kq;
+    const cuoi = dongCoMa[dongCoMa.length - 1];
+    let batDau = Math.max(2, dongCoMa[Math.max(0, dongCoMa.length - soDongCuoi)]);
     // Khong cat ngang don nhieu dong: lui len toi dong dau cua don.
     while (batDau > 2 && cotC[batDau - 1] && cotC[batDau - 2] === cotC[batDau - 1]) batDau--;
     const data = await sheetsApiFetch(`${spreadsheetId}/values/${encodeURIComponent(`'${title}'!A${batDau}:AG${cuoi}`)}?${q.slice(1)}`, { method: 'GET' });
