@@ -1368,15 +1368,14 @@ không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4
   file Teb>`. Bấm vào dòng để hiện ô sửa. Tab chưa cài thì hiện sẵn các ô nhập.
 - Tên store: script tự hỏi API Merchize `bo-master-1-eks.merchize.store/api/seller/stores/by-slug/<mã>/authorize`
   (lấy `name`) bằng Access Token của store. Chưa lấy được tên thì hiện mã store.
-- SKU Teb tra trong tab **SKU LIST** của file Teb đã chọn cho tab (cột title / color / size / SKU,
+- SKU Teb tra trong tab **SKU LIST** của file Teb đã chọn cho tab (STYLE CODE cột D / COLOR / SIZE / SKU,
   không phân biệt hoa thường; dòng tiêu đề nằm trong 10 dòng đầu). Không dùng sheet Teb Print SKU nữa.
-- SKU LIST ghi tên sản phẩm khác title trên Sheet (vd `t-shirt`): bấm dòng Teb > **Ghép tên áo với SKU LIST
-  Teb**, nhập `title = PRODUCT` (vd `comfort adult = t-shirt; bella adult = t-shirt`). Nút Kiểm tra liệt kê đơn
-  US 1 dòng không khớp và các PRODUCT có trong SKU LIST.
 - Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / sheet Teb, nhắc điền `Cũ` vào cột AC cho đơn cũ.
-- **Thêm loại áo** (v1.37): bấm nút, nhập `từ khóa trong title = mã sản phẩm Merchize` (nhiều loại cách
-  nhau dấu `;`, vd `gildan youth = <mã>`), rồi bấm **1. Cập nhật catalog**. Title chứa đủ các từ khóa thì
-  dùng mã đó (xét trước các luật có sẵn). Mã sản phẩm lấy trong Product Catalog của Merchize.
+- **1. Cập nhật catalog** (v1.41) mở một mục riêng gồm: nút **Tải catalog từ Merchize**, danh sách **Loại áo thêm**
+  (từ khóa trong title → mã sản phẩm Merchize, vd `gildan youth → 5000BUS`; title chứa đủ các từ khóa thì dùng mã đó,
+  xét trước luật có sẵn; thêm xong bấm Tải catalog) và danh sách **Ghép Teb** (title trên Sheet → STYLE CODE cột D
+  trong SKU LIST, vd `Comfort Adult → <style code>`; ô STYLE CODE gợi ý các mã đã đọc từ SKU LIST). Mỗi dòng có nút
+  Xoá. Đơn đi Teb khi khớp STYLE CODE + COLOR + SIZE trong SKU LIST; title chưa ghép thì gửi Merchize.
 - Đã bỏ nút Đánh dấu dòng cũ và Điền cost thật (Worker vẫn tự điền cost thật).
 
 ## Thêm account / file Sheet mới (không cần sửa Cloudflare)
