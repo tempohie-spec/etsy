@@ -574,8 +574,8 @@ function donCanTra(rows) {
   });
   return Array.from(map.entries()).filter(([, dong]) => {
     if (dong.some(({ row }) => cell(row, COL.tracking))) return false;
-    // Don di Teb (fulfill ben khac) khong co tren Merchize.
-    if (dong.some(({ row }) => /^Lỗi import/.test(cell(row, COL.status)) || cell(row, COL.status) === 'Teb')) return false;
+    // Don loi (chua gui duoc / loi import) va don di Teb khong co tren Merchize.
+    if (dong.some(({ row }) => /^Lỗi/.test(cell(row, COL.status)) || cell(row, COL.status) === 'Teb')) return false;
     const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
     return ngay && ngay >= moc;
   });
@@ -585,8 +585,10 @@ async function chayLich(env, event) {
   const dem = taoBoDem();
   const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, teb: [], tebCost: [], canXuLy: [] };
   // Moi muc thong ke: { tab, ma } (canXuLy them note) de tin Telegram ghi ro don nao cua tab nao.
+  const daTraMa = new Set();
   const ghiNhan = (tab, ma, kq) => {
     thongKe.daTra++;
+    daTraMa.add(tab + '|' + ma);
     if (kq.tracking) thongKe.tracking.push({ tab, ma });
     if (kq.cost) thongKe.cost.push({ tab, ma });
   };
@@ -770,11 +772,13 @@ async function chayLich(env, event) {
   //    trong gioi han request con lai, xoay vong theo gio de lan luot tra het.
   const donLe = [];
   let tongCanTra = 0;
+  const tatCaCanTra = [];
   for (const tab of tabs) {
     const store = stores[tab];
     if (!store || !store.baseUrl || !store.token) continue;
     const ds = donCanTra(duLieu[tab] || []);
     tongCanTra += ds.length;
+    tatCaCanTra.push(...ds.map(([ma, dong]) => ({ tab, ma, r0: dong[0].row })));
     const laRx = (v) => /^[A-Z]{2}-\d+-\d+$/.test(v);
     // Don chua co ma RX (AD trong): 1 request search/v3 lay 100 don moi nhat cua store -> ma RX theo ma
     // don Etsy, ghi luon vao AD de tra tracking theo lo 50 don thay vi tra tung don.
@@ -819,9 +823,16 @@ async function chayLich(env, event) {
   // Chua lai request cho: ghi Sheet (2), Telegram (1), so du moi store (1/store).
   // Don cu hon truoc (de co tracking hon), roi xoay vong tiep noi lan truoc.
   donLe.sort((a, b) => a.ngay - b.ngay);
-  // So du luu KV 1 gio: lan chay nao da co thi khong phai goi lai, danh request cho tra tracking.
-  const soDuLuu = await env.EVENTS.get('sodu');
-  const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - (soDuLuu ? 0 : tabs.length) - dem.n);
+  // So du luu KV 1 gio (chi luu so lay duoc): store nao da co thi khong goi lai; store loi (vd 403)
+  // thi lan chay sau goi lai ngay, khong phai doi het 1 gio.
+  let soDuCu = {};
+  let lucSoDu = Date.now();
+  try {
+    const v = JSON.parse((await env.EVENTS.get('sodu')) || 'null');
+    if (v && v.luc && Date.now() - v.luc < 3600000) { soDuCu = v.giaTri || {}; lucSoDu = v.luc; }
+  } catch (e) { /* ban luu cu, lay lai */ }
+  const canLaySoDu = tabs.filter((t) => typeof soDuCu[t] !== 'number');
+  const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - canLaySoDu.length - dem.n);
   if (donLe.length && conLai) {
     // Moi lan chay tiep noi vi tri lan truoc (luu KV), dat lich 30 phut hay 1 gio deu tra lan luot het.
     const viTri = Number(await env.EVENTS.get('cron:vitri')) || 0;
@@ -852,12 +863,17 @@ async function chayLich(env, event) {
 
   // Nhan Telegram sau MOI lan chay, ke ca khi khong co gi moi.
   const conThieu = Math.max(0, tongCanTra - thongKe.tracking.length);
+  // Cho /run: tung don con thieu tracking (AC, AD, lan nay co tra khong) de xem vi sao.
+  const coTracking = new Set(thongKe.tracking.map((x) => x.tab + '|' + x.ma));
+  const donThieu = tatCaCanTra.filter((x) => !coTracking.has(x.tab + '|' + x.ma)).slice(0, 80).map((x) => ({
+    tab: x.tab, ma: x.ma, ngay: cell(x.r0, COL.dateFulfill), AC: cell(x.r0, COL.status), AD: cell(x.r0, COL.merchizeId),
+    lanNayDaTra: daTraMa.has(x.tab + '|' + x.ma)
+  }));
 
   // So du tung store: API noi bo cua trang seller Merchize (GET /billing/balance -> data.amount).
-  let soDu = {};
-  try { soDu = soDuLuu ? JSON.parse(soDuLuu) : {}; } catch (e) { soDu = {}; }
-  if (!soDuLuu) {
-    await Promise.all(tabs.map(async (tab) => {
+  const soDu = { ...soDuCu };
+  if (canLaySoDu.length) {
+    await Promise.all(canLaySoDu.map(async (tab) => {
       const store = stores[tab];
       if (!store || !store.baseUrl || !store.token) return;
       try {
@@ -871,9 +887,11 @@ async function chayLich(env, event) {
         soDu[tab] = 'lỗi kết nối';
       }
     }));
-    // Chi luu khi lay duoc it nhat 1 store, de lan sau thu lai neu loi het.
-    if (Object.values(soDu).some((v) => typeof v === 'number')) {
-      await env.EVENTS.put('sodu', JSON.stringify(soDu), { expirationTtl: 3600 });
+    // Chi luu so lay duoc; store loi se duoc lay lai o lan chay sau.
+    const giaTri = {};
+    Object.keys(soDu).forEach((t) => { if (typeof soDu[t] === 'number') giaTri[t] = soDu[t]; });
+    if (Object.keys(giaTri).length) {
+      await env.EVENTS.put('sodu', JSON.stringify({ luc: lucSoDu, giaTri }), { expirationTtl: 3600 });
     }
   }
   const dongSoDu = Object.keys(soDu).map((tab) => {
@@ -911,7 +929,7 @@ async function chayLich(env, event) {
 
   return {
     tracking: thongKe.tracking, cost: thongKe.cost,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb, costTeb: thongKe.tebCost, canXuLy: thongKe.canXuLy, teb: tebInfo, conThieuTracking: conThieu, soDu
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb, costTeb: thongKe.tebCost, canXuLy: thongKe.canXuLy, teb: tebInfo, conThieuTracking: conThieu, donThieu, soDu
   };
 }
 
