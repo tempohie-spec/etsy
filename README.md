@@ -1370,6 +1370,9 @@ không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4
   (lấy `name`) bằng Access Token của store. Chưa lấy được tên thì hiện mã store.
 - SKU Teb tra trong tab **SKU LIST** của file Teb đã chọn cho tab (cột title / color / size / SKU,
   không phân biệt hoa thường; dòng tiêu đề nằm trong 10 dòng đầu). Không dùng sheet Teb Print SKU nữa.
+- SKU LIST ghi tên sản phẩm khác title trên Sheet (vd `t-shirt`): bấm dòng Teb > **Ghép tên áo với SKU LIST
+  Teb**, nhập `title = PRODUCT` (vd `comfort adult = t-shirt; bella adult = t-shirt`). Nút Kiểm tra liệt kê đơn
+  US 1 dòng không khớp và các PRODUCT có trong SKU LIST.
 - Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / sheet Teb, nhắc điền `Cũ` vào cột AC cho đơn cũ.
 - **Thêm loại áo** (v1.37): bấm nút, nhập `từ khóa trong title = mã sản phẩm Merchize` (nhiều loại cách
   nhau dấu `;`, vd `gildan youth = <mã>`), rồi bấm **1. Cập nhật catalog**. Title chứa đủ các từ khóa thì
