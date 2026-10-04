@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      4.3
+// @version      4.5
 // @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
 // @grant        GM_setValue
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '4.3';
+  const SCRIPT_VERSION = '4.5';
 
   // Manual overrides if the automatic substring match picks the wrong
   // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -505,6 +505,7 @@
     const header = rows[0].map((h) => h.trim().toUpperCase());
     const colOrder = findColPriority(header, [
       ['ORDER CODE'],
+      ['ORDERNUMBER', 'ORDER NUMBER'],
       ['ORDER ID'],
       ['MA DON', 'MÃ ĐƠN'],
       ['ORDER'],
