@@ -819,6 +819,20 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Chờ mỗi lô tối đa 90s + tự nén ảnh xuống dưới 1MB trước khi upload (v9.43)
+
+Log v9.42 xác nhận 30s ngắn hơn thời gian upload thật (tới giây 30 cả 7 ảnh 1,1–1,6MB vẫn "Image is uploading").
+Người dùng chọn dùng cả 2 cách:
+
+- `THOI_HAN_CHO_ETSY_XU_LY_ANH` **30s → 90s** (khớp dữ liệu cũ: lô xong thật lâu nhất ~89s). Vẫn giữ quy tắc v9.39: lô nào
+  lỗi/quá giờ thì dừng luôn, không thử lại, không tải ảnh xuống máy.
+- **Nén ảnh trước khi upload** (`nenAnhChoEtsy()`, chỉ trong luồng upload, không ảnh hưởng tính năng tải ảnh xuống máy):
+  - Ảnh ≤ 1MB hoặc GIF → **giữ nguyên file gốc** (không nén lại vô ích).
+  - Ảnh nặng hơn → thu về cạnh ngắn **2000px** (mức Etsy khuyên), nền trắng (PNG trong suốt), lưu JPEG chất lượng 0.9,
+    hạ dần tới 0.7; vẫn nặng thì thu nhỏ thêm 15%/lần. Lỗi gì cũng giữ ảnh gốc, không làm hỏng bước upload.
+  - Thử trên ảnh giống ảnh nguồn thật: 1399KB → 755KB, 1336KB → 724KB (2000×2000, chất lượng 0.9). Console in
+    "Nén ...: X KB → Y KB" cho từng ảnh.
+
 ### Đếm cả thẻ "đang upload" của Etsy (v9.42)
 
 HTML thật người dùng gửi (log tự in của v9.40) cho thấy: lúc đang upload, Etsy vẽ **thẻ tạm**

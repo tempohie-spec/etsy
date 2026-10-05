@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.42
+// @version      9.43
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.42';
+  const PHIEN_BAN = '9.43';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -99,9 +99,15 @@
   // (khong phai bi ket) deu hoan tat trong duoi 90s (thuong chi vai giay den ~50s, ca truong hop
   // lau nhat quan sat duoc la ~89s) — 180s chi keo dai thoi gian vo ich cho truong hop THAT SU bi
   // ket, ma khong giup ich gi cho cac lo dang xu ly binh thuong.
-  // v9.39: giam tiep xuong 30000 theo yeu cau nguoi dung (lo nao qua 30s chua xong thi dung luon,
-  // chap nhan lo xu ly cham bi coi la loi — script khong con thu lai/tai du phong nua).
-  const THOI_HAN_CHO_ETSY_XU_LY_ANH = 30000;
+  // v9.39: giam xuong 30000 theo yeu cau nguoi dung. v9.43: nang len 90000 — HTML that (v9.42)
+  // xac nhan toi giay 30 ca 7 anh (1,1-1,6MB/anh) VAN dang "Image is uploading", tuc 30s ngan hon
+  // thoi gian upload that. Di kem nen anh xuong duoi 1MB (nenAnhChoEtsy) de upload nhanh hon.
+  const THOI_HAN_CHO_ETSY_XU_LY_ANH = 90000;
+
+  // Nen anh truoc khi upload (v9.43): Etsy khuyen "Keep it under 1MB for faster uploading" va canh
+  // ngan nhat ~2000px. Anh nguon thuong 1,1-1,6MB -> lo 7 anh ~9MB, upload > 30s.
+  const DUNG_LUONG_TOI_DA_UPLOAD = 1000 * 1000; // byte — duoi muc nay giu nguyen file goc
+  const CANH_NGAN_TOI_DA_UPLOAD = 2000; // px — kich thuoc Etsy khuyen dung
 
   // So anh nhoi vao o upload MOI LAN — thay vi nhoi TAT CA anh da chon cung 1 luc. Da gap thuc te:
   // nhoi 8 anh cung luc, backend upload that cua Etsy (POST /api/v3/ajax/shop/.../listings/images)
@@ -2719,7 +2725,7 @@
       const duoi = duoiTheoMime(mime);
       const file = new File([duLieu], `${lamSachTenFile(ten)}.${duoi}`, { type: mime || laMimeTheoDuoi(duoi) });
       console.log(`[Etsy Auto] Ảnh ${file.name}: ${(file.size / 1024).toFixed(0)} KB`);
-      return file;
+      return await nenAnhChoEtsy(file);
     }
 
     const duLieu = await taiMotAnhVoiRetry(url, 2, baoDangThuLai);
@@ -2728,6 +2734,47 @@
     // Ghi lai dung luong tung anh — bang chung cu the neu sau nay can kiem tra gia thuyet "anh
     // qua nang lam backend upload cua Etsy tu choi", thay vi phai doan lai tu dau.
     console.log(`[Etsy Auto] Ảnh ${file.name}: ${(file.size / 1024).toFixed(0)} KB`);
+    return await nenAnhChoEtsy(file);
+  }
+
+  function canvasThanhBlob(canvas, chatLuong) {
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', chatLuong));
+  }
+
+  // Nen 1 anh xuong DUOI DUNG_LUONG_TOI_DA_UPLOAD (JPEG) de upload nhanh hon. Anh da du nhe -> giu
+  // nguyen (khong nen lai lam giam chat luong vo ich). GIF bo qua (co the la anh dong). Ha chat
+  // luong dan 0.9 -> 0.7; van nang thi thu nho kich thuoc 15%/lan. Moi loi -> tra ve file goc,
+  // khong bao gio lam hong buoc upload chi vi buoc nen.
+  async function nenAnhChoEtsy(file) {
+    if (file.size <= DUNG_LUONG_TOI_DA_UPLOAD || /gif/i.test(file.type)) return file;
+    try {
+      const bmp = await createImageBitmap(file);
+      let tiLe = Math.min(1, CANH_NGAN_TOI_DA_UPLOAD / Math.min(bmp.width, bmp.height));
+      for (let lanThuNho = 0; lanThuNho < 4; lanThuNho++) {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bmp.width * tiLe);
+        canvas.height = Math.round(bmp.height * tiLe);
+        const g = canvas.getContext('2d');
+        g.fillStyle = '#fff'; // PNG nen trong suot -> nen trang thay vi den khi doi sang JPEG
+        g.fillRect(0, 0, canvas.width, canvas.height);
+        g.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+        for (const chatLuong of [0.9, 0.85, 0.8, 0.75, 0.7]) {
+          const blob = await canvasThanhBlob(canvas, chatLuong);
+          if (blob && blob.size <= DUNG_LUONG_TOI_DA_UPLOAD) {
+            const ten = file.name.replace(/\.[a-z0-9]+$/i, '') + '.jpg';
+            console.log(
+              `[Etsy Auto] Nén ${file.name}: ${(file.size / 1024).toFixed(0)} KB → ${(blob.size / 1024).toFixed(0)} KB ` +
+                `(${canvas.width}×${canvas.height}, chất lượng ${chatLuong})`
+            );
+            return new File([blob], ten, { type: 'image/jpeg' });
+          }
+        }
+        tiLe *= 0.85;
+      }
+      console.warn(`[Etsy Auto] Không nén được ${file.name} xuống dưới 1MB — giữ nguyên ảnh gốc`);
+    } catch (loi) {
+      console.warn(`[Etsy Auto] Lỗi khi nén ${file.name} — giữ nguyên ảnh gốc:`, loi);
+    }
     return file;
   }
 
