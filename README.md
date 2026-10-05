@@ -1370,6 +1370,8 @@ không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4
   (lấy `name`) bằng Access Token của store. Chưa lấy được tên thì hiện mã store.
 - SKU Teb tra trong tab **SKU LIST** của file Teb đã chọn cho tab (STYLE CODE cột D / COLOR / SIZE / SKU,
   không phân biệt hoa thường; dòng tiêu đề nằm trong 10 dòng đầu). Không dùng sheet Teb Print SKU nữa.
+- Bỏ store của 1 tab: bấm dòng ✅ store > **Bỏ store của tab này**. Script xoá store + sheet Teb của tab trên máy và
+  báo Worker (kể cả mục trong biến `STORES`), Worker thôi tra tracking, số dư, Request update cho tab đó.
 - Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / sheet Teb, nhắc điền `Cũ` vào cột AC cho đơn cũ.
 - **1. Cập nhật catalog** (v1.41) mở một mục riêng gồm: nút **Tải catalog từ Merchize**, danh sách **Loại áo thêm**
   (từ khóa trong title → mã sản phẩm Merchize, vd `gildan youth → 5000BUS`; title chứa đủ các từ khóa thì dùng mã đó,

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.41
+// @version      1.42
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.41';
+  const SCRIPT_VERSION = '1.42';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -1151,7 +1151,8 @@
     webhookInput.type = 'password';
     webhookInput.placeholder = 'Secret key webhook của store (Merchize > Webhook), nếu có';
     const saveTokenBtn = nut('Lưu store Merchize cho tab này', '#607d8b');
-    [baseInput, tokenInput, webhookInput, saveTokenBtn].forEach((x) => storeBox.appendChild(x));
+    const boStoreBtn = nut('Bỏ store của tab này', '#c62828');
+    [baseInput, tokenInput, webhookInput, saveTokenBtn, boStoreBtn].forEach((x) => storeBox.appendChild(x));
     const tebBox = el('div', 'margin-bottom:4px;');
     const tebInput = el('input', oCss);
     tebInput.placeholder = 'Link sheet Teb (mở đúng tab rồi copy link) nếu tab này dùng Teb';
@@ -1333,7 +1334,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, tebBtn, catalogBtn, taiCatalogBtn, checkBtn, sendBtn, workerBtn];
+    const tatCaNut = [saveTokenBtn, boStoreBtn, tebBtn, catalogBtn, taiCatalogBtn, checkBtn, sendBtn, workerBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1361,6 +1362,7 @@
         : `❌ Tab "${title}": chưa có store Merchize`;
       storeInfo.style.color = st ? '#2e7d32' : '#c62828';
       storeBox.style.display = !st || moSuaStore ? 'block' : 'none';
+      boStoreBtn.style.display = st ? 'block' : 'none';
       tebInfo.textContent = teb ? `✅ Sheet Teb: ${teb.fileTitle || teb.sheetTitle}`
         : canTeb ? '❌ Chưa chọn sheet Teb' : 'Tab này chưa dùng Teb, mọi đơn gửi Merchize (bấm để chọn sheet Teb)';
       tebInfo.style.color = teb ? '#2e7d32' : canTeb ? '#c62828' : '#777';
@@ -1472,6 +1474,23 @@
         ...(teb ? { teb: { spreadsheetId: teb.spreadsheetId, sheet: teb.sheetTitle } } : {})
       });
       return [`Đã lưu store cho tab "${title}".`, ...dong].join('\n');
+    })));
+    // Bo store: xoa store + sheet Teb cua tab tren may nay va tren Worker (Worker thoi tra tracking,
+    // so du, Request update cho tab nay; ke ca muc khai bao trong bien STORES tren Cloudflare).
+    boStoreBtn.addEventListener('click', () => chay(khongTuDongBo(async () => {
+      const title = tabDaHien || (await layTrangTinhDangMo()).title;
+      const st = layStore(title);
+      if (!st) throw new Error(`Tab "${title}" chưa có store Merchize.`);
+      if (!W.confirm(`Bỏ store ${tenStore(st)} khỏi tab "${title}"?\nScript và Worker sẽ không gửi đơn, tra tracking hay báo số dư cho tab này nữa.`)) return 'Đã hủy.';
+      const dong = docWorker() ? await dongBoWorker(title, { store: null }) : [];
+      const all = docCacStore();
+      delete all[title];
+      GM_setValue('mz_stores', JSON.stringify(all));
+      const teb = docCacSheetTeb();
+      if (teb[title]) { delete teb[title]; GM_setValue('mz_teb_targets', JSON.stringify(teb)); }
+      moSuaStore = false;
+      hienStore(title);
+      return [`Đã bỏ store khỏi tab "${title}".`, ...dong].join('\n');
     })));
     catalogBtn.addEventListener('click', () => {
       const mo = catalogBox.style.display === 'none';
