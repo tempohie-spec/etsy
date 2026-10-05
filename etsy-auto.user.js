@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.41
+// @version      9.42
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.41';
+  const PHIEN_BAN = '9.42';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2857,6 +2857,18 @@
     return null;
   }
 
+  // The anh trong luoi: the da xong la phan tu keo-tha aria-roledescription="sortable"; the DANG
+  // UPLOAD la the tam data-testid="thumbnail-loading" (anh blob mo + WtSpinner "Image is uploading")
+  // CHUA co aria-roledescription — truoc v9.42 bo sot loai nay nen log luon bao "0 thẻ" trong luc
+  // Etsy dang upload (xac nhan qua HTML that nguoi dung gui).
+  const SELECTOR_THE_MEDIA = '[aria-roledescription="sortable"], [data-testid="thumbnail-loading"]';
+
+  // Bo phan tu nam LONG trong 1 phan tu khac cung danh sach (vd the tam nam trong the sortable) —
+  // moi the chi dem 1 lan.
+  function locTheNgoaiCung(ds) {
+    return ds.filter((el) => !ds.some((khac) => khac !== el && khac.contains(el)));
+  }
+
   // Moi anh trong luoi la mot phan tu co aria-roledescription="sortable".
   // Loc theo container danh sach dung nhat de khong dinh cac vung sortable khac cua trang.
   //
@@ -2880,13 +2892,13 @@
     const cacVung = [timKhoiAnhSanPham(), timKhoiMucAnh()].filter(Boolean);
     let tatCa = null;
     for (const vung of cacVung) {
-      const ds = [...vung.querySelectorAll('[aria-roledescription="sortable"]')];
+      const ds = locTheNgoaiCung([...vung.querySelectorAll(SELECTOR_THE_MEDIA)]);
       if (ds.length) {
         tatCa = ds;
         break;
       }
     }
-    if (!tatCa) tatCa = cacVung.length ? [] : [...document.querySelectorAll('[aria-roledescription="sortable"]')];
+    if (!tatCa) tatCa = cacVung.length ? [] : locTheNgoaiCung([...document.querySelectorAll(SELECTOR_THE_MEDIA)]);
     if (tatCa.length < 2) return tatCa;
 
     const nhomTheoCha = new Map();

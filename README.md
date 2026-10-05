@@ -819,6 +819,17 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Đếm cả thẻ "đang upload" của Etsy (v9.42)
+
+HTML thật người dùng gửi (log tự in của v9.40) cho thấy: lúc đang upload, Etsy vẽ **thẻ tạm**
+`data-testid="thumbnail-loading"` (ảnh blob mờ `opacity: 0.4` + `WtSpinner` "Image is uploading"), thẻ này **chưa có**
+`aria-roledescription="sortable"` — nên log luôn báo "0 thẻ mới xuất hiện" trong lúc upload. Giờ thẻ ảnh gồm cả 2 loại
+(`SELECTOR_THE_MEDIA`), mỗi thẻ chỉ đếm 1 lần (`locTheNgoaiCung()`).
+
+Cùng log đó xác nhận cách nhận biết dự phòng của v9.40 chạy đúng: "Etsy đếm 7 ảnh (trước lô: 0), **7 spinner** trong
+mục ảnh" suốt 30s → tới giây thứ 30 Etsy **thật sự vẫn đang upload** cả 7 ảnh (mỗi ảnh 1,1–1,6MB; Etsy khuyên dưới 1MB).
+Dừng ở lô 1 lúc đó là do mốc 30s ngắn hơn thời gian upload thật, không phải script đếm sai.
+
 ### Sửa lỗi của v9.40: listing trống bị báo "đã đầy 20 ảnh" (v9.41)
 
 v9.40 thêm luật "không thấy ô *Add photos N remaining* thì coi như listing đã đầy" (cho lô cuối làm đầy 20 ảnh, lúc Etsy
