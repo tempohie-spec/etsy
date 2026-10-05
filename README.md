@@ -819,6 +819,21 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Chờ mỗi lô tối đa 30s, lỗi là dừng luôn, bỏ tải ảnh thiếu xuống máy (v9.39)
+
+Theo yêu cầu người dùng:
+- `THOI_HAN_CHO_ETSY_XU_LY_ANH` giảm **120s → 30s**. Lô nào sau 30s Etsy chưa xử lý xong thì coi là lỗi. Đánh đổi: dữ liệu
+  cũ cho thấy có lô xong thật mất tới ~50–89s; những lô đó giờ sẽ bị dừng dù ảnh có thể vẫn đang lên tiếp phía Etsy —
+  thông báo dừng nhắc chờ một chút rồi kiểm tra lưới trước khi tự thêm ảnh, tránh trùng.
+- **Không thử lại nữa**: lô nào lỗi (Etsy báo lỗi thật, hết chỗ, hoặc quá 30s) thì **dừng luôn**, không nhồi các lô sau
+  (bỏ `SO_LAN_THU_LAI_LO` và bước chờ lưới yên `choLuoiYenLang()`).
+- **Bỏ phương án dự phòng tải ảnh còn thiếu xuống máy** (`taiCacFileConLaiXuongMay()`, có từ v9.24).
+- Thông báo dừng ghi rõ lô số mấy, lý do, đã lên bao nhiêu/tổng, và hiện **15s** thay vì 4s. `hienThongBao()` nhận thêm
+  tham số thời gian hiện (mặc định 4s) — 2 thông báo cũ của thư viện bảng size vốn truyền 8–9s nhưng trước đây bị bỏ qua,
+  giờ hiện đúng thời lượng đó.
+
+Bước tải ảnh từ listing nguồn (12s/lần, tự thử lại 2 lần khi mạng chậm) và các bước chờ nút Publish giữ nguyên.
+
 ### Nhận bảng size cả khi alt không ghi "size chart" (v9.38)
 
 Trước đây script chỉ nhận bảng size qua **alt** của ảnh (`size chart`, `size guide`, `measurement`, `chart`...).
