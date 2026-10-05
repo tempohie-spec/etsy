@@ -819,6 +819,23 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Lưới ảnh kiểu mới: script đếm "0 thẻ" dù Etsy đã nhận ảnh (v9.40)
+
+Log thực tế: nhồi lô 1 (7 ảnh), suốt 30s script báo "0 thẻ đang có trên lưới, 0/7 thẻ mới xuất hiện" rồi dừng vì hết
+giờ — trong khi màn hình có **7 thẻ đang quay spinner** và ô Etsy ghi "Add photos **13 remaining**" (đã nhận 7 ảnh).
+Layout trang lúc này khác trước: ô "Add videos" và "Add photos" nằm **xen trong lưới** ảnh. Khối có id image/photo bao
+quanh `<input>` (vùng quét thẻ từ v9.32) không còn chứa các thẻ ảnh, nên đếm ra 0.
+
+Sửa:
+- **Mở rộng vùng tìm thẻ**: khối quanh `<input>` không có thẻ nào thì tìm trong **cả mục "Photo and video"**
+  (`timKhoiMucAnh()`: tổ tiên nhỏ nhất của ô chọn ảnh có chứa dòng "Add up to N photos"). Vẫn không quét cả trang,
+  để không dính danh sách Options của Custom options (lỗi v9.32).
+- **Thêm cách nhận biết "xong" không phụ thuộc thẻ**: số ảnh Etsy tự đếm (từ "N remaining") đã tăng đủ số ảnh của lô
+  **và** không còn spinner nào đang hiện trong mục ảnh (giữ ổn định qua 2 lần kiểm tra). Kể cả khi Etsy đổi markup làm
+  script không nhận ra thẻ ảnh, lô vẫn được nhận là xong đúng lúc.
+- Log tiến độ mỗi 5s in thêm "Etsy đếm X ảnh (trước lô: Y), Z spinner trong mục ảnh". Nếu sau 10s Etsy đã nhận ảnh mà
+  script vẫn không thấy thẻ mới, Console in HTML mục ảnh (một lần) để gửi lại sửa selector.
+
 ### Chờ mỗi lô tối đa 30s, lỗi là dừng luôn, bỏ tải ảnh thiếu xuống máy (v9.39)
 
 Theo yêu cầu người dùng:

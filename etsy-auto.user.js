@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.39
+// @version      9.40
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.39';
+  const PHIEN_BAN = '9.40';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2845,6 +2845,18 @@
     return null;
   }
 
+  // Ca MUC "Photo and video": to tien chung NHO NHAT cua dong tieu de "Add up to N photos" va o chon
+  // anh. Luoi anh/video, o "Add photos"/"Add videos" va spinner deu nam trong muc nay, con Custom
+  // options o muc khac han nen khong bi lan vao.
+  function timKhoiMucAnh() {
+    const o = timOChonAnhSanPham();
+    if (!o) return null;
+    for (let vc = o.parentElement, buoc = 0; vc && vc !== document.body && buoc < 15; vc = vc.parentElement, buoc++) {
+      if (/add\s+up\s+to\s+\d+\s+photos?/i.test(vc.textContent)) return vc;
+    }
+    return null;
+  }
+
   // Moi anh trong luoi la mot phan tu co aria-roledescription="sortable".
   // Loc theo container danh sach dung nhat de khong dinh cac vung sortable khac cua trang.
   //
@@ -2859,9 +2871,22 @@
     // Uu tien quet TRONG khoi anh san pham (loai bo hoan toan cac vung sortable khac cua trang —
     // vi du Custom options). Neu khong tim duoc khoi (vd chua mo dung tab), du phong quet ca
     // document nhu truoc — thua con hon thieu, giu nguyen triet ly cu cua ham nay.
-    const khoi = timKhoiAnhSanPham();
-    const goc = khoi || document;
-    const tatCa = [...goc.querySelectorAll('[aria-roledescription="sortable"]')];
+    //
+    // v9.40: da gap layout ma o "Add photos"/"Add videos" nam XEN TRONG luoi anh — khoi co id
+    // image/photo bao quanh <input> luc do KHONG chua cac the anh (log bao "0 thẻ" suot 30s trong khi
+    // man hinh co 7 the dang spinner va Etsy bao "13 remaining"). Khoi hep khong co the nao thi thu
+    // tiep CA MUC "Photo and video" (timKhoiMucAnh) — van khong quet ca document de khong dinh
+    // danh sach Options cua Custom options (loi v9.32).
+    const cacVung = [timKhoiAnhSanPham(), timKhoiMucAnh()].filter(Boolean);
+    let tatCa = null;
+    for (const vung of cacVung) {
+      const ds = [...vung.querySelectorAll('[aria-roledescription="sortable"]')];
+      if (ds.length) {
+        tatCa = ds;
+        break;
+      }
+    }
+    if (!tatCa) tatCa = cacVung.length ? [] : [...document.querySelectorAll('[aria-roledescription="sortable"]')];
     if (tatCa.length < 2) return tatCa;
 
     const nhomTheoCha = new Map();
@@ -2933,8 +2958,11 @@
   // anh, khong dem video). null neu khong doc duoc ca 2 con so.
   function soAnhTheoTrang() {
     const khopTong = document.body.textContent.match(/add\s+up\s+to\s+(\d+)\s+photos?/i);
-    const conLai = docSoConLaiTuOAddPhotos();
-    if (!khopTong || conLai === null) return null;
+    if (!khopTong) return null;
+    let conLai = docSoConLaiTuOAddPhotos();
+    // Du anh thi Etsy co the an luon o "Add photos" -> con muc anh ma mat o do thi coi la 0 cho trong
+    if (conLai === null && timKhoiMucAnh() && !/add\s+photos/i.test(timKhoiMucAnh().textContent)) conLai = 0;
+    if (conLai === null) return null;
     return Math.max(0, Number(khopTong[1]) - conLai);
   }
 
@@ -3023,10 +3051,11 @@
   // noi goi log ra tag/class that su — giup phan biet "spinner that" voi truong hop selector do
   // rong (vi du [class*="spinner" i]) lo bat nham 1 phan tu KHONG lien quan toi trang thai xu ly
   // (vd icon trang tri co chu "spinner" tinh co trong ten class).
+  const SELECTOR_SPINNER =
+    '[role="progressbar"], [aria-busy="true"], [class*="spinner" i], [data-clg-id*="spinner" i], [data-clg-id*="loading" i]';
+
   function dangXuLyRieng(the, baoChiTietMoiLan) {
-    const spinner = the.querySelector(
-      '[role="progressbar"], [aria-busy="true"], [class*="spinner" i], [data-clg-id*="spinner" i], [data-clg-id*="loading" i]'
-    );
+    const spinner = the.querySelector(SELECTOR_SPINNER);
     const dangXuLy = !!spinner && dangHienThi(spinner);
     if (dangXuLy && typeof baoChiTietMoiLan === 'function') baoChiTietMoiLan(spinner);
     return dangXuLy;
@@ -3045,8 +3074,17 @@
   // do va nguyen nhan cham qua Console (F12) thay vi phai doan mo — vi du phan biet duoc "Etsy that
   // su xu ly cham" (so the/spinner tang dan theo thoi gian) voi "bi ket mai o 1 the" (so lieu dung
   // yen khong doi qua nhieu lan log).
-  async function choEtsyXuLyAnh(soAnhCu, soAnhThem, loiCanBoQua) {
+  // Spinner/progressbar DANG HIEN trong ca muc anh (khong can biet the nao) — dung cho tieu chi du phong
+  function demSpinnerTrongMucAnh() {
+    const muc = timKhoiMucAnh();
+    if (!muc) return null;
+    return [...muc.querySelectorAll(SELECTOR_SPINNER)].filter(dangHienThi).length;
+  }
+
+  // soAnhTrangTruoc (tuy chon): so anh Etsy tu bao (soAnhTheoTrang) do NGAY TRUOC khi nhoi lo nay.
+  async function choEtsyXuLyAnh(soAnhCu, soAnhThem, loiCanBoQua, soAnhTrangTruoc) {
     const moc = Date.now();
+    let daLogHtmlMucAnh = false;
     let soLanOnDinhLienTiep = 0;
     let giayLogCuoi = 0;
 
@@ -3075,7 +3113,24 @@
       const soConSpinner = theMoi.filter((t) => dangXuLyRieng(t, baoChiTietSpinner)).length;
       // Da du so the, moi the moi deu da co anh xem truoc VA khong con spinner rieng -> coi nhu
       // Etsy xu ly xong the do.
-      const xong = theMoi.length === soAnhThem && soDaCoAnh === soAnhThem && soConSpinner === 0;
+      const xongTheoThe = theMoi.length === soAnhThem && soDaCoAnh === soAnhThem && soConSpinner === 0;
+      // Tieu chi DU PHONG (v9.40), khong phu thuoc viec tim dung the anh: o "Add photos" cua Etsy da
+      // tru du so anh cua lo VA khong con spinner nao dang hien trong ca muc anh.
+      const soAnhTrang = soAnhTheoTrang();
+      const soSpinnerMuc = demSpinnerTrongMucAnh();
+      const xongTheoTrang =
+        soAnhTrangTruoc != null && soAnhTrang != null && soAnhTrang >= soAnhTrangTruoc + soAnhThem && soSpinnerMuc === 0;
+      const xong = xongTheoThe || xongTheoTrang;
+
+      // Etsy da nhan anh ma luoi van "0 thẻ mới" sau 10s -> selector the anh khong khop layout nay:
+      // in HTML muc anh 1 lan de gui lai sua cho dung.
+      if (!daLogHtmlMucAnh && Date.now() - moc > 10000 && !theMoi.length && soAnhTrang != null && soAnhTrangTruoc != null && soAnhTrang > soAnhTrangTruoc) {
+        daLogHtmlMucAnh = true;
+        console.warn(
+          '[Etsy Auto] Etsy đã nhận ảnh nhưng script không thấy thẻ ảnh mới — HTML mục ảnh (gửi lại để sửa selector):',
+          (timKhoiMucAnh()?.outerHTML || '(không tìm thấy mục ảnh)').slice(0, 6000)
+        );
+      }
 
       if (xong) {
         soLanOnDinhLienTiep++;
@@ -3097,7 +3152,8 @@
         console.log(
           `[Etsy Auto] ... đã chờ ${giayDaTroi}s cho ${soAnhThem} ảnh: ${cacThe.length} thẻ đang có trên lưới, ` +
             `${theMoi.length}/${soAnhThem} thẻ mới xuất hiện, ${soDaCoAnh}/${soAnhThem} có ảnh xem trước, ` +
-            `${soConSpinner} thẻ còn spinner`
+            `${soConSpinner} thẻ còn spinner | Etsy đếm ${soAnhTrang ?? '?'} ảnh (trước lô: ${soAnhTrangTruoc ?? '?'}), ` +
+            `${soSpinnerMuc ?? '?'} spinner trong mục ảnh`
         );
       }
 
@@ -3250,6 +3306,7 @@
       }
       // Do so the NGAY TRUOC lan nhoi nay (khong cong don tu dau) de cat dung cac the moi.
       const soTheTruoc = layCacTheAnh().length;
+      const soAnhTrangTruoc = soAnhTheoTrang();
       // Kiem tra con du cho cho CA lo — nhoi vuot gioi han chi nhan ve toast "You can only add 20 photos".
       const soChoConLai = laySoAnhConLai(soTheTruoc);
       let ketQuaLo;
@@ -3263,7 +3320,7 @@
           `[Etsy Auto] Lô ${soLo}: đã nhồi ${lo.length} file vào <input id="${oChonAnh.id || '(không id)'}" field-cha="${timTruongChaTheoId(oChonAnh) || '?'}">`
         );
         hienThongBao(`⏳ Đã đẩy ${soAnhDaXuLyXong + lo.length}/${cacFile.length} ảnh vào Etsy, đang chờ xử lý...`, '#2563EB');
-        ketQuaLo = await choEtsyXuLyAnh(soTheTruoc, lo.length, loiCanBoQua);
+        ketQuaLo = await choEtsyXuLyAnh(soTheTruoc, lo.length, loiCanBoQua, soAnhTrangTruoc);
       }
 
       if (!ketQuaLo.ok) {
