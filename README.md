@@ -819,6 +819,19 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Sửa lỗi của v9.40: listing trống bị báo "đã đầy 20 ảnh" (v9.41)
+
+v9.40 thêm luật "không thấy ô *Add photos N remaining* thì coi như listing đã đầy" (cho lô cuối làm đầy 20 ảnh, lúc Etsy
+có thể ẩn ô đó). Sai: listing **trống** cũng không có ô này — Etsy hiện khung "Drag and drop files or Upload" thay thế —
+nên script báo "Lưới đang có 20 ảnh, còn chỗ cho 0 ảnh" và không upload.
+
+Sửa:
+- `soAnhTheoTrang()` bỏ luật đoán đó. Thay bằng luật chắc chắn ngược lại: thấy khung "Drag and drop" và không có thẻ nào
+  → listing đang có **0 ảnh**.
+- Trường hợp lô cuối làm đầy listing chỉ được xử lý **bên trong** bước chờ lô: không đọc được số của Etsy, lô này đúng
+  bằng phần còn thiếu tới giới hạn, và khung "Drag and drop" không hiện → mới coi là Etsy đã đếm đủ.
+- Đã chạy thử 4 trạng thái: listing trống, lô đầu trên listing trống, listing đang có 7 ảnh, lô cuối làm đầy 20 ảnh.
+
 ### Lưới ảnh kiểu mới: script đếm "0 thẻ" dù Etsy đã nhận ảnh (v9.40)
 
 Log thực tế: nhồi lô 1 (7 ảnh), suốt 30s script báo "0 thẻ đang có trên lưới, 0/7 thẻ mới xuất hiện" rồi dừng vì hết

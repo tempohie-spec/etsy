@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.40
+// @version      9.41
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.40';
+  const PHIEN_BAN = '9.41';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2954,15 +2954,25 @@
     return tatCa.length - chiAnh.length > toiDaVideo ? tatCa : chiAnh;
   }
 
+  // Gioi han anh/listing doc tu dong "Add up to N photos" (null neu khong thay)
+  function gioiHanAnhTheoTrang() {
+    const khop = document.body.textContent.match(/add\s+up\s+to\s+(\d+)\s+photos?/i);
+    return khop ? Number(khop[1]) : null;
+  }
+
   // So anh Etsy TU BAO tren trang = "Add up to N photos" - "M remaining" (o "Add photos" chi dem
   // anh, khong dem video). null neu khong doc duoc ca 2 con so.
   function soAnhTheoTrang() {
     const khopTong = document.body.textContent.match(/add\s+up\s+to\s+(\d+)\s+photos?/i);
+    // KHONG doan "mat o Add photos = da day": luoi TRONG cung khong co o nay (Etsy hien khung
+    // "Drag and drop files or Upload" thay the) — v9.40 doan nhu vay nen bao listing trong la "đã đầy 20 ảnh".
+    // Nguoc lai thi CHAC CHAN: con khung "Drag and drop" va khong co the nao -> listing dang trong (0 anh).
     if (!khopTong) return null;
-    let conLai = docSoConLaiTuOAddPhotos();
-    // Du anh thi Etsy co the an luon o "Add photos" -> con muc anh ma mat o do thi coi la 0 cho trong
-    if (conLai === null && timKhoiMucAnh() && !/add\s+photos/i.test(timKhoiMucAnh().textContent)) conLai = 0;
-    if (conLai === null) return null;
+    const conLai = docSoConLaiTuOAddPhotos();
+    if (conLai === null) {
+      const muc = timKhoiMucAnh();
+      return muc && /drag\s+and\s+drop/i.test(muc.textContent) && !layCacTheMedia().length ? 0 : null;
+    }
     return Math.max(0, Number(khopTong[1]) - conLai);
   }
 
@@ -3116,7 +3126,17 @@
       const xongTheoThe = theMoi.length === soAnhThem && soDaCoAnh === soAnhThem && soConSpinner === 0;
       // Tieu chi DU PHONG (v9.40), khong phu thuoc viec tim dung the anh: o "Add photos" cua Etsy da
       // tru du so anh cua lo VA khong con spinner nao dang hien trong ca muc anh.
-      const soAnhTrang = soAnhTheoTrang();
+      let soAnhTrang = soAnhTheoTrang();
+      // Lo lam DAY listing (vd 7+7+6 = 20): Etsy co the an luon o "Add photos" -> khong doc duoc so.
+      // CHI trong dung truong hop nay (va khung "Drag and drop" cua luoi trong cung khong hien) moi coi
+      // nhu Etsy da dem du gioi han.
+      if (soAnhTrang == null && soAnhTrangTruoc != null) {
+        const gioiHan = gioiHanAnhTheoTrang();
+        const muc = timKhoiMucAnh();
+        if (gioiHan && soAnhTrangTruoc + soAnhThem === gioiHan && muc && !/drag\s+and\s+drop/i.test(muc.textContent)) {
+          soAnhTrang = gioiHan;
+        }
+      }
       const soSpinnerMuc = demSpinnerTrongMucAnh();
       const xongTheoTrang =
         soAnhTrangTruoc != null && soAnhTrang != null && soAnhTrang >= soAnhTrangTruoc + soAnhThem && soSpinnerMuc === 0;
