@@ -819,6 +819,24 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Tự nhận ra lỗi mạng tới Etsy + thông báo hiện liên tục suốt quá trình upload (v9.44)
+
+Giữ nguyên cấu hình (lô 7 ảnh, chờ tối đa 90s/lô, nén ảnh dưới 1MB). Phân tích log trước cho thấy lần kẹt trùng với lúc chính
+request của Etsy (`nav-badge-counts`) bị `ERR_TIMED_OUT` liên tục — mạng tới etsy.com chập chờn, không phải lỗi script.
+
+**Tự kiểm tra mạng** (`taoTheoDoiMang()`): suốt quá trình upload, cứ 10s script gửi 1 request rất nhỏ
+(`HEAD /robots.txt`, cùng nguồn etsy.com, không cache, không cookie):
+- phản hồi dưới 3s → 🌐 ổn; 3–8s → ⚠️ chậm; quá 8s không phản hồi → ⚠️ chập chờn; lỗi kết nối hoặc máy mất mạng → ⚠️.
+- `fetch` chỉ báo lỗi khi lỗi mạng thật — mọi mã HTTP (kể cả 404) vẫn tính là mạng thông.
+- Khi một lô bị dừng, thông báo dừng kèm **kết luận có phải do mạng không**, ví dụ "4/9 lần kiểm tra mạng tới Etsy bị lỗi/không
+  phản hồi — nhiều khả năng do mạng (thử tắt VPN/proxy hoặc đổi mạng rồi chạy lại)" hoặc "Mạng tới Etsy ổn trong suốt quá
+  trình — không phải do mạng". Mỗi lần kiểm tra xấu cũng được ghi vào Console.
+
+**Thông báo hiện liên tục**: từ lúc lấy ảnh tới khi xong, thông báo không tự ẩn sau 4s nữa mà cập nhật liên tục:
+- lúc lấy ảnh: "Đã lấy x/y ảnh..."; lúc chờ Etsy: "Lô 2/3: Etsy đã xử lý 5/7 ảnh — 25s/90s · Tổng: xong 7/20 ảnh" (cập nhật mỗi giây);
+- dòng cuối luôn là tình trạng mạng tới Etsy; mạng xấu thì thông báo chuyển sang màu cam.
+- Thông báo dừng/lỗi hiện tới khi **bấm vào để ẩn**; thông báo hoàn tất hiện 15s. Các tính năng khác vẫn tự ẩn sau 4s như cũ.
+
 ### Chờ mỗi lô tối đa 90s + tự nén ảnh xuống dưới 1MB trước khi upload (v9.43)
 
 Log v9.42 xác nhận 30s ngắn hơn thời gian upload thật (tới giây 30 cả 7 ảnh 1,1–1,6MB vẫn "Image is uploading").

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.43
+// @version      9.44
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.43';
+  const PHIEN_BAN = '9.44';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -178,7 +178,9 @@
     element.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  // "ms" (tuy chon): bao lau thi tu an, mac dinh 4s — thong bao quan trong (vd dung upload) de lau hon
+  // "ms" (tuy chon): bao lau thi tu an, mac dinh 4s — thong bao quan trong (vd dung upload) de lau hon.
+  // ms = 0: hien LIEN TUC (dung cho thong bao tien do upload, cap nhat lien tuc) toi khi co thong bao
+  // khac thay the hoac nguoi dung bam vao de tat. Chu "\n" duoc xuong dong.
   function hienThongBao(text, mau = '#1F2937', ms = 4000) {
     let box = document.getElementById('etsy-auto-toast');
     if (!box) {
@@ -187,16 +189,21 @@
       box.style.cssText = `
         position:fixed; bottom:24px; right:24px; z-index:999999;
         background:${mau}; color:#fff; padding:10px 16px; border-radius:8px;
-        font-size:14px; font-family:sans-serif; max-width:320px;
-        box-shadow:0 4px 12px rgba(0,0,0,.3);
+        font-size:14px; font-family:sans-serif; max-width:360px;
+        box-shadow:0 4px 12px rgba(0,0,0,.3); white-space:pre-line; cursor:pointer;
       `;
+      box.title = 'Bấm để ẩn thông báo';
+      box.addEventListener('click', () => {
+        HEN_GIO.clearTimeout(box._timer);
+        box.style.display = 'none';
+      });
       document.body.appendChild(box);
     }
     box.style.background = mau;
     box.textContent = text;
     box.style.display = 'block';
     HEN_GIO.clearTimeout(box._timer);
-    box._timer = HEN_GIO.setTimeout(() => (box.style.display = 'none'), ms);
+    if (ms > 0) box._timer = HEN_GIO.setTimeout(() => (box.style.display = 'none'), ms);
   }
 
   // Cho "ms" mili giay. Dung DONG THOI 2 co che de chac chan luon ket thuc:
@@ -2809,7 +2816,8 @@
       daCanhBaoCham = true;
       hienThongBao(
         `⚠️ Mạng đang chậm, một số ảnh cần thử lại (lần ${lanThu}/${tongSoLan})... vẫn đang tiếp tục, chờ thêm chút.`,
-        '#F59E0B'
+        '#F59E0B',
+        0 // hien lien tuc toi khi thong bao tien do ke tiep thay the
       );
     };
 
@@ -3151,7 +3159,8 @@
   }
 
   // soAnhTrangTruoc (tuy chon): so anh Etsy tu bao (soAnhTheoTrang) do NGAY TRUOC khi nhoi lo nay.
-  async function choEtsyXuLyAnh(soAnhCu, soAnhThem, loiCanBoQua, soAnhTrangTruoc) {
+  // baoTienDo (tuy chon): goi MOI GIAY voi { giay, soXong } de cap nhat thong bao hien lien tuc.
+  async function choEtsyXuLyAnh(soAnhCu, soAnhThem, loiCanBoQua, soAnhTrangTruoc, baoTienDo) {
     const moc = Date.now();
     let daLogHtmlMucAnh = false;
     let soLanOnDinhLienTiep = 0;
@@ -3226,6 +3235,17 @@
       }
 
       const giayDaTroi = Math.round((Date.now() - moc) / 1000);
+      if (typeof baoTienDo === 'function') {
+        // So anh da xong: uu tien dem theo the (khi da thay du the moi), khong thi theo spinner con lai
+        // trong ca muc anh (anh cua cac lo truoc da xong nen spinner con lai la cua lo nay).
+        const soXong =
+          theMoi.length === soAnhThem
+            ? soAnhThem - soConSpinner
+            : soSpinnerMuc != null && soAnhTrang != null && soAnhTrangTruoc != null && soAnhTrang >= soAnhTrangTruoc + soAnhThem
+              ? Math.max(0, soAnhThem - soSpinnerMuc)
+              : 0;
+        baoTienDo({ giay: giayDaTroi, soXong });
+      }
       if (giayDaTroi - giayLogCuoi >= 5) {
         giayLogCuoi = giayDaTroi;
         console.log(
@@ -3289,6 +3309,88 @@
     return null;
   }
 
+  // ---- Theo doi mang toi Etsy trong luc upload (v9.44) ----
+  // Lan ket upload truoc do trung voi luc chinh request cua Etsy bi ERR_TIMED_OUT lien tuc — tuc la
+  // mang toi etsy.com chap chon, khong phai loi script. Script tu kiem tra dinh ky bang 1 request
+  // NHO (HEAD /robots.txt cung nguon, khong cache, khong cookie) de bao ngay tren thong bao. fetch
+  // chi bao loi khi LOI MANG that (moi ma HTTP ke ca 404 deu tinh la mang thong).
+  const THOI_HAN_KIEM_TRA_MANG = 8000; // khong phan hoi sau chung nay = mang co van de
+  const NGUONG_MANG_CHAM = 3000; // phan hoi cham hon chung nay = mang cham
+  const KHOANG_KIEM_TRA_MANG = 10000;
+
+  async function kiemTraMangEtsy() {
+    if (navigator.onLine === false) return { tot: false, loai: 'mat_mang', ms: 0 };
+    const moc = Date.now();
+    const huy = typeof AbortController === 'function' ? new AbortController() : null;
+    try {
+      await voiThoiHan(
+        fetch(`${location.origin}/robots.txt?ea_kiem_tra_mang=${moc}`, {
+          method: 'HEAD',
+          cache: 'no-store',
+          credentials: 'omit',
+          signal: huy ? huy.signal : undefined,
+        }),
+        THOI_HAN_KIEM_TRA_MANG,
+        'het_gio'
+      );
+      const ms = Date.now() - moc;
+      return { tot: ms < NGUONG_MANG_CHAM, loai: ms < NGUONG_MANG_CHAM ? 'tot' : 'cham', ms };
+    } catch (loi) {
+      if (huy) huy.abort();
+      const ms = Date.now() - moc;
+      return { tot: false, loai: loi && loi.message === 'het_gio' ? 'khong_phan_hoi' : 'loi', ms };
+    }
+  }
+
+  // Vong kiem tra mang chay nen: cuoi() = ket qua moi nhat (null khi chua co), tomTat() de ket luan
+  // luc dung, dung() de tat (vong lap tu thoat o lan lap ke tiep).
+  function taoTheoDoiMang() {
+    const cacLan = [];
+    let daDung = false;
+    (async () => {
+      while (!daDung) {
+        const kq = await kiemTraMangEtsy();
+        if (daDung) break;
+        cacLan.push(kq);
+        if (!kq.tot) console.warn('[Etsy Auto] Kiểm tra mạng tới Etsy:', moTaMang(kq));
+        await cho(KHOANG_KIEM_TRA_MANG);
+      }
+    })();
+    return {
+      cuoi: () => cacLan[cacLan.length - 1] || null,
+      dung: () => {
+        daDung = true;
+      },
+      tomTat: () => ({
+        soLan: cacLan.length,
+        soCham: cacLan.filter((k) => k.loai === 'cham').length,
+        soLoi: cacLan.filter((k) => k.loai !== 'tot' && k.loai !== 'cham').length,
+      }),
+    };
+  }
+
+  function moTaMang(kq) {
+    if (!kq) return '🌐 Đang kiểm tra mạng tới Etsy...';
+    if (kq.loai === 'tot') return `🌐 Mạng tới Etsy: ổn (${kq.ms}ms)`;
+    if (kq.loai === 'cham') return `⚠️ Mạng tới Etsy chậm: phản hồi sau ${(kq.ms / 1000).toFixed(1)}s`;
+    if (kq.loai === 'mat_mang') return '⚠️ Máy đang mất kết nối mạng';
+    if (kq.loai === 'khong_phan_hoi') return `⚠️ Etsy không phản hồi sau ${THOI_HAN_KIEM_TRA_MANG / 1000}s — mạng đang chập chờn`;
+    return '⚠️ Không kết nối được tới Etsy (lỗi mạng)';
+  }
+
+  // Ket luan cho thong bao DUNG: co phai do mang khong
+  function ketLuanMang({ soLan, soCham, soLoi }) {
+    if (!soLan) return '🌐 Chưa kịp kiểm tra mạng tới Etsy.';
+    if (soLoi) {
+      return (
+        `🌐 ${soLoi}/${soLan} lần kiểm tra mạng tới Etsy bị lỗi/không phản hồi — nhiều khả năng do mạng ` +
+        '(thử tắt VPN/proxy hoặc đổi mạng rồi chạy lại).'
+      );
+    }
+    if (soCham) return `🌐 ${soCham}/${soLan} lần kiểm tra mạng tới Etsy bị chậm — có thể do mạng yếu.`;
+    return `🌐 Mạng tới Etsy ổn trong suốt quá trình (${soLan} lần kiểm tra) — không phải do mạng.`;
+  }
+
   // ---- Luong chinh ----
 
   async function tuUploadAnh() {
@@ -3334,16 +3436,33 @@
     if (!luaChon) return;
 
     const { cacAnh, hanhDong } = luaChon;
+    // Theo doi mang toi Etsy CHAY NEN suot qua trinh upload (v9.44); luon tat khi ket thuc du dung o
+    // buoc nao (finally) de khong de lai vong lap kiem tra mang chay mai.
+    const theoDoiMang = taoTheoDoiMang();
+    try {
+      await uploadCacAnhDaChon({ goi, cacAnh, hanhDong, thuVienBangSize, soAnhCu, theoDoiMang });
+    } finally {
+      theoDoiMang.dung();
+    }
+  }
+
+  async function uploadCacAnhDaChon({ goi, cacAnh, hanhDong, thuVienBangSize, soAnhCu, theoDoiMang }) {
     const tongSoAnhChon = cacAnh.length + thuVienBangSize.length;
+    // Thong bao tien do HIEN LIEN TUC (ms = 0), dong cuoi luon la tinh trang mang toi Etsy; mang
+    // xau thi doi sang mau cam de de nhin thay.
+    const baoTienDo = (dong) => {
+      const mang = theoDoiMang.cuoi();
+      hienThongBao(`${dong}\n${moTaMang(mang)}`, mang && !mang.tot ? '#F59E0B' : '#2563EB', 0);
+    };
 
     // Buoc 1: tai bytes cua tung anh ve (khong ton request API Etsy, chi ton bang thong).
     // Tai SONG SONG (toi da DO_SONG_SONG_TAI_ANH anh cung luc) thay vi tung anh mot — day la
     // phan chinh quyet dinh toc do tong the, vi buoc Etsy tu xu ly anh o buoc sau la toc do
     // may chu cua ho, khong lam nhanh hon duoc. Anh san pham va anh bang size tai THANH 2 DOT
     // rieng (khong tron chung) de GIU DUNG THU TU cuoi cung: san pham truoc, bang size sau.
-    hienThongBao(`⏳ Đang lấy ${tongSoAnhChon} ảnh (song song)...`, '#2563EB');
+    baoTienDo(`⏳ Đang lấy ${tongSoAnhChon} ảnh (song song)...`);
     const tenGoc = lamSachTenFile(goi.tieuDe || 'etsy-image');
-    const capNhatTienDo = (daXong, tong, nhan) => hienThongBao(`⏳ Đã lấy ${daXong}/${tong} ảnh${nhan}...`, '#2563EB');
+    const capNhatTienDo = (daXong, tong, nhan) => baoTienDo(`⏳ Đã lấy ${daXong}/${tong} ảnh${nhan} (nén ảnh > 1MB)...`);
 
     const cacFileSanPham = await taiCacAnhSongSong(cacAnh, tenGoc, (daXong, tong) =>
       capNhatTienDo(daXong, tong, ' sản phẩm')
@@ -3356,7 +3475,7 @@
     const cacFile = [...cacFileSanPham, ...cacFileBangSize];
 
     if (!cacFile.length) {
-      hienThongBao('❌ Không lấy được ảnh nào. Xem Console (F12) để biết chi tiết.', '#DC2626');
+      hienThongBao('❌ Không lấy được ảnh nào. Xem Console (F12) để biết chi tiết.', '#DC2626', 0);
       return;
     }
 
@@ -3380,7 +3499,7 @@
       // Query lai o ngay truoc khi nhoi vi React co the da ve lai <input> khac giua chung
       const oChonAnh = timOChonAnhSanPham();
       if (!oChonAnh) {
-        hienThongBao('❌ Ô upload ảnh biến mất giữa chừng. Hãy tải lại trang chỉnh sửa rồi thử lại.', '#DC2626');
+        hienThongBao('❌ Ô upload ảnh biến mất giữa chừng. Hãy tải lại trang chỉnh sửa rồi thử lại.', '#DC2626', 0);
         return;
       }
       // Do so the NGAY TRUOC lan nhoi nay (khong cong don tu dau) de cat dung cac the moi.
@@ -3398,8 +3517,13 @@
         console.log(
           `[Etsy Auto] Lô ${soLo}: đã nhồi ${lo.length} file vào <input id="${oChonAnh.id || '(không id)'}" field-cha="${timTruongChaTheoId(oChonAnh) || '?'}">`
         );
-        hienThongBao(`⏳ Đã đẩy ${soAnhDaXuLyXong + lo.length}/${cacFile.length} ảnh vào Etsy, đang chờ xử lý...`, '#2563EB');
-        ketQuaLo = await choEtsyXuLyAnh(soTheTruoc, lo.length, loiCanBoQua, soAnhTrangTruoc);
+        const tongSoLo = Math.ceil(cacFile.length / KICH_THUOC_LO_UPLOAD);
+        ketQuaLo = await choEtsyXuLyAnh(soTheTruoc, lo.length, loiCanBoQua, soAnhTrangTruoc, ({ giay, soXong }) =>
+          baoTienDo(
+            `⏳ Lô ${soLo}/${tongSoLo}: Etsy đã xử lý ${soXong}/${lo.length} ảnh — ${giay}s/${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s\n` +
+              `Tổng: xong ${soAnhDaXuLyXong}/${cacFile.length} ảnh`
+          )
+        );
       }
 
       if (!ketQuaLo.ok) {
@@ -3419,9 +3543,11 @@
             : `quá ${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s Etsy chưa xử lý xong — ảnh của lô này có thể vẫn đang lên tiếp, chờ một chút rồi kiểm tra lưới trước khi tự thêm ảnh để tránh trùng`;
       hienThongBao(
         `⛔ Dừng ở lô ${dungGiuaChung.soLo}: ${lyDoChu}. Đã upload xong ${soAnhDaXuLyXong}/${cacFile.length} ảnh, ` +
-          `${cacFile.length - soAnhDaXuLyXong} ảnh còn lại chưa upload — bạn tự thêm phần còn lại.`,
+          `${cacFile.length - soAnhDaXuLyXong} ảnh còn lại chưa upload — bạn tự thêm phần còn lại.\n` +
+          ketLuanMang(theoDoiMang.tomTat()) +
+          '\n(Bấm vào thông báo để ẩn)',
         '#DC2626',
-        15000
+        0
       );
       return;
     }
@@ -3484,7 +3610,8 @@
     hienThongBao(
       `✅ Đã upload ${cacFile.length}/${tongSoAnhChon} ảnh${ghiChuBangSize}${thieu ? ` (lỗi ${thieu} ảnh)` : ''}` +
         `${ghiChuSapXep}${ghiChuKetThuc}`,
-      soAnhCu > 0 || ghiChuKetThuc.includes('⚠️') || thieu ? '#F59E0B' : '#16A34A'
+      soAnhCu > 0 || ghiChuKetThuc.includes('⚠️') || thieu ? '#F59E0B' : '#16A34A',
+      15000
     );
   }
 
