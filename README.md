@@ -819,6 +819,25 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Chỉnh thumbnail ảnh đầu ngay trong bảng chọn ảnh (v9.45)
+
+Hộp thoại "Adjust thumbnail" của Etsy (HTML thật người dùng gửi) dùng thư viện `react-zoom-pan-pinch`: ảnh phủ kín khung ở
+zoom 1, vị trí ghi ở `transform: translate3d(tx, ty, 0) scale(s)`, thanh zoom là `<input type="range" min=1 max=2>`; ba khung
+xem trước Square/Portrait/Landscape đều tính từ cùng một vùng. Người dùng đã thử trực tiếp trên trang thật: script đặt thanh
+zoom → scale đổi; giả lập kéo chuột +60/+40px → vị trí đổi đúng +60/+40px. Vì vậy làm được trọn vẹn, **ảnh gốc không bị cắt**:
+
+1. Trong bảng chọn ảnh (chỉ khi listing đích chưa có ảnh), ảnh **#1** có nút **✂️**. Bấm vào mở khung chỉnh: kéo ảnh, thanh
+   zoom 1–2 (giống Etsy), cuộn chuột để phóng, "Về giữa", xem trước Square/Portrait/Landscape. Lưu xong nút thành **✂️✓**.
+   Cấu hình lưu dạng chuẩn hoá `{zoom, cx, cy}` (tâm khung rơi vào điểm nào của ảnh) nên không phụ thuộc kích thước khung.
+   Đổi thứ tự làm ảnh khác lên #1 thì chỉ cấu hình của ảnh đang ở #1 lúc bấm upload được dùng.
+2. Upload xong, **trước khi Publish**: script bấm "Adjust thumbnails" (`data-testid="adjust_thumbnail_button"`), đặt zoom,
+   tính khoảng cần kéo từ `transform` hiện tại rồi giả lập kéo, đọc lại và chỉnh tối đa 3 lần, rồi bấm **Apply**.
+3. Nếu kéo không có tác dụng: để hộp thoại mở (zoom đã đặt) cho bạn kéo nốt. Chỉnh thumbnail chưa xong thì **không tự Publish**
+   (tránh đăng bán với thumbnail sai); thông báo cuối ghi rõ và hiện tới khi bấm ẩn.
+
+Thử trên Chromium: khung chỉnh dùng chuột thật trả về `{zoom: 1.6, cx: 0.41, cy: 0.57}`; hộp thoại Etsy giả lập (khung 456px,
+kéo 1:1, zoom quanh tâm, kẹp biên) nhận đúng vị trí, lệch 0,3px, rồi bấm Apply.
+
 ### Tự nhận ra lỗi mạng tới Etsy + thông báo hiện liên tục suốt quá trình upload (v9.44)
 
 Giữ nguyên cấu hình (lô 7 ảnh, chờ tối đa 90s/lô, nén ảnh dưới 1MB). Phân tích log trước cho thấy lần kẹt trùng với lúc chính

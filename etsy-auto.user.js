@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.44
+// @version      9.45
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.44';
+  const PHIEN_BAN = '9.45';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2429,6 +2429,278 @@
 
   // Mo hop thoai cho nguoi dung tick lai truoc khi upload. Tra ve:
   //   { cacAnh: [{url, alt}], hanhDong: 'khong' | 'nhap' | 'publish' }  hoac null neu bam Huy.
+  // ================== CHINH THUMBNAIL ANH DAU (v9.45) ==================
+  // Hop thoai "Adjust thumbnail" cua Etsy dung thu vien react-zoom-pan-pinch: anh PHU KIN khung
+  // (cover) o zoom 1, vi tri ghi o style "transform: translate3d(tx, ty, 0) scale(s)" (goc toa do
+  // tren-trai), thanh zoom la <input type="range" min=1 max=2>. Ba khung xem truoc (Square/Portrait/
+  // Landscape) deu tinh tu CUNG 1 vung nay. Nguoi dung da kiem chung truc tiep tren trang that:
+  // dat gia tri thanh zoom bang script -> scale doi; gia lap keo chuot (mousedown/move/up) +60/+40px
+  // -> translate doi DUNG +60/+40px. Nen script tai hien duoc chinh xac vung nguoi dung chon truoc.
+  //
+  // Cau hinh luu dang CHUAN HOA { zoom, cx, cy }: tam khung roi vao diem (cx, cy) (0..1) cua anh —
+  // khong phu thuoc kich thuoc khung (khung cua script va cua Etsy khac nhau).
+
+  // Anh vua xem cho khung chinh (giu dung ti le anh, khong bi cat nhu thumbnail 180x135)
+  function linhAnhVuaXem(url) {
+    return laDataUrl(url) ? url : url.replace('il_fullxfull', 'il_794xN');
+  }
+
+  // Tu cau hinh chuan hoa -> transform trong 1 khung W x H, anh hien thi (o zoom 1) dispW x dispH.
+  // Kep trong bien giong thu vien cua Etsy (anh luon phu kin khung, khong lo vien trong).
+  function tinhTransformThumbnail(W, H, dispW, dispH, cfg) {
+    const s = cfg.zoom;
+    const tx = Math.min(0, Math.max(W - dispW * s, W / 2 - cfg.cx * dispW * s));
+    const ty = Math.min(0, Math.max(H - dispH * s, H / 2 - cfg.cy * dispH * s));
+    return { tx, ty, s };
+  }
+
+  function cauHinhTuTransform(W, H, dispW, dispH, tx, ty, s) {
+    return { zoom: s, cx: (W / 2 - tx) / s / dispW, cy: (H / 2 - ty) / s / dispH };
+  }
+
+  // Kich thuoc anh "phu kin" khung W x H o zoom 1
+  function kichThuocPhuKin(W, H, iw, ih) {
+    const k = Math.max(W / iw, H / ih);
+    return { dispW: iw * k, dispH: ih * k };
+  }
+
+  // Khung chinh thumbnail trong bang chon anh. Tra ve Promise<{zoom,cx,cy} | 'xoa' | null(huy)>.
+  function moKhungThumbnail(url, cfgCu) {
+    return new Promise((resolve) => {
+      const K = 360; // khung vuong giong khung cua Etsy
+      const lop = document.createElement('div');
+      lop.style.cssText =
+        'position:fixed;inset:0;z-index:1000001;background:rgba(17,24,39,.65);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+      const nutNho = 'width:30px;height:30px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:16px;';
+      const xemTruoc = (ten, w, h) =>
+        `<div style="text-align:center;font-size:11px;color:#6B7280;"><div data-xem="${w}x${h}" style="width:${w}px;height:${h}px;overflow:hidden;position:relative;border-radius:6px;background:#F3F4F6;margin:0 auto 4px;"><img style="position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;"></div>${ten}</div>`;
+      lop.innerHTML = `
+        <div style="background:#fff;border-radius:12px;padding:16px;width:min(640px,94vw);box-shadow:0 12px 40px rgba(0,0,0,.35);">
+          <div style="font-weight:bold;font-size:15px;margin-bottom:4px;">✂️ Chỉnh thumbnail ảnh đầu</div>
+          <div style="font-size:12px;color:#6B7280;margin-bottom:10px;">Kéo ảnh để chọn vùng hiển thị, chỉnh độ phóng bằng thanh trượt. Ảnh gốc KHÔNG bị cắt — sau khi upload, script tự áp vùng này vào "Adjust thumbnails" của Etsy.</div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+            <div>
+              <div id="ea-tb-khung" style="width:${K}px;height:${K}px;overflow:hidden;position:relative;border-radius:8px;background:#F3F4F6;cursor:grab;touch-action:none;user-select:none;">
+                <img id="ea-tb-anh" draggable="false" style="position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;pointer-events:none;">
+                <div id="ea-tb-cho" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6B7280;font-size:13px;">Đang tải ảnh...</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                <button id="ea-tb-nho" style="${nutNho}">−</button>
+                <input id="ea-tb-zoom" type="range" min="1" max="2" step="0.01" value="1" style="flex:1;">
+                <button id="ea-tb-to" style="${nutNho}">+</button>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div style="font-size:12px;font-weight:bold;color:#374151;">Khách sẽ thấy</div>
+              <div style="display:flex;gap:10px;align-items:flex-end;">${xemTruoc('Square', 96, 96)}${xemTruoc('Portrait', 80, 100)}</div>
+              ${xemTruoc('Landscape', 120, 96)}
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px;">
+            <div style="display:flex;gap:8px;">
+              <button id="ea-tb-datlai" style="padding:7px 12px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;">Về giữa</button>
+              ${cfgCu ? '<button id="ea-tb-xoa" style="padding:7px 12px;border:1px solid #FCA5A5;color:#B91C1C;border-radius:6px;background:#fff;cursor:pointer;">Bỏ chỉnh</button>' : ''}
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button id="ea-tb-huy" style="padding:7px 14px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;">Huỷ</button>
+              <button id="ea-tb-luu" disabled style="padding:7px 16px;border:none;border-radius:6px;background:#F56400;color:#fff;font-weight:bold;cursor:pointer;opacity:.5;">Lưu</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(lop);
+
+      const $ = (id) => lop.querySelector('#' + id);
+      const anh = $('ea-tb-anh');
+      const oZoom = $('ea-tb-zoom');
+      let iw = 0;
+      let ih = 0;
+      let cfg = cfgCu ? { ...cfgCu } : { zoom: 1, cx: 0.5, cy: 0.5 };
+
+      const veKhung = (img, W, H) => {
+        const { dispW, dispH } = kichThuocPhuKin(W, H, iw, ih);
+        const t = tinhTransformThumbnail(W, H, dispW, dispH, cfg);
+        img.style.width = `${dispW}px`;
+        img.style.height = `${dispH}px`;
+        img.style.transform = `translate(${t.tx}px, ${t.ty}px) scale(${t.s})`;
+        return { dispW, dispH, t };
+      };
+      const ve = () => {
+        if (!iw) return;
+        // Kep lai cau hinh theo khung chinh (de cac khung xem truoc cung dung vung da kep)
+        const { dispW, dispH, t } = veKhung(anh, K, K);
+        cfg = cauHinhTuTransform(K, K, dispW, dispH, t.tx, t.ty, t.s);
+        lop.querySelectorAll('[data-xem]').forEach((o) => {
+          const [w, h] = o.dataset.xem.split('x').map(Number);
+          veKhung(o.querySelector('img'), w, h);
+        });
+        oZoom.value = String(cfg.zoom);
+      };
+      const datZoom = (z) => {
+        cfg.zoom = Math.min(2, Math.max(1, Math.round(z * 100) / 100));
+        ve();
+      };
+
+      anh.onload = () => {
+        iw = anh.naturalWidth;
+        ih = anh.naturalHeight;
+        $('ea-tb-cho').remove();
+        lop.querySelectorAll('[data-xem] img').forEach((x) => (x.src = anh.src));
+        const nutLuu = $('ea-tb-luu');
+        nutLuu.disabled = false;
+        nutLuu.style.opacity = '1';
+        ve();
+      };
+      anh.onerror = () => ($('ea-tb-cho').textContent = '❌ Không tải được ảnh');
+      anh.src = linhAnhVuaXem(url);
+
+      // Keo bang chuot/that (su kien THAT cua nguoi dung, khong lien quan gioi han isTrusted)
+      const khung = $('ea-tb-khung');
+      let keo = null;
+      khung.addEventListener('pointerdown', (e) => {
+        if (!iw) return;
+        const { dispW, dispH } = kichThuocPhuKin(K, K, iw, ih);
+        const t = tinhTransformThumbnail(K, K, dispW, dispH, cfg);
+        keo = { x: e.clientX, y: e.clientY, tx: t.tx, ty: t.ty, dispW, dispH };
+        khung.setPointerCapture(e.pointerId);
+        khung.style.cursor = 'grabbing';
+      });
+      khung.addEventListener('pointermove', (e) => {
+        if (!keo) return;
+        const tx = keo.tx + (e.clientX - keo.x);
+        const ty = keo.ty + (e.clientY - keo.y);
+        cfg = cauHinhTuTransform(K, K, keo.dispW, keo.dispH, tx, ty, cfg.zoom);
+        ve();
+      });
+      const thaKeo = () => {
+        keo = null;
+        khung.style.cursor = 'grab';
+      };
+      khung.addEventListener('pointerup', thaKeo);
+      khung.addEventListener('pointercancel', thaKeo);
+      khung.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          datZoom(cfg.zoom + (e.deltaY < 0 ? 0.05 : -0.05));
+        },
+        { passive: false }
+      );
+      oZoom.addEventListener('input', () => datZoom(Number(oZoom.value)));
+      $('ea-tb-nho').onclick = () => datZoom(cfg.zoom - 0.1);
+      $('ea-tb-to').onclick = () => datZoom(cfg.zoom + 0.1);
+      $('ea-tb-datlai').onclick = () => {
+        cfg = { zoom: 1, cx: 0.5, cy: 0.5 };
+        ve();
+      };
+
+      const dong = (kq) => {
+        lop.remove();
+        resolve(kq);
+      };
+      $('ea-tb-huy').onclick = () => dong(null);
+      if ($('ea-tb-xoa')) $('ea-tb-xoa').onclick = () => dong('xoa');
+      $('ea-tb-luu').onclick = () => dong({ zoom: cfg.zoom, cx: cfg.cx, cy: cfg.cy });
+    });
+  }
+
+  async function choDieuKien(hamKiemTra, thoiHanMs, buocMs = 250) {
+    const moc = Date.now();
+    while (Date.now() - moc < thoiHanMs) {
+      const kq = hamKiemTra();
+      if (kq) return kq;
+      await cho(buocMs);
+    }
+    return null;
+  }
+
+  function docTransformThumbnail(el) {
+    const m = /translate3d\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px[^)]*\)\s*scale\(\s*([\d.]+)\s*\)/.exec(el.style.transform || '');
+    return m ? { tx: Number(m[1]), ty: Number(m[2]), s: Number(m[3]) } : null;
+  }
+
+  // Gia lap keo chuot tren anh trong hop thoai Etsy (da kiem chung: dich chuyen dung 1:1 theo pixel)
+  async function keoAnhThumbnail(el, dx, dy) {
+    const r = el.parentElement.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const ban = (loai, cx, cy, nut) =>
+      el.dispatchEvent(new MouseEvent(loai, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, buttons: nut }));
+    ban('mousedown', x, y, 1);
+    const SO_BUOC = 12;
+    for (let i = 1; i <= SO_BUOC; i++) {
+      ban('mousemove', x + (dx * i) / SO_BUOC, y + (dy * i) / SO_BUOC, 1);
+      await cho(16);
+    }
+    ban('mouseup', x + dx, y + dy, 0);
+  }
+
+  // Sau khi upload xong: mo "Adjust thumbnails", dat zoom + vi tri theo cfg, kiem tra lai, bam Apply.
+  // Tra ve { ok, chiTiet }. Neu buoc keo khong co tac dung thi DE MO hop thoai (zoom da dat) cho
+  // nguoi dung tu keo not — khong bam Apply mot vung sai.
+  async function apDungThumbnailEtsy(cfg) {
+    const nut = await choDieuKien(() => {
+      const n = document.querySelector('[data-testid="adjust_thumbnail_button"]');
+      return n && !n.disabled && n.getAttribute('aria-disabled') !== 'true' && dangHienThi(n) ? n : null;
+    }, 15000);
+    if (!nut) return { ok: false, chiTiet: 'không thấy nút "Adjust thumbnails" (hoặc nút vẫn bị khoá)' };
+    nut.click();
+
+    const hop = await choDieuKien(() => {
+      const thanh = document.querySelector('input[aria-label="Adjust thumbnail zoom level"]');
+      const dlg = thanh && thanh.closest('[role="dialog"]');
+      const vo = dlg && dlg.querySelector('.react-transform-wrapper');
+      const noiDung = vo && vo.querySelector('.react-transform-component');
+      const img = noiDung && noiDung.querySelector('img');
+      return img && img.complete && img.naturalWidth && img.offsetWidth && docTransformThumbnail(noiDung)
+        ? { thanh, dlg, vo, noiDung, img }
+        : null;
+    }, 15000);
+    if (!hop) return { ok: false, chiTiet: 'hộp thoại "Adjust thumbnail" không mở/không tải xong ảnh' };
+    const { thanh, dlg, vo, noiDung, img } = hop;
+
+    // 1) Zoom: dat gia tri thanh truot (React nhan qua setter goc + su kien input/change)
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(thanh, String(cfg.zoom));
+    thanh.dispatchEvent(new Event('input', { bubbles: true }));
+    thanh.dispatchEvent(new Event('change', { bubbles: true }));
+    await cho(400);
+
+    // 2) Vi tri: tinh dich chuyen can thiet tu transform hien tai, keo, doc lai, lap toi da 3 lan
+    let keoDuoc = true;
+    let lech = Infinity;
+    for (let lan = 0; lan < 3; lan++) {
+      const hienTai = docTransformThumbnail(noiDung);
+      if (!hienTai) break;
+      const W = vo.clientWidth;
+      const H = vo.clientHeight;
+      const dich = tinhTransformThumbnail(W, H, img.offsetWidth, img.offsetHeight, { ...cfg, zoom: hienTai.s });
+      const dx = dich.tx - hienTai.tx;
+      const dy = dich.ty - hienTai.ty;
+      lech = Math.max(Math.abs(dx), Math.abs(dy));
+      if (lech < 1.5) break;
+      await keoAnhThumbnail(noiDung, dx, dy);
+      await cho(400);
+      const sau = docTransformThumbnail(noiDung);
+      if (sau && Math.abs(sau.tx - hienTai.tx) < 0.5 && Math.abs(sau.ty - hienTai.ty) < 0.5) {
+        keoDuoc = false;
+        break;
+      }
+    }
+    const cuoi = docTransformThumbnail(noiDung);
+    console.log('[Etsy Auto] Thumbnail: cấu hình', cfg, '→ transform Etsy', cuoi, 'lệch còn', lech);
+    if (!keoDuoc) {
+      return { ok: false, chiTiet: 'đã đặt độ phóng nhưng không kéo được ảnh — bạn kéo tay rồi bấm Apply (hộp thoại đang mở)' };
+    }
+
+    // 3) Apply
+    const nutApply = [...dlg.querySelectorAll('button')].find((b) => b.textContent.trim().toLowerCase() === 'apply' && !b.disabled);
+    if (!nutApply) return { ok: false, chiTiet: 'không thấy nút "Apply" — bạn kiểm tra rồi bấm Apply (hộp thoại đang mở)' };
+    nutApply.click();
+    const daDong = await choDieuKien(() => !thanh.isConnected || !dangHienThi(thanh), 5000);
+    return daDong
+      ? { ok: true, chiTiet: `zoom ${cfg.zoom.toFixed(2)}` }
+      : { ok: false, chiTiet: 'đã bấm Apply nhưng hộp thoại chưa đóng — bạn kiểm tra giúp' };
+  }
+
   function moBangChonAnh(goi, soAnhDangCo, conLai, soBangSizeCoDinh = 0) {
     return new Promise((resolve) => {
       const lop = document.createElement('div');
@@ -2453,6 +2725,7 @@
           Listing nguồn: <b>${(goi.tieuDe || '(không rõ tiêu đề)').replace(/</g, '&lt;').slice(0, 90)}</b><br>
           Listing này đang có <b>${soAnhDangCo}</b> ảnh, theo trang thì còn chỗ cho <b>${conLaiGoc}</b> ảnh nữa.
           Ảnh nghi là bảng size đã được bỏ tick sẵn.
+          ${soAnhDangCo === 0 ? '<br>✂️ Bấm nút ✂️ trên ảnh <b>#1</b> để chỉnh thumbnail — script tự áp vào "Adjust thumbnails" sau khi upload (ảnh gốc không bị cắt).' : ''}
           ${
             soBangSizeCoDinh > 0
               ? `<br>📐 Thư viện của bạn có <b>${soBangSizeCoDinh}</b> ảnh bảng size sẽ <b>tự thêm vào sau cùng</b>
@@ -2507,6 +2780,11 @@
         if (!nghiBangSize) thuTu.push(i);
       });
 
+      // Cau hinh thumbnail theo CHI SO ANH (v9.45). Chi ap dung khi listing dich dang trong (anh
+      // vua upload moi la anh dau cua Etsy) va chi lay cau hinh cua anh dang dung #1 luc bam upload.
+      const choPhepThumbnail = soAnhDangCo === 0;
+      const cauHinhThumbnail = new Map();
+
       // Ve lai toan bo luoi: anh DA CHON hien truoc (theo dung thu tu upload, danh so #1, #2...
       // kem nut ◀▶ de doi cho), anh CHUA CHON hien sau (giu nguyen thu tu carousel goc).
       function ve() {
@@ -2526,6 +2804,11 @@
             ${
               !daDuocChon && nghiBangSize
                 ? `<button data-act="copy" data-i="${i}" title="Copy link ảnh này (rồi dán vào thư viện Ảnh bảng size)" style="position:absolute;top:6px;right:6px;width:22px;height:22px;border:1px solid #D1D5DB;border-radius:4px;background:#fff;cursor:pointer;font-size:11px;padding:0;line-height:1;z-index:2;">📋</button>`
+                : ''
+            }
+            ${
+              choPhepThumbnail && viTri === 0
+                ? `<button data-act="thumb" data-i="${i}" title="${cauHinhThumbnail.has(i) ? 'Đã chỉnh thumbnail — bấm để sửa' : 'Chỉnh thumbnail (vùng hiển thị) của ảnh đầu'}" style="position:absolute;top:6px;right:6px;height:22px;padding:0 5px;border:1px solid ${cauHinhThumbnail.has(i) ? '#16A34A' : '#D1D5DB'};border-radius:4px;background:${cauHinhThumbnail.has(i) ? '#DCFCE7' : '#fff'};cursor:pointer;font-size:11px;line-height:1;z-index:2;">✂️${cauHinhThumbnail.has(i) ? '✓' : ''}</button>`
                 : ''
             }
             <div style="padding:4px 4px;font-size:10px;color:#6B7280;line-height:1.3;height:22px;display:flex;align-items:center;justify-content:center;gap:3px;">
@@ -2567,6 +2850,13 @@
         const nut = e.target.closest('button[data-act]');
         if (!nut) return;
         const i = Number(nut.dataset.i);
+        if (nut.dataset.act === 'thumb') {
+          const kq = await moKhungThumbnail(goi.anh[i].url, cauHinhThumbnail.get(i));
+          if (kq === 'xoa') cauHinhThumbnail.delete(i);
+          else if (kq) cauHinhThumbnail.set(i, kq);
+          ve();
+          return;
+        }
         if (nut.dataset.act === 'copy') {
           const ok = await ghiClipboard(goi.anh[i].url);
           hienThongBao(
@@ -2662,7 +2952,8 @@
       nutOk.onclick = () => {
         const hanhDong = hop.querySelector('input[name="ea-up-xong"]:checked').value;
         const cacAnh = thuTu.map((i) => goi.anh[i]);
-        dong({ cacAnh, hanhDong });
+        const thumbnail = choPhepThumbnail && thuTu.length ? cauHinhThumbnail.get(thuTu[0]) || null : null;
+        dong({ cacAnh, hanhDong, thumbnail });
       };
     });
   }
@@ -3435,18 +3726,18 @@
     const luaChon = await moBangChonAnh(goi, soAnhCu, conLaiChoSanPham, thuVienBangSize.length);
     if (!luaChon) return;
 
-    const { cacAnh, hanhDong } = luaChon;
+    const { cacAnh, hanhDong, thumbnail } = luaChon;
     // Theo doi mang toi Etsy CHAY NEN suot qua trinh upload (v9.44); luon tat khi ket thuc du dung o
     // buoc nao (finally) de khong de lai vong lap kiem tra mang chay mai.
     const theoDoiMang = taoTheoDoiMang();
     try {
-      await uploadCacAnhDaChon({ goi, cacAnh, hanhDong, thuVienBangSize, soAnhCu, theoDoiMang });
+      await uploadCacAnhDaChon({ goi, cacAnh, hanhDong, thumbnail, thuVienBangSize, soAnhCu, theoDoiMang });
     } finally {
       theoDoiMang.dung();
     }
   }
 
-  async function uploadCacAnhDaChon({ goi, cacAnh, hanhDong, thuVienBangSize, soAnhCu, theoDoiMang }) {
+  async function uploadCacAnhDaChon({ goi, cacAnh, hanhDong, thumbnail, thuVienBangSize, soAnhCu, theoDoiMang }) {
     const tongSoAnhChon = cacAnh.length + thuVienBangSize.length;
     // Thong bao tien do HIEN LIEN TUC (ms = 0), dong cuoi luon la tinh trang mang toi Etsy; mang
     // xau thi doi sang mau cam de de nhin thay.
@@ -3574,8 +3865,21 @@
     //   2) Hop thoai xac nhan cuoi cung "You are about to publish a new listing" — bam nut chinh
     //      "Publish" (id="shop-manager--listing-publish" nhung KHONG dung id de tim, vi id nay
     //      Etsy tai su dung cho ca nut "Edit listing" o hop thoai (1) — chi tin duoc nhan chu).
+    // Buoc 4b (v9.45): chinh thumbnail anh dau theo vung nguoi dung da chon trong bang chon anh.
+    // Lam TRUOC Publish; chinh khong xong thi KHONG tu Publish (tranh dang ban voi thumbnail sai).
+    let ghiChuThumbnail = '';
+    let thumbnailChuaXong = false;
+    if (thumbnail) {
+      baoTienDo('🖼️ Đang chỉnh thumbnail ảnh đầu ("Adjust thumbnails")...');
+      const kq = await apDungThumbnailEtsy(thumbnail);
+      thumbnailChuaXong = !kq.ok;
+      ghiChuThumbnail = kq.ok ? ' → đã chỉnh thumbnail' : ` — ⚠️ thumbnail: ${kq.chiTiet}`;
+    }
+
     let ghiChuKetThuc = '';
-    if (hanhDong === 'publish') {
+    if (hanhDong === 'publish' && thumbnailChuaXong) {
+      ghiChuKetThuc = ' — ⚠️ chưa bấm Publish vì thumbnail chưa chỉnh xong';
+    } else if (hanhDong === 'publish') {
       // Doi (khong chi cho 1 nhip co dinh roi kiem tra 1 lan) vi nut nay co the con DISABLED vai
       // giay sau khi <img> xem truoc da hien du — Etsy con 1 buoc hoan tat rieng (vd tao thumbnail
       // cuoi cung) truoc khi cho phep bam Publish, tung gap thuc te: toast bao "khong tim thay nut"
@@ -3609,9 +3913,9 @@
     const thieu = tongSoAnhChon - cacFile.length;
     hienThongBao(
       `✅ Đã upload ${cacFile.length}/${tongSoAnhChon} ảnh${ghiChuBangSize}${thieu ? ` (lỗi ${thieu} ảnh)` : ''}` +
-        `${ghiChuSapXep}${ghiChuKetThuc}`,
-      soAnhCu > 0 || ghiChuKetThuc.includes('⚠️') || thieu ? '#F59E0B' : '#16A34A',
-      15000
+        `${ghiChuSapXep}${ghiChuThumbnail}${ghiChuKetThuc}`,
+      soAnhCu > 0 || ghiChuKetThuc.includes('⚠️') || ghiChuThumbnail.includes('⚠️') || thieu ? '#F59E0B' : '#16A34A',
+      ghiChuThumbnail.includes('⚠️') ? 0 : 15000
     );
   }
 
