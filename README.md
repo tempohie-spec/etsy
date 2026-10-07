@@ -819,6 +819,17 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Nhồi tối đa 20 ảnh một lần (v9.46)
+
+Đo thực tế 14 ảnh (đều dưới 1MB): script chia 2 lô × 7 ảnh mất 9,5s + 12,2s ≈ 22s; thả tay cả 14 ảnh một lần ≈ 15s. Phần
+chậm hơn đến từ việc chia lô: cuối mỗi lô đường truyền gần như rảnh (chờ ảnh chậm nhất), cộng ~1–2s xác nhận mỗi lô.
+
+- `KICH_THUOC_LO_UPLOAD` **7 → 20** (Etsy cho tối đa 20 ảnh/listing ⇒ thực tế là nhồi hết một lần).
+- Thời hạn chờ **tăng theo số ảnh của lô** (`thoiHanChoLo()`): 90s là cho lô 7 ảnh (~13s/ảnh), lô lớn hơn được chia thêm
+  tương ứng — 14 ảnh 180s, 20 ảnh 258s. Thông báo tiến độ hiện đúng thời hạn của lô.
+- Rủi ro đã biết: lỗi 400 "File not uploaded" từng gặp khi nhồi 8 ảnh **nặng** (1,1–1,6MB) — nay ảnh đã được nén dưới 1MB.
+  Nếu Etsy lại báo lỗi này, script dừng ngay (không thử lại); khi đó hạ `KICH_THUOC_LO_UPLOAD` xuống lại.
+
 ### Chỉnh thumbnail ảnh đầu ngay trong bảng chọn ảnh (v9.45)
 
 Hộp thoại "Adjust thumbnail" của Etsy (HTML thật người dùng gửi) dùng thư viện `react-zoom-pan-pinch`: ảnh phủ kín khung ở

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.45
+// @version      9.46
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -18,7 +18,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.45';
+  const PHIEN_BAN = '9.46';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -115,7 +115,15 @@
   // xem truoc (blob URL, ve ngay tren trinh duyet, khong can doi server) van hien binh thuong.
   // Nhoi tung lo nho, cho Etsy xu ly xong lo nay roi moi nhoi lo tiep theo, giam tai cho backend.
   // v9.35 nang tu 5 len 7 (van duoi nguong 8 da gap loi): 20 anh chi con 3 lo thay vi 4.
-  const KICH_THUOC_LO_UPLOAD = 7;
+  // v9.46 (theo yeu cau nguoi dung) nang len 20 = nhoi het 1 lan (Etsy cho toi da 20 anh/listing):
+  // do thuc te 14 anh — 2 lo 7 anh mat ~22s, tha tay ca 14 anh 1 lan ~15s; cham hon vi cuoi moi lo
+  // duong truyen gan nhu ranh (cho anh cham nhat). Loi 400 khi nhoi 8 anh tung gap la voi anh NANG
+  // (1,1-1,6MB); tu v9.43 anh da duoc nen duoi 1MB. Neu Etsy lai bao "File not uploaded" thi script
+  // dung ngay (lyDo 'loi_that') — luc do ha so nay xuong lai.
+  const KICH_THUOC_LO_UPLOAD = 20;
+  // Thoi han cho TANG THEO SO ANH cua lo: THOI_HAN_CHO_ETSY_XU_LY_ANH la cho lo SO_ANH_CHUAN_THOI_HAN anh
+  // (~13s/anh), lo lon hon duoc chia them tuong ung — giu nguyen muc chiu dung moi anh nhu cu.
+  const SO_ANH_CHUAN_THOI_HAN = 7;
 
   // Key luu trang thai giao dien (vi tri + thu nho hay khong) vao localStorage cua trang Etsy,
   // de giu nguyen giua cac lan tai lai trang.
@@ -3451,8 +3459,14 @@
 
   // soAnhTrangTruoc (tuy chon): so anh Etsy tu bao (soAnhTheoTrang) do NGAY TRUOC khi nhoi lo nay.
   // baoTienDo (tuy chon): goi MOI GIAY voi { giay, soXong } de cap nhat thong bao hien lien tuc.
+  function thoiHanChoLo(soAnh) {
+    const theoSoAnh = Math.ceil((THOI_HAN_CHO_ETSY_XU_LY_ANH * soAnh) / SO_ANH_CHUAN_THOI_HAN / 1000) * 1000;
+    return Math.max(THOI_HAN_CHO_ETSY_XU_LY_ANH, theoSoAnh);
+  }
+
   async function choEtsyXuLyAnh(soAnhCu, soAnhThem, loiCanBoQua, soAnhTrangTruoc, baoTienDo) {
     const moc = Date.now();
+    const thoiHan = thoiHanChoLo(soAnhThem);
     let daLogHtmlMucAnh = false;
     let soLanOnDinhLienTiep = 0;
     let giayLogCuoi = 0;
@@ -3470,7 +3484,7 @@
       );
     };
 
-    while (Date.now() - moc < THOI_HAN_CHO_ETSY_XU_LY_ANH) {
+    while (Date.now() - moc < thoiHan) {
       const loiThat = timThongBaoLoiUploadEtsy(loiCanBoQua);
       if (loiThat) {
         const chiTiet = loiThat.textContent.trim().slice(0, 200);
@@ -3549,7 +3563,7 @@
 
       await cho(1000);
     }
-    console.warn(`[Etsy Auto] Hết ${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s vẫn chưa xử lý xong ${soAnhThem} ảnh`);
+    console.warn(`[Etsy Auto] Hết ${thoiHan / 1000}s vẫn chưa xử lý xong ${soAnhThem} ảnh`);
     return { ok: false, lyDo: 'het_gio' };
   }
 
@@ -3811,7 +3825,7 @@
         const tongSoLo = Math.ceil(cacFile.length / KICH_THUOC_LO_UPLOAD);
         ketQuaLo = await choEtsyXuLyAnh(soTheTruoc, lo.length, loiCanBoQua, soAnhTrangTruoc, ({ giay, soXong }) =>
           baoTienDo(
-            `⏳ Lô ${soLo}/${tongSoLo}: Etsy đã xử lý ${soXong}/${lo.length} ảnh — ${giay}s/${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s\n` +
+            `⏳ Lô ${soLo}/${tongSoLo}: Etsy đã xử lý ${soXong}/${lo.length} ảnh — ${giay}s/${thoiHanChoLo(lo.length) / 1000}s\n` +
               `Tổng: xong ${soAnhDaXuLyXong}/${cacFile.length} ảnh`
           )
         );
@@ -3819,7 +3833,7 @@
 
       if (!ketQuaLo.ok) {
         console.warn(`[Etsy Auto] Lô ${soLo} lỗi (${ketQuaLo.lyDo}${ketQuaLo.chiTiet ? ': ' + ketQuaLo.chiTiet : ''}) — dừng luôn, không thử lại.`);
-        dungGiuaChung = { ...ketQuaLo, soLo };
+        dungGiuaChung = { ...ketQuaLo, soLo, soAnhLo: lo.length };
         break;
       }
       soAnhDaXuLyXong += lo.length;
@@ -3831,7 +3845,7 @@
           ? `Etsy báo lỗi: "${dungGiuaChung.chiTiet}"`
           : dungGiuaChung.lyDo === 'het_cho'
             ? `hết chỗ (${dungGiuaChung.chiTiet})`
-            : `quá ${THOI_HAN_CHO_ETSY_XU_LY_ANH / 1000}s Etsy chưa xử lý xong — ảnh của lô này có thể vẫn đang lên tiếp, chờ một chút rồi kiểm tra lưới trước khi tự thêm ảnh để tránh trùng`;
+            : `quá ${thoiHanChoLo(dungGiuaChung.soAnhLo) / 1000}s Etsy chưa xử lý xong — ảnh của lô này có thể vẫn đang lên tiếp, chờ một chút rồi kiểm tra lưới trước khi tự thêm ảnh để tránh trùng`;
       hienThongBao(
         `⛔ Dừng ở lô ${dungGiuaChung.soLo}: ${lyDoChu}. Đã upload xong ${soAnhDaXuLyXong}/${cacFile.length} ảnh, ` +
           `${cacFile.length - soAnhDaXuLyXong} ảnh còn lại chưa upload — bạn tự thêm phần còn lại.\n` +
