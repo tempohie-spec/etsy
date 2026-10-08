@@ -819,6 +819,15 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Gọi Google Sheet thử lần lượt 3 cách, nhớ cách chạy được (v9.49)
+
+v9.48 vẫn lỗi: mở thẳng URL web app trên trình duyệt trả `{"ok":true}` (URL, Sheet, mã bí mật đều đúng) nhưng `GM_xmlhttpRequest`
+của script nhận 401/404 — kể cả không kèm cookie. Thay vì đoán tầng nào gây ra, `goiSheetDanhDau()` giờ thử lần lượt:
+**GM không cookie → GM có cookie → `fetch` của chính trang** (`credentials: 'omit'`; Apps Script trả CORS `*`). Cách nào chạy được
+thì nhớ lại (`etsy_auto_danh_dau_cach_gui_v1`) để lần sau dùng trước. Apps Script tự báo lỗi (vd sai mã bí mật) thì dừng luôn,
+không thử cách khác. Cả 3 đều lỗi thì thông báo ghi chi tiết từng cách — mã HTTP, máy chủ cuối, tiêu đề trang lỗi — và Console in
+300 ký tự đầu phản hồi, để chẩn đoán bằng dữ liệu thật.
+
 ### Sửa lỗi 404 khi kết nối Google Sheet (v9.48)
 
 Lần cài đầu tiên báo "Sheet trả về dữ liệu lạ (mã 404)". Một nguyên nhân hay gặp của Apps Script: trình duyệt đăng nhập **nhiều
