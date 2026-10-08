@@ -819,6 +819,25 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Nhãn đánh dấu sang góc phải + dọn code chẩn đoán đã dùng xong (v9.50)
+
+Đồng bộ Google Sheet đã chạy (nguyên nhân cuối cùng: web app phải để **"Người có quyền truy cập: Bất kỳ ai"**). Không cần chia sẻ
+chính Google Sheet công khai — web app "Thực thi dưới dạng: Tôi" đã ghi bằng quyền của chủ Sheet.
+
+**Nhãn chuyển sang góc trên-PHẢI ảnh**: góc trái là tag của Etsy ("Popular now", "Bestseller"...) bị nhãn che mất. Nhãn rộng tối
+đa 60% ảnh và nằm dưới nút tim của Etsy (cùng góc phải, hiện khi rê chuột) nên nút tim vẫn bấm được.
+
+**Bỏ các đoạn chẩn đoán** (vấn đề tương ứng đã giải quyết/kiểm chứng xong), giữ log vận hành (tiến độ 5s, "xử lý xong sau Xs",
+lỗi lô, kiểm tra mạng, nén ảnh, đánh dấu):
+- log phần tử spinner (đã xác nhận là `WtSpinner`); in HTML mục ảnh khi không thấy thẻ (đã sửa bằng thẻ tạm `thumbnail-loading`);
+  in HTML các thẻ khi số ảnh lệch (lỗi đếm video đã sửa); cảnh báo "Gom nhóm thẻ ảnh không chắc chắn" (lưới mới luôn hiện, vô hại);
+- log id/field-cha của ô upload mỗi lô (rút còn "Lô N: đã nhồi X ảnh"); log dung lượng từng ảnh (đã có log "Nén X KB → Y KB");
+  log toạ độ thumbnail (đã kiểm chứng trên Etsy thật, lệch 0,47px);
+- hàm `chuKyThe` không còn ai gọi (sót lại từ tính năng tự sắp xếp ảnh đã bỏ);
+- gửi Sheet chỉ còn 1 cách: GM **không cookie**. Bỏ "GM có cookie" (đăng nhập nhiều tài khoản Google → Google chuyển sang `/u/1/` →
+  404) và "fetch trang" (Etsy chặn CORS) — cả hai đã chứng minh không dùng được. Lỗi vẫn báo thẳng cách sửa: 401/đòi đăng nhập →
+  đổi quyền "Bất kỳ ai"; bị chuyển `/u/N/` → nhầm tài khoản; 404 → kiểm tra URL; "Sai mã bí mật".
+
 ### Gọi Google Sheet thử lần lượt 3 cách, nhớ cách chạy được (v9.49)
 
 v9.48 vẫn lỗi: mở thẳng URL web app trên trình duyệt trả `{"ok":true}` (URL, Sheet, mã bí mật đều đúng) nhưng `GM_xmlhttpRequest`
@@ -838,7 +857,7 @@ cập thành "Bất kỳ ai".
 
 ### Đánh dấu listing: 👁 đã xem · 📋 đã lấy dữ liệu · ✅ đã đăng ở máy nào — đồng bộ qua Google Sheet (v9.47)
 
-Nhãn ở **góc trên-trái ảnh** của từng thẻ sản phẩm trên mọi lưới etsy.com (tìm kiếm, shop, danh mục...), kèm 1 dòng tóm tắt
+Nhãn ở góc ảnh (từ v9.50: **góc trên-phải**) của từng thẻ sản phẩm trên mọi lưới etsy.com (tìm kiếm, shop, danh mục...), kèm 1 dòng tóm tắt
 ngay dưới tiêu đề trang listing. Rê chuột lên nhãn để xem đầy đủ thời điểm.
 
 | Nhãn | Ghi khi nào | Ở máy nào |
