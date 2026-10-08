@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.47
+// @version      9.48
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.47';
+  const PHIEN_BAN = '9.48';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -5051,6 +5051,10 @@
       GM_xmlhttpRequest({
         method: phuongThuc,
         url,
+        // KHONG gui cookie Google cua trinh duyet: web app da mo cho "Anyone" nen khong can dang nhap,
+        // con khi trinh duyet dang nhap NHIEU tai khoan Google, cookie lam Google chuyen nham tai khoan
+        // va tra 404 (gap thuc te o lan cai dau tien).
+        anonymous: true,
         // text/plain: Apps Script doc qua e.postData.contents, khong can CORS preflight
         headers: duLieu ? { 'Content-Type': 'text/plain;charset=utf-8' } : undefined,
         data: duLieu ? JSON.stringify(duLieu) : undefined,
@@ -5061,7 +5065,15 @@
             if (kq && kq.ok) resolve(kq);
             else reject(new Error((kq && kq.loi) || `Sheet trả về lỗi (mã ${res.status})`));
           } catch (e) {
-            reject(new Error(`Sheet trả về dữ liệu lạ (mã ${res.status}) — kiểm tra lại URL web app / quyền truy cập "Anyone"`));
+            reject(
+              new Error(
+                res.status === 404
+                  ? 'Không tìm thấy web app (mã 404) — kiểm tra URL copy từ ô "URL ứng dụng web" (đuôi /exec, không phải /dev hay mã triển khai) và bản triển khai còn hoạt động'
+                  : /accounts\.google\.com|ServiceLogin/i.test(res.finalUrl || res.responseText || '')
+                    ? 'Web app đòi đăng nhập — vào Triển khai → Quản lý các bản triển khai → ✏️ → Người có quyền truy cập: "Bất kỳ ai" (không phải "Bất kỳ ai có tài khoản Google")'
+                    : `Sheet trả về dữ liệu lạ (mã ${res.status}) — kiểm tra lại URL web app / quyền truy cập "Bất kỳ ai"`
+              )
+            );
           }
         },
         onerror: () => reject(new Error('Không kết nối được tới Google Sheet')),

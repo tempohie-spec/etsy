@@ -819,6 +819,14 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Sửa lỗi 404 khi kết nối Google Sheet (v9.48)
+
+Lần cài đầu tiên báo "Sheet trả về dữ liệu lạ (mã 404)". Một nguyên nhân hay gặp của Apps Script: trình duyệt đăng nhập **nhiều
+tài khoản Google**, request mang cookie khiến Google chuyển nhầm sang tài khoản không sở hữu Sheet và trả 404. Web app đã mở cho
+"Bất kỳ ai" nên không cần đăng nhập → request tới Sheet giờ gửi **không kèm cookie** (`anonymous: true`). Thông báo lỗi cũng chỉ rõ
+hơn: 404 → kiểm tra URL (ô "URL ứng dụng web", đuôi `/exec`, không phải `/dev` hay mã triển khai); bị đòi đăng nhập → đổi quyền truy
+cập thành "Bất kỳ ai".
+
 ### Đánh dấu listing: 👁 đã xem · 📋 đã lấy dữ liệu · ✅ đã đăng ở máy nào — đồng bộ qua Google Sheet (v9.47)
 
 Nhãn ở **góc trên-trái ảnh** của từng thẻ sản phẩm trên mọi lưới etsy.com (tìm kiếm, shop, danh mục...), kèm 1 dòng tóm tắt
