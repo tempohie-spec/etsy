@@ -819,6 +819,39 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Đánh dấu listing: 👁 đã xem · 📋 đã lấy dữ liệu · ✅ đã đăng ở máy nào — đồng bộ qua Google Sheet (v9.47)
+
+Nhãn ở **góc trên-trái ảnh** của từng thẻ sản phẩm trên mọi lưới etsy.com (tìm kiếm, shop, danh mục...), kèm 1 dòng tóm tắt
+ngay dưới tiêu đề trang listing. Rê chuột lên nhãn để xem đầy đủ thời điểm.
+
+| Nhãn | Ghi khi nào | Ở máy nào |
+|---|---|---|
+| 👁 Đã xem (xám) | mở trang `/listing/<mã>` và ở lại ≥ 3s | máy duyệt nguồn |
+| 📋 Đã lấy (xanh dương) | bấm Alt+G / Alt+C trên listing đó | máy duyệt nguồn |
+| ✅ *nhãn máy* (xanh lá) | bấm **Publish** trên trang tạo/sửa listing sau khi dán (Alt+V) dữ liệu của listing đó | máy đích (máy ảo) |
+
+- Gói dữ liệu Alt+G/Alt+C giờ mang theo **mã listing nguồn** (`tiêu đề|||SRC|||<mã>|||TAGS|||...`), máy đích nhờ đó biết đang
+  đăng lại listing nào. Bản script cũ gặp dấu này sẽ chặn dán và nhắc cập nhật (cơ chế có sẵn) — **mọi máy cần lên 9.47**.
+- "Đã đăng" bắt cả lần bấm "Publish" của bạn lẫn của script (Bấm hộ Publish); 1 lần dán chỉ tính 1 lần đăng; dán xong quá 12
+  giờ mới Publish thì không tính.
+- **Nhãn máy tự đặt** cho từng máy ảo (vd "VM1 – LitbyArt") trong nút **🏷️ Đánh dấu** trên panel.
+
+**Đồng bộ giữa các máy (Google Sheet)** — kho của script là riêng từng trình duyệt, máy ảo không ghi thẳng được vào máy chính,
+nên mọi sự kiện được gửi lên 1 Google Sheet chung (Apps Script web app do bạn tạo) và mỗi máy đọc về mỗi 60s (khi tab đang hiện):
+1. Tạo Google Sheet → Extensions → Apps Script. Trong hộp 🏷️ bấm **Tạo mã** rồi **📋 Copy mã Apps Script** (đã điền sẵn mã bí mật),
+   dán thay toàn bộ mã mẫu, Save.
+2. Deploy → New deployment → Web app: Execute as **Me**, Who has access **Anyone** → copy Web app URL (đuôi `/exec`).
+3. Trên **mọi máy**: mở 🏷️, nhập nhãn máy riêng + **cùng URL và mã bí mật** → Kiểm tra kết nối → Lưu.
+
+Sheet (tab "DanhDau") chỉ lưu thời điểm, mã listing, loại, nhãn máy. Script đọc tiếp theo **số dòng** — đừng xoá/sắp xếp lại dòng.
+Chưa cài Sheet vẫn dùng được, chỉ là nhãn giới hạn trong trình duyệt đó. Gửi lỗi (mất mạng) thì sự kiện nằm chờ và tự gửi lại lần sau;
+nhiều tab mở cùng lúc chỉ 1 tab đồng bộ mỗi 20s. Kho giữ tối đa 30.000 listing (bỏ mục cũ nhất). Thêm `@connect script.google.com`
+và `script.googleusercontent.com` (Violentmonkey có thể hỏi quyền lần đầu).
+
+Đã thử: mã Apps Script chạy trên Google Sheet giả lập (từ chối sai mã bí mật, bỏ sự kiện sai, đọc tiếp theo con trỏ); Chromium với 2
+"máy" tách biệt — máy chính xem 3s → 👁, Alt+C → 📋 + gói có mã nguồn; máy ảo Alt+V → bấm Publish → ✅ "VM1 – LitbyArt" lên Sheet;
+máy chính mở trang tìm kiếm → nhãn "✅ VM1 – LitbyArt 👁📋" đúng góc trên-trái ảnh, thẻ nạp thêm khi cuộn cũng tự có nhãn.
+
 ### Nhồi tối đa 20 ảnh một lần (v9.46)
 
 Đo thực tế 14 ảnh (đều dưới 1MB): script chia 2 lô × 7 ảnh mất 9,5s + 12,2s ≈ 22s; thả tay cả 14 ảnh một lần ≈ 15s. Phần

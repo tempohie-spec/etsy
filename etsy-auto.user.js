@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.46
+// @version      9.47
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -11,6 +11,8 @@
 // @grant        GM_setValue
 // @connect      i.etsystatic.com
 // @connect      openapi.etsy.com
+// @connect      script.google.com
+// @connect      script.googleusercontent.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -18,10 +20,14 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.46';
+  const PHIEN_BAN = '9.47';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
+  // v9.47: ma listing NGUON gan ngay sau tieu de ("tieu de|||SRC|||123|||TAGS|||...") de may dich biet
+  // dang dang lai listing nao (danh dau "da dang"). Ban script cu gap dau la nay se tu cat bo (catBoDauLa)
+  // nen tieu de van sach.
+  const NGAN_CACH_NGUON = '|||SRC|||';
 
   // Ky tu ngan cach cho phan "Add personalization" lay tu trang nguon.
   // Etsy cho phep MOT listing co NHIEU o ca nhan hoa (moi o la 1 <li id="perso-field-...">, vd
@@ -349,8 +355,9 @@
 
   // Gop tieu de + tag + ca nhan hoa (CO THE NHIEU truong) + danh sach anh thanh 1 chuoi duy nhat
   // de luu vao clipboard. "dsPerso" la mang { nhan, huongDan, loai, cacLuaChon }.
-  function taoGoiDuLieu(tieuDe, tagText, dsPerso, danhSachAnh) {
-    let goi = `${tieuDe || ''}${NGAN_CACH}${tagText || ''}`;
+  function taoGoiDuLieu(tieuDe, tagText, dsPerso, danhSachAnh, idNguon) {
+    const phanNguon = /^\d+$/.test(String(idNguon || '')) ? `${NGAN_CACH_NGUON}${idNguon}` : '';
+    let goi = `${tieuDe || ''}${phanNguon}${NGAN_CACH}${tagText || ''}`;
     if (dsPerso && dsPerso.length) {
       goi += `${NGAN_CACH_PERSO_DS}${JSON.stringify(dsPerso)}`;
     }
@@ -380,10 +387,12 @@
 
   // Tach chuoi da luu trong clipboard thanh { tieuDe, tagText, dsPerso, danhSachAnh, dauLa }
   function tachDuLieu(chuoi) {
-    const rong = { tieuDe: '', tagText: '', dsPerso: [], danhSachAnh: [] };
+    const rong = { tieuDe: '', tagText: '', dsPerso: [], danhSachAnh: [], idNguon: '' };
     if (!chuoi || !chuoi.includes(NGAN_CACH)) return rong;
 
-    const [tieuDe, phanSauTieuDe] = tachMotLan(chuoi, NGAN_CACH);
+    const [phanTieuDe, phanSauTieuDe] = tachMotLan(chuoi, NGAN_CACH);
+    const [tieuDe, phanIdNguon] = tachMotLan(phanTieuDe, NGAN_CACH_NGUON);
+    const idNguon = /^\d+$/.test(String(phanIdNguon || '').trim()) ? String(phanIdNguon).trim() : '';
     let tagText = phanSauTieuDe || '';
 
     // Cat phan ANH ra TRUOC TIEN (no nam cuoi goi), de doan URL khong bi nuot vao
@@ -450,6 +459,7 @@
       tagText: catBoDauLa(tagText, 'tag').trim(),
       dsPerso,
       danhSachAnh,
+      idNguon,
       dauLa: false,
     };
     ketQua.dauLa = coDauLa;
@@ -1401,11 +1411,13 @@
       console.log(`[Etsy Auto] Tag lấy được (${nguonTag}):`, tagText);
     }
 
-    const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, tagText, dsPerso, ketQuaAnh.danhSach));
+    const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, tagText, dsPerso, ketQuaAnh.danhSach, layListingId()));
     if (!ok) {
       hienThongBao('❌ Không ghi được vào Clipboard', '#DC2626');
       return;
     }
+    // 📋 Danh dau "da lay du lieu" cho listing nguon nay
+    if (layListingId()) ghiDanhDau('lay', layListingId());
 
     const soAnhNho = ketQuaAnh.danhSach.length;
     const ghiChuAnh =
@@ -1814,7 +1826,7 @@
 
   // Ham gop: doc Clipboard 1 lan roi dan ca tieu de va tag, sau do tu dong bam tab Photo & Video
   async function danTieuDeVaTag() {
-    const { tieuDe, tagText, dsPerso, danhSachAnh, dauLa } = tachDuLieu(await docClipboard());
+    const { tieuDe, tagText, dsPerso, danhSachAnh, idNguon, dauLa } = tachDuLieu(await docClipboard());
 
     // Chan ngay: dan tiep se nhoi chuoi ky thuat vao o cua Etsy, hong du lieu that
     if (dauLa) {
@@ -1832,12 +1844,14 @@
     }
 
     hienThongBao('⏳ Đang dán tiêu đề + tag...', '#2563EB');
+    // ✅ Nho listing nguon dang duoc dan o may nay — bam Publish se danh dau "da dang" kem nhan may
+    if (idNguon) ghiNguonDangSoan(idNguon, tieuDe);
 
     // Chuyen danh sach anh tu Clipboard sang kho cua TRINH DUYET NAY, truoc khi Clipboard bi
     // rut gon lai con moi tieu de o cuoi ham. Nho vay Alt+U sau do van co anh de upload
     // du trang nguon mo o mot trinh duyet khac.
     if (danhSachAnh && danhSachAnh.length) {
-      luuAnhNguon(tieuDe, danhSachAnh);
+      luuAnhNguon(tieuDe, danhSachAnh, idNguon);
       console.log(`[Etsy Auto] Đã nhận ${danhSachAnh.length} ảnh từ Clipboard, sẵn sàng cho Alt+U`);
     }
 
@@ -1953,14 +1967,14 @@
   //   - trang nguon      -> { url, alt }        (co chu alt, tu suy ra co bang size)
   //   - goi tu Clipboard -> { url, bang: bool } (chi con co, alt da bo di cho gon)
   // nen chuan hoa ve mot dang duy nhat { url, alt, bang } truoc khi luu.
-  function luuAnhNguon(tieuDe, danhSach) {
+  function luuAnhNguon(tieuDe, danhSach, idNguon) {
     if (!danhSach || !danhSach.length) return;
     try {
       luuGiaTri(
         KHOA_ANH_NGUON,
         JSON.stringify({
           tieuDe: tieuDe || '',
-          listingId: layListingId() || '',
+          listingId: idNguon || layListingId() || '',
           thoiDiem: Date.now(),
           anh: danhSach.map((a) => ({
             url: a.url,
@@ -4825,6 +4839,561 @@
     return { copy: copyVariations, dan: xuLyBamNutDan, chiDienGia };
   })();
 
+  // ================== DANH DAU LISTING: DA XEM / DA LAY DU LIEU / DA DANG O MAY NAO (v9.47) ==================
+  // 3 muc, hien bang nhan o GOC TREN-TRAI anh moi the san pham tren luoi (tim kiem, shop, danh muc...)
+  // va 1 dong tom tat ngay duoi tieu de trang listing:
+  //   👁 da xem         — mo trang /listing/<id> va o lai >= THOI_GIAN_TINH_DA_XEM
+  //   📋 da lay du lieu — bam Alt+G / Alt+C tren listing do
+  //   ✅ da dang o dau  — tren MAY DICH (vd may ao), bam "Publish" sau khi dan du lieu cua listing do;
+  //                       ghi kem NHAN MAY nguoi dung tu dat (vd "VM1 – LitbyArt")
+  // Kho cua script (GM_setValue) la RIENG tung trinh duyet/may — may ao khong ghi thang duoc vao
+  // trinh duyet nguon. Nen moi su kien duoc gui len 1 GOOGLE SHEET chung (Apps Script web app do
+  // nguoi dung tu tao, ma nam trong MA_APPS_SCRIPT_DANH_DAU) va moi may dinh ky doc ve. Chua cai
+  // Sheet thi van danh dau duoc trong pham vi trinh duyet hien tai.
+  const KHOA_DANH_DAU = 'etsy_auto_danh_dau_v1'; // { id: { x: ts, l: ts, d: { nhanMay: ts } } }
+  const KHOA_DANH_DAU_CHO_GUI = 'etsy_auto_danh_dau_cho_gui_v1'; // [su kien chua gui len Sheet]
+  const KHOA_DANH_DAU_CAI_DAT = 'etsy_auto_danh_dau_cai_dat_v1'; // { nhanMay, urlSheet, biMat }
+  const KHOA_DANH_DAU_CON_TRO = 'etsy_auto_danh_dau_con_tro_v1'; // { dong, luc } — da doc toi dong nao cua Sheet
+  const KHOA_DANH_DAU_DANG_DONG_BO = 'etsy_auto_danh_dau_khoa_v1'; // moc thoi gian, tranh 2 tab dong bo cung luc
+  const KHOA_NGUON_DANG_SOAN = 'etsy_auto_nguon_dang_soan_v1'; // { id, tieuDe, t } listing nguon dang duoc dan o may nay
+  const SO_LISTING_DANH_DAU_TOI_DA = 30000;
+  const THOI_GIAN_TINH_DA_XEM = 3000;
+  const CHU_KY_DONG_BO_DANH_DAU = 60000;
+  const HAN_NGUON_DANG_SOAN = 12 * 3600 * 1000; // dan xong qua 12h moi Publish thi khong tinh nua
+  const thoiDiemMoTrang = Date.now(); // de dong tom tat chi bao lan xem TRUOC lan mo nay
+
+  function docJsonLuu(khoa, macDinh) {
+    try {
+      const gt = JSON.parse(docGiaTriLuu(khoa) || 'null');
+      return gt == null ? macDinh : gt;
+    } catch (e) {
+      return macDinh;
+    }
+  }
+
+  // Doc kho co bo nho dem: chi giai ma JSON lai khi chuoi luu thay doi (luoi doi lien tuc khi cuon trang)
+  let khoDemDanhDau = { chuoi: null, kho: {} };
+  function docKhoDanhDau() {
+    const chuoi = docGiaTriLuu(KHOA_DANH_DAU) || '';
+    if (chuoi !== khoDemDanhDau.chuoi) {
+      let kho = {};
+      try {
+        kho = chuoi ? JSON.parse(chuoi) || {} : {};
+      } catch (e) {
+        kho = {};
+      }
+      khoDemDanhDau = { chuoi, kho };
+    }
+    return khoDemDanhDau.kho;
+  }
+
+  function docCaiDatDanhDau() {
+    const c = docJsonLuu(KHOA_DANH_DAU_CAI_DAT, {});
+    return { nhanMay: String(c.nhanMay || ''), urlSheet: String(c.urlSheet || ''), biMat: String(c.biMat || '') };
+  }
+
+  function coSheetDanhDau(c = docCaiDatDanhDau()) {
+    return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(c.urlSheet) && !!c.biMat;
+  }
+
+  // Gop 1 su kien vao kho (lay thoi diem MOI NHAT cho tung muc — ap lai bao nhieu lan cung khong sai)
+  function apSuKienDanhDau(kho, sk) {
+    const id = String(sk.id || '');
+    const t = Number(sk.t) || 0;
+    if (!/^\d+$/.test(id) || !t) return;
+    const m = kho[id] || (kho[id] = {});
+    if (sk.loai === 'xem') m.x = Math.max(m.x || 0, t);
+    else if (sk.loai === 'lay') m.l = Math.max(m.l || 0, t);
+    else if (sk.loai === 'dang') {
+      const nhan = String(sk.nhan || '').trim() || '(chưa đặt nhãn máy)';
+      m.d = m.d || {};
+      m.d[nhan] = Math.max(m.d[nhan] || 0, t);
+    }
+  }
+
+  function moiNhatCua(m) {
+    return Math.max(m.x || 0, m.l || 0, ...Object.values(m.d || {}), 0);
+  }
+
+  function ghiKhoDanhDau(kho) {
+    const ids = Object.keys(kho);
+    if (ids.length > SO_LISTING_DANH_DAU_TOI_DA) {
+      ids
+        .sort((a, b) => moiNhatCua(kho[a]) - moiNhatCua(kho[b]))
+        .slice(0, ids.length - SO_LISTING_DANH_DAU_TOI_DA)
+        .forEach((id) => delete kho[id]);
+    }
+    luuGiaTri(KHOA_DANH_DAU, JSON.stringify(kho));
+  }
+
+  // Ghi 1 su kien: vao kho ngay (hien nhan tuc thi) + xep hang gui len Sheet (neu da cai)
+  function ghiDanhDau(loai, id, nhanRieng) {
+    if (!/^\d+$/.test(String(id || ''))) return;
+    const caiDat = docCaiDatDanhDau();
+    const sk = { id: String(id), loai, nhan: nhanRieng || caiDat.nhanMay || '', t: Date.now() };
+    const kho = docKhoDanhDau();
+    apSuKienDanhDau(kho, sk);
+    ghiKhoDanhDau(kho);
+    console.log(`[Etsy Auto] Đánh dấu listing ${sk.id}: ${loai}${loai === 'dang' ? ` (${sk.nhan || 'chưa đặt nhãn máy'})` : ''}`);
+    if (coSheetDanhDau(caiDat)) {
+      const hangCho = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []);
+      hangCho.push(sk);
+      luuGiaTri(KHOA_DANH_DAU_CHO_GUI, JSON.stringify(hangCho.slice(-5000)));
+      henDongBoDanhDau(1500);
+    }
+    veLaiDanhDau();
+  }
+
+  // "vua xong" / "5 phut truoc" / "3 gio truoc" / "2 ngay truoc" / ngay thang
+  function moTaThoiDiem(ms) {
+    const giay = Math.max(0, (Date.now() - ms) / 1000);
+    if (giay < 60) return 'vừa xong';
+    if (giay < 3600) return `${Math.floor(giay / 60)} phút trước`;
+    if (giay < 86400) return `${Math.floor(giay / 3600)} giờ trước`;
+    if (giay < 30 * 86400) return `${Math.floor(giay / 86400)} ngày trước`;
+    const d = new Date(ms);
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  }
+
+  function cacMayDaDang(m) {
+    return Object.entries(m.d || {}).sort((a, b) => b[1] - a[1]); // moi nhat truoc
+  }
+
+  function moTaDayDuDanhDau(m) {
+    const dong = [];
+    for (const [nhan, t] of cacMayDaDang(m)) dong.push(`✅ Đã đăng ở ${nhan} — ${moTaThoiDiem(t)}`);
+    if (m.l) dong.push(`📋 Đã lấy dữ liệu — ${moTaThoiDiem(m.l)}`);
+    if (m.x) dong.push(`👁 Đã xem — ${moTaThoiDiem(m.x)}`);
+    return dong.join('\n');
+  }
+
+  // Nhan o goc tren-trai anh cua 1 the san pham (goc tren-phai la nut tim cua Etsy)
+  function veNhanDanhDau(the, m) {
+    const anh = the.querySelector('img');
+    const vung = (anh && anh.parentElement) || the;
+    let nhan = the.querySelector('.ea-danh-dau');
+    if (!m) {
+      if (nhan) nhan.remove();
+      return;
+    }
+    if (!nhan) {
+      if (getComputedStyle(vung).position === 'static') vung.style.position = 'relative';
+      nhan = document.createElement('div');
+      nhan.className = 'ea-danh-dau';
+      nhan.style.cssText =
+        'position:absolute;top:6px;left:6px;z-index:3;max-width:calc(100% - 44px);padding:2px 6px;border-radius:4px;' +
+        'font:bold 11px/1.4 sans-serif;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
+        'box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:auto;';
+      vung.appendChild(nhan);
+    }
+    const may = cacMayDaDang(m).map(([n]) => n);
+    const bieuTuong = `${m.x ? '👁' : ''}${m.l ? '📋' : ''}`;
+    nhan.textContent = may.length
+      ? `✅ ${may.slice(0, 2).join(', ')}${may.length > 2 ? ` +${may.length - 2}` : ''}${bieuTuong ? ' ' + bieuTuong : ''}`
+      : m.l
+        ? `📋 Đã lấy${m.x ? ' 👁' : ''}`
+        : '👁 Đã xem';
+    nhan.style.background = may.length ? '#15803D' : m.l ? '#2563EB' : 'rgba(55,65,81,.85)';
+    nhan.title = moTaDayDuDanhDau(m);
+  }
+
+  function ganNhanDanhDauVaoLuoi(kho = docKhoDanhDau()) {
+    for (const [id, the] of timCacTheListing()) {
+      // Bo qua the cua CHINH listing dang mo (vd khoi "anh lien quan" trung id) — da co dong tom tat rieng
+      veNhanDanhDau(the, kho[id]);
+    }
+  }
+
+  // Dong tom tat duoi tieu de trang listing: trang thai TRUOC lan mo nay (lan xem nay chi ghi sau 3s)
+  function veDongTomTatListing(kho = docKhoDanhDau()) {
+    const id = layListingId();
+    if (!id || !/\/listing\//.test(location.pathname)) return;
+    const h1 = document.querySelector('h1');
+    if (!h1) return;
+    let o = document.getElementById('ea-danh-dau-trang');
+    const m = kho[id];
+    const coGi = m && (m.l || Object.keys(m.d || {}).length || (m.x && m.x < thoiDiemMoTrang));
+    if (!coGi) {
+      if (o) o.remove();
+      return;
+    }
+    if (!o) {
+      o = document.createElement('div');
+      o.id = 'ea-danh-dau-trang';
+      o.style.cssText =
+        'margin:6px 0;padding:6px 10px;border-radius:6px;font:13px/1.5 sans-serif;white-space:pre-line;border:1px solid;';
+      h1.insertAdjacentElement('afterend', o);
+    }
+    const daDang = Object.keys(m.d || {}).length > 0;
+    o.style.background = daDang ? '#DCFCE7' : m.l ? '#DBEAFE' : '#F3F4F6';
+    o.style.borderColor = daDang ? '#86EFAC' : m.l ? '#93C5FD' : '#D1D5DB';
+    o.style.color = '#111827';
+    // Khong dem lan xem HIEN TAI vao dong "da xem" (chi bao lan xem truoc do)
+    const mHienThi = { ...m, x: m.x && m.x < thoiDiemMoTrang ? m.x : 0 };
+    o.textContent = moTaDayDuDanhDau(mHienThi);
+  }
+
+  function veLaiDanhDau() {
+    const kho = docKhoDanhDau();
+    ganNhanDanhDauVaoLuoi(kho);
+    veDongTomTatListing(kho);
+    capNhatNutDanhDau();
+  }
+
+  // ---- Dong bo voi Google Sheet ----
+
+  function goiSheetDanhDau(phuongThuc, url, duLieu) {
+    return new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== 'function') {
+        reject(new Error('Thiếu quyền GM_xmlhttpRequest'));
+        return;
+      }
+      GM_xmlhttpRequest({
+        method: phuongThuc,
+        url,
+        // text/plain: Apps Script doc qua e.postData.contents, khong can CORS preflight
+        headers: duLieu ? { 'Content-Type': 'text/plain;charset=utf-8' } : undefined,
+        data: duLieu ? JSON.stringify(duLieu) : undefined,
+        timeout: 30000,
+        onload: (res) => {
+          try {
+            const kq = JSON.parse(res.responseText);
+            if (kq && kq.ok) resolve(kq);
+            else reject(new Error((kq && kq.loi) || `Sheet trả về lỗi (mã ${res.status})`));
+          } catch (e) {
+            reject(new Error(`Sheet trả về dữ liệu lạ (mã ${res.status}) — kiểm tra lại URL web app / quyền truy cập "Anyone"`));
+          }
+        },
+        onerror: () => reject(new Error('Không kết nối được tới Google Sheet')),
+        ontimeout: () => reject(new Error('Google Sheet không phản hồi sau 30s')),
+      });
+    });
+  }
+
+  let henDongBo = null;
+  function henDongBoDanhDau(ms) {
+    if (henDongBo !== null) HEN_GIO.clearTimeout(henDongBo);
+    henDongBo = HEN_GIO.setTimeout(() => {
+      henDongBo = null;
+      dongBoDanhDau().catch((loi) => console.warn('[Etsy Auto] Đồng bộ đánh dấu lỗi:', loi.message));
+    }, ms);
+  }
+
+  let loiDongBoCuoi = '';
+
+  // Gui cac su kien dang cho len Sheet, roi doc ve cac dong moi (cua MOI may) tu con tro da luu
+  async function dongBoDanhDau({ batBuoc = false } = {}) {
+    const c = docCaiDatDanhDau();
+    if (!coSheetDanhDau(c)) return { boQua: true };
+    // Nhieu tab etsy.com cung mo: chi 1 tab dong bo trong moi 20s (tranh gui trung su kien)
+    const khoa = Number(docGiaTriLuu(KHOA_DANH_DAU_DANG_DONG_BO) || 0);
+    if (!batBuoc && Date.now() - khoa < 20000) return { boQua: true };
+    luuGiaTri(KHOA_DANH_DAU_DANG_DONG_BO, String(Date.now()));
+    try {
+      const choGui = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []);
+      if (choGui.length) {
+        await goiSheetDanhDau('POST', c.urlSheet, { biMat: c.biMat, suKien: choGui });
+        const daGui = new Set(choGui.map((s) => `${s.t}|${s.loai}|${s.id}|${s.nhan}`));
+        const conLai = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).filter((s) => !daGui.has(`${s.t}|${s.loai}|${s.id}|${s.nhan}`));
+        luuGiaTri(KHOA_DANH_DAU_CHO_GUI, JSON.stringify(conLai));
+      }
+      const conTro = docJsonLuu(KHOA_DANH_DAU_CON_TRO, { dong: 1 });
+      const kq = await goiSheetDanhDau(
+        'GET',
+        `${c.urlSheet}?biMat=${encodeURIComponent(c.biMat)}&tuDong=${Number(conTro.dong) || 1}`
+      );
+      const ds = Array.isArray(kq.suKien) ? kq.suKien : [];
+      if (ds.length) {
+        const kho = docKhoDanhDau();
+        ds.forEach((sk) => apSuKienDanhDau(kho, sk));
+        ghiKhoDanhDau(kho);
+      }
+      luuGiaTri(KHOA_DANH_DAU_CON_TRO, JSON.stringify({ dong: Number(kq.dongCuoi) || conTro.dong, luc: Date.now() }));
+      loiDongBoCuoi = '';
+      if (ds.length) veLaiDanhDau();
+      return { daGui: choGui.length, daNhan: ds.length };
+    } catch (loi) {
+      loiDongBoCuoi = loi.message;
+      throw loi;
+    } finally {
+      luuGiaTri(KHOA_DANH_DAU_DANG_DONG_BO, '0');
+      capNhatNutDanhDau();
+    }
+  }
+
+  // ---- Ghi nhan 3 muc ----
+
+  // May dich: nho listing nguon dang duoc dan o day, de luc bam Publish biet danh dau listing nao
+  function ghiNguonDangSoan(id, tieuDe) {
+    if (!/^\d+$/.test(String(id || ''))) return;
+    luuGiaTri(KHOA_NGUON_DANG_SOAN, JSON.stringify({ id: String(id), tieuDe: tieuDe || '', t: Date.now() }));
+  }
+
+  function batGhiNhanPublish() {
+    // Bat ca click THAT cua nguoi dung lan click script tu bam (nut "Publish" cuoi cung / nut
+    // "Publish" cua listing moi). Pha capture de bat duoc truoc khi Etsy dong hop thoai.
+    document.addEventListener(
+      'click',
+      (e) => {
+        const nut = e.target && e.target.closest && e.target.closest('button, a[role="button"]');
+        if (!nut || nut.closest('#etsy-auto-panel')) return;
+        if (nut.textContent.trim().toLowerCase() !== 'publish') return;
+        const nguon = docJsonLuu(KHOA_NGUON_DANG_SOAN, null);
+        if (!nguon || !nguon.id || Date.now() - nguon.t > HAN_NGUON_DANG_SOAN) return;
+        ghiDanhDau('dang', nguon.id);
+        luuGiaTri(KHOA_NGUON_DANG_SOAN, 'null'); // 1 lan dan = 1 lan dang, khong danh dau trung
+        const nhan = docCaiDatDanhDau().nhanMay;
+        if (!nhan) {
+          hienThongBao('🏷️ Đã ghi "đã đăng" nhưng máy này CHƯA ĐẶT NHÃN — mở 🏷️ Đánh dấu listing trên panel để đặt tên máy/tài khoản.', '#F59E0B', 8000);
+        }
+      },
+      true
+    );
+  }
+
+  function khoiDongDanhDau() {
+    // 👁 Da xem: o lai trang listing >= 3s
+    const id = layListingId();
+    if (id && /\/listing\//.test(location.pathname)) {
+      HEN_GIO.setTimeout(() => {
+        if (layListingId() === id) ghiDanhDau('xem', id);
+      }, THOI_GIAN_TINH_DA_XEM);
+    }
+    if (location.pathname.includes('/your/shops/me/listing-editor')) batGhiNhanPublish();
+
+    veLaiDanhDau();
+    // Luoi nap them the khi cuon / sang trang -> gan nhan tiep (gom thay doi, 500ms 1 lan)
+    let hen = null;
+    new MutationObserver((cacThayDoi) => {
+      for (const td of cacThayDoi) {
+        for (const nut of td.addedNodes) {
+          if (nut.nodeType !== 1) continue;
+          if (nut.matches('h1') || nut.hasAttribute('data-listing-id') || nut.querySelector('[data-listing-id], h1')) {
+            if (hen !== null) HEN_GIO.clearTimeout(hen);
+            hen = HEN_GIO.setTimeout(() => {
+              hen = null;
+              veLaiDanhDau();
+            }, 500);
+            return;
+          }
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+
+    // Dong bo: ngay khi mo trang, roi moi 60s khi tab dang hien
+    if (coSheetDanhDau()) {
+      henDongBoDanhDau(2000);
+      (async () => {
+        for (;;) {
+          await cho(CHU_KY_DONG_BO_DANH_DAU);
+          if (document.visibilityState === 'visible') henDongBoDanhDau(0);
+        }
+      })();
+    }
+  }
+
+  // ---- Cai dat (nut 🏷️ tren panel) ----
+
+  const MA_APPS_SCRIPT_DANH_DAU = `// Etsy Auto — kho danh dau listing dung chung cho nhieu may (Google Apps Script)
+// Doi BI_MAT thanh dung "Mã bí mật" da nhap trong script tren MOI may.
+const BI_MAT = '__BI_MAT__';
+
+function laySheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName('DanhDau');
+  if (!sh) {
+    sh = ss.insertSheet('DanhDau');
+    sh.appendRow(['Thời điểm (ms)', 'Listing ID', 'Loại (xem/lay/dang)', 'Máy / tài khoản', 'Thời gian']);
+  }
+  return sh;
+}
+
+function traVe_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  const d = JSON.parse((e.postData && e.postData.contents) || '{}');
+  if (d.biMat !== BI_MAT) return traVe_({ ok: false, loi: 'Sai mã bí mật' });
+  const ds = (d.suKien || []).filter(function (s) {
+    return /^\\d+$/.test(String(s.id)) && ['xem', 'lay', 'dang'].indexOf(s.loai) >= 0 && Number(s.t) > 0;
+  });
+  const khoa = LockService.getScriptLock();
+  khoa.waitLock(20000);
+  try {
+    const sh = laySheet_();
+    if (ds.length) {
+      sh.getRange(sh.getLastRow() + 1, 1, ds.length, 5).setValues(ds.map(function (s) {
+        return [Number(s.t), String(s.id), s.loai, String(s.nhan || ''), new Date(Number(s.t))];
+      }));
+    }
+  } finally {
+    khoa.releaseLock();
+  }
+  return traVe_({ ok: true, them: ds.length });
+}
+
+function doGet(e) {
+  const p = e.parameter || {};
+  if (p.biMat !== BI_MAT) return traVe_({ ok: false, loi: 'Sai mã bí mật' });
+  const sh = laySheet_();
+  const dongCuoi = sh.getLastRow();
+  const tuDong = Math.max(1, Number(p.tuDong || 1)); // dong 1 la tieu de
+  if (dongCuoi <= tuDong) return traVe_({ ok: true, suKien: [], dongCuoi: dongCuoi });
+  const vals = sh.getRange(tuDong + 1, 1, dongCuoi - tuDong, 4).getValues();
+  return traVe_({
+    ok: true,
+    dongCuoi: dongCuoi,
+    suKien: vals.map(function (r) { return { t: Number(r[0]), id: String(r[1]), loai: r[2], nhan: r[3] }; }),
+  });
+}
+`;
+
+  function capNhatNutDanhDau() {
+    const o = document.getElementById('ea-danhdau-nhan');
+    if (!o) return;
+    const c = docCaiDatDanhDau();
+    const choGui = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).length;
+    o.textContent =
+      (c.nhanMay || 'chưa đặt nhãn') +
+      (coSheetDanhDau(c) ? (loiDongBoCuoi ? ' · ⚠️ lỗi đồng bộ' : choGui ? ` · ⏳ ${choGui} chờ gửi` : ' · ☁️') : ' · chỉ máy này');
+  }
+
+  function taoMaBiMat() {
+    const so = new Uint8Array(12);
+    crypto.getRandomValues(so);
+    return [...so].map((x) => x.toString(16).padStart(2, '0')).join('');
+  }
+
+  function moCaiDatDanhDau() {
+    const c = docCaiDatDanhDau();
+    const lop = document.createElement('div');
+    lop.style.cssText =
+      'position:fixed;inset:0;z-index:1000002;background:rgba(17,24,39,.6);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+    const oNhap = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;margin-top:3px;font-size:13px;';
+    const nutPhu = 'padding:6px 10px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;';
+    lop.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:16px 18px;width:min(560px,94vw);max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;color:#111827;">
+        <div style="font-weight:bold;font-size:15px;margin-bottom:6px;">🏷️ Đánh dấu listing</div>
+        <div style="color:#6B7280;margin-bottom:10px;line-height:1.5;">Nhãn ở góc ảnh: 👁 đã xem · 📋 đã lấy dữ liệu (Alt+G/Alt+C) · ✅ đã đăng ở máy nào (bấm Publish sau khi dán dữ liệu). Để các máy (kể cả máy ảo) thấy chung, cài 1 Google Sheet bên dưới và nhập cùng URL + mã bí mật trên mọi máy.</div>
+        <label style="display:block;font-weight:bold;">Nhãn máy này
+          <input id="ea-dd-nhan" style="${oNhap}" placeholder="VD: VM1 – LitbyArt" value="">
+        </label>
+        <div style="color:#6B7280;font-size:12px;margin:3px 0 10px;">Ghi vào nhãn ✅ khi bấm Publish trên máy này. Mỗi máy ảo đặt 1 tên riêng.</div>
+        <label style="display:block;font-weight:bold;">URL web app Google Sheet
+          <input id="ea-dd-url" style="${oNhap}" placeholder="https://script.google.com/macros/s/.../exec" value="">
+        </label>
+        <label style="display:block;font-weight:bold;margin-top:8px;">Mã bí mật (giống nhau trên mọi máy)
+          <div style="display:flex;gap:6px;"><input id="ea-dd-bimat" style="${oNhap}" value=""><button id="ea-dd-taoma" style="${nutPhu}margin-top:3px;white-space:nowrap;">Tạo mã</button></div>
+        </label>
+        <details style="margin-top:10px;">
+          <summary style="cursor:pointer;font-weight:bold;">Cách cài Google Sheet (làm 1 lần)</summary>
+          <ol style="margin:6px 0 0 18px;padding:0;line-height:1.6;color:#374151;">
+            <li>Tạo 1 Google Sheet mới → menu <b>Extensions → Apps Script</b>.</li>
+            <li>Bấm <b>Tạo mã</b> ở trên (hoặc tự gõ), rồi bấm <b>📋 Copy mã Apps Script</b> — mã đã điền sẵn mã bí mật. Xoá hết mã mẫu trong Apps Script, dán vào, bấm Save.</li>
+            <li>Bấm <b>Deploy → New deployment</b> → loại <b>Web app</b>: Execute as <b>Me</b>, Who has access <b>Anyone</b> → Deploy, cấp quyền.</li>
+            <li>Copy <b>Web app URL</b> (đuôi <code>/exec</code>) dán vào ô URL ở trên → <b>Kiểm tra kết nối</b> → <b>Lưu</b>.</li>
+            <li>Trên mỗi máy ảo: cài cùng bản script, mở hộp này, nhập <b>nhãn riêng</b> + <b>cùng URL và mã bí mật</b>.</li>
+          </ol>
+          <div style="color:#6B7280;margin-top:6px;">Sheet chỉ lưu: thời điểm, mã listing, loại, nhãn máy. Đừng xoá/sắp xếp lại dòng trong tab "DanhDau" (script đọc tiếp theo số dòng).</div>
+        </details>
+        <div id="ea-dd-trangthai" style="margin-top:10px;padding:8px 10px;background:#F3F4F6;border-radius:6px;white-space:pre-line;line-height:1.5;"></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:space-between;margin-top:12px;">
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <button id="ea-dd-copyma" style="${nutPhu}">📋 Copy mã Apps Script</button>
+            <button id="ea-dd-kiemtra" style="${nutPhu}">🔌 Kiểm tra kết nối</button>
+            <button id="ea-dd-dongbo" style="${nutPhu}">🔄 Đồng bộ ngay</button>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button id="ea-dd-dong" style="${nutPhu}">Đóng</button>
+            <button id="ea-dd-luu" style="padding:6px 14px;border:none;border-radius:6px;background:#F56400;color:#fff;font-weight:bold;cursor:pointer;">Lưu</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(lop);
+    const $ = (id) => lop.querySelector('#' + id);
+    $('ea-dd-nhan').value = c.nhanMay;
+    $('ea-dd-url').value = c.urlSheet;
+    $('ea-dd-bimat').value = c.biMat;
+
+    const oTrangThai = $('ea-dd-trangthai');
+    const veTrangThai = (them) => {
+      const kho = docKhoDanhDau();
+      const ds = Object.values(kho);
+      const conTro = docJsonLuu(KHOA_DANH_DAU_CON_TRO, null);
+      oTrangThai.textContent =
+        `Đang nhớ ${ds.length} listing: ${ds.filter((m) => m.x).length} đã xem · ${ds.filter((m) => m.l).length} đã lấy · ` +
+        `${ds.filter((m) => Object.keys(m.d || {}).length).length} đã đăng\n` +
+        `Chờ gửi lên Sheet: ${docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).length}` +
+        (conTro && conTro.luc ? ` · Đồng bộ lần cuối: ${moTaThoiDiem(conTro.luc)}` : '') +
+        (loiDongBoCuoi ? `\n⚠️ Lỗi đồng bộ gần nhất: ${loiDongBoCuoi}` : '') +
+        (them ? `\n${them}` : '');
+    };
+    veTrangThai();
+
+    const docO = () => ({
+      nhanMay: $('ea-dd-nhan').value.trim(),
+      urlSheet: $('ea-dd-url').value.trim(),
+      biMat: $('ea-dd-bimat').value.trim(),
+    });
+    const luu = () => {
+      const moi = docO();
+      const cu = docCaiDatDanhDau();
+      // Doi sang Sheet KHAC thi doc lai tu dau Sheet do
+      if (moi.urlSheet !== cu.urlSheet) luuGiaTri(KHOA_DANH_DAU_CON_TRO, JSON.stringify({ dong: 1 }));
+      luuGiaTri(KHOA_DANH_DAU_CAI_DAT, JSON.stringify(moi));
+      capNhatNutDanhDau();
+    };
+
+    $('ea-dd-taoma').onclick = () => ($('ea-dd-bimat').value = taoMaBiMat());
+    $('ea-dd-copyma').onclick = async () => {
+      const biMat = $('ea-dd-bimat').value.trim();
+      if (!biMat) {
+        veTrangThai('⚠️ Nhập hoặc bấm "Tạo mã" cho mã bí mật trước, để mã Apps Script điền sẵn mã này.');
+        return;
+      }
+      const ok = await ghiClipboard(MA_APPS_SCRIPT_DANH_DAU.replace('__BI_MAT__', biMat.replace(/'/g, '')));
+      veTrangThai(ok ? '✅ Đã copy mã Apps Script — dán vào Extensions → Apps Script của Google Sheet.' : '❌ Không copy được.');
+    };
+    $('ea-dd-kiemtra').onclick = async () => {
+      const o = docO();
+      if (!coSheetDanhDau(o)) {
+        veTrangThai('⚠️ URL phải có dạng https://script.google.com/macros/s/.../exec và phải có mã bí mật.');
+        return;
+      }
+      veTrangThai('⏳ Đang kiểm tra...');
+      try {
+        const kq = await goiSheetDanhDau('GET', `${o.urlSheet}?biMat=${encodeURIComponent(o.biMat)}&tuDong=999999999`);
+        veTrangThai(`✅ Kết nối được — Sheet đang có ${Math.max(0, (Number(kq.dongCuoi) || 1) - 1)} dòng đánh dấu. Bấm Lưu để dùng.`);
+      } catch (loi) {
+        veTrangThai(`❌ ${loi.message}`);
+      }
+    };
+    $('ea-dd-dongbo').onclick = async () => {
+      luu();
+      veTrangThai('⏳ Đang đồng bộ...');
+      try {
+        const kq = await dongBoDanhDau({ batBuoc: true });
+        veTrangThai(kq.boQua ? '⚠️ Chưa cài Sheet (URL/mã bí mật).' : `✅ Đã gửi ${kq.daGui}, nhận ${kq.daNhan} sự kiện mới.`);
+      } catch (loi) {
+        veTrangThai(`❌ ${loi.message}`);
+      }
+    };
+    const dong = () => lop.remove();
+    $('ea-dd-dong').onclick = dong;
+    lop.addEventListener('click', (e) => {
+      if (e.target === lop) dong();
+    });
+    $('ea-dd-luu').onclick = () => {
+      const truoc = coSheetDanhDau();
+      luu();
+      dong();
+      hienThongBao('✅ Đã lưu cài đặt đánh dấu listing', '#16A34A');
+      // Vua cai Sheet lan dau: dong bo ngay (khong can tai lai trang)
+      if (!truoc && coSheetDanhDau()) henDongBoDanhDau(500);
+    };
+  }
+
   // ================== GIAO DIEN NOI: KEO THA + THU NHO/MO RONG ==================
 
   function docTrangThaiPanel() {
@@ -5410,6 +5979,7 @@
       <button id="ea-btn-bangsize" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">📐 Ảnh bảng size (<span id="ea-bangsize-dem">0</span>)</button>
       <button id="ea-btn-apikey" style="padding:6px 8px;background:#F3F4F6;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:11px;font-weight:bold;cursor:pointer;text-align:center;">🔑 <span id="ea-apikey-label"></span> · <span id="ea-quota-inline">⚡ …</span></button>
       <button id="ea-btn-autostats" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;"></button>
+      <button id="ea-btn-danhdau" title="Nhãn góc ảnh: 👁 đã xem · 📋 đã lấy dữ liệu · ✅ đã đăng ở máy nào — đồng bộ qua Google Sheet" style="padding:6px 12px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;">🏷️ Đánh dấu: <span id="ea-danhdau-nhan"></span></button>
     `;
     khungMoRong.appendChild(vungNut);
     khung.appendChild(khungMoRong);
@@ -5506,6 +6076,9 @@
 
     // Nut gop: bat/tat tu hien the thong ke moi khi mo mot listing (bam BAT se hien luon
     // the cua listing dang mo, giong nhu nut "Thong ke listing" rieng truoc day).
+    document.getElementById('ea-btn-danhdau').onclick = moCaiDatDanhDau;
+    capNhatNutDanhDau();
+
     const nutTuHien = document.getElementById('ea-btn-autostats');
     const capNhatNhanTuHien = () => {
       nutTuHien.textContent = dangBatTuHien() ? '📊 Thống kê listing: BẬT' : '📊 Thống kê listing: TẮT';
@@ -5567,4 +6140,8 @@
       if (key === 'v') { e.preventDefault(); danTieuDeVaTag(); }
     });
   }
+
+  // Danh dau listing chay tren MOI trang etsy.com (luoi shop, danh muc, yeu thich... cung hien nhan),
+  // khong phu thuoc trang co panel hay khong.
+  khoiDongDanhDau();
 })();
