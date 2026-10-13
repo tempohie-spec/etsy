@@ -819,6 +819,23 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Ảnh thiếu/lỗi thì không tự Publish (v9.51)
+
+Khi chọn "Bấm hộ Publish", script giờ **kiểm tra lần cuối trên trang** ngay trước khi bấm (sau khi chờ thêm 1,5s để Etsy kịp
+hiện toast lỗi của ảnh cuối), có bất kỳ dấu hiệu nào thì **không Publish** (`kiemTraAnhTruocPublish()`):
+
+| Dấu hiệu | Ví dụ thông báo |
+|---|---|
+| Có ảnh không lấy được từ listing nguồn (mạng lỗi lúc tải) | "1 ảnh không lấy được từ listing nguồn" |
+| Số ảnh Etsy đếm ít hơn số cần có (ảnh cũ + ảnh vừa upload) | "Etsy chỉ có 12/14 ảnh" |
+| Etsy đang hiện toast lỗi upload | "Etsy đang báo lỗi "File not uploaded…"" |
+| Còn ảnh đang quay spinner | "còn 2 ảnh đang xử lý" |
+| Chỉnh thumbnail chưa xong (đã có từ v9.45) | "thumbnail chưa chỉnh xong" |
+
+Thông báo cuối chuyển đỏ, ghi "⛔ KHÔNG bấm Publish vì: …" và hiện tới khi bấm ẩn; bạn kiểm tra ảnh rồi tự bấm Publish. Trước
+đây, ảnh nguồn tải lỗi vẫn upload phần còn lại rồi Publish luôn, chỉ ghi "(lỗi N ảnh)". Lô upload lỗi/quá giờ thì vẫn như cũ:
+dừng ngay, không Publish.
+
 ### Nhãn đánh dấu sang góc phải + dọn code chẩn đoán đã dùng xong (v9.50)
 
 Đồng bộ Google Sheet đã chạy (nguyên nhân cuối cùng: web app phải để **"Người có quyền truy cập: Bất kỳ ai"**). Không cần chia sẻ

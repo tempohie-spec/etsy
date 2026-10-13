@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.50
+// @version      9.51
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.50';
+  const PHIEN_BAN = '9.51';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -3699,6 +3699,20 @@
     }
   }
 
+  // Danh sach ly do KHONG nen tu Publish (rong = on): anh khong lay duoc tu nguon, Etsy dem thieu anh,
+  // Etsy dang hien toast loi upload, hoac con anh dang quay spinner.
+  function kiemTraAnhTruocPublish(soAnhCanCo, soAnhLayLoi) {
+    const lyDo = [];
+    if (soAnhLayLoi > 0) lyDo.push(`${soAnhLayLoi} ảnh không lấy được từ listing nguồn`);
+    const soDem = soAnhTheoTrang() ?? layCacTheAnh().length;
+    if (soDem < soAnhCanCo) lyDo.push(`Etsy chỉ có ${soDem}/${soAnhCanCo} ảnh`);
+    const loi = timThongBaoLoiUploadEtsy();
+    if (loi) lyDo.push(`Etsy đang báo lỗi "${loi.textContent.trim().slice(0, 80)}"`);
+    const soSpinner = demSpinnerTrongMucAnh();
+    if (soSpinner) lyDo.push(`còn ${soSpinner} ảnh đang xử lý`);
+    return lyDo;
+  }
+
   async function uploadCacAnhDaChon({ goi, cacAnh, hanhDong, thumbnail, thuVienBangSize, soAnhCu, theoDoiMang }) {
     const tongSoAnhChon = cacAnh.length + thuVienBangSize.length;
     // Thong bao tien do HIEN LIEN TUC (ms = 0), dong cuoi luon la tinh trang mang toi Etsy; mang
@@ -3834,9 +3848,20 @@
       ghiChuThumbnail = kq.ok ? ' → đã chỉnh thumbnail' : ` — ⚠️ thumbnail: ${kq.chiTiet}`;
     }
 
+    // Buoc 4c (v9.51): KIEM TRA LAN CUOI TREN TRANG truoc khi tu Publish. Anh thieu/loi ma van dang
+    // ban thi phai sua listing sau, nen co bat ky dau hieu nao la KHONG Publish, de nguoi dung tu xem.
+    const thieu = tongSoAnhChon - cacFile.length;
+    const lyDoKhongPublish = [];
+    if (hanhDong === 'publish') {
+      await cho(1500); // cho Etsy kip hien toast loi (neu co) cua anh cuoi cung
+      lyDoKhongPublish.push(...kiemTraAnhTruocPublish(soAnhCu + cacFile.length, thieu));
+      if (thumbnailChuaXong) lyDoKhongPublish.push('thumbnail chưa chỉnh xong');
+      if (lyDoKhongPublish.length) console.warn('[Etsy Auto] Không tự Publish vì:', lyDoKhongPublish);
+    }
+
     let ghiChuKetThuc = '';
-    if (hanhDong === 'publish' && thumbnailChuaXong) {
-      ghiChuKetThuc = ' — ⚠️ chưa bấm Publish vì thumbnail chưa chỉnh xong';
+    if (hanhDong === 'publish' && lyDoKhongPublish.length) {
+      ghiChuKetThuc = ` — ⛔ KHÔNG bấm Publish vì: ${lyDoKhongPublish.join('; ')}. Kiểm tra lại ảnh rồi tự bấm Publish.`;
     } else if (hanhDong === 'publish') {
       // Doi (khong chi cho 1 nhip co dinh roi kiem tra 1 lan) vi nut nay co the con DISABLED vai
       // giay sau khi <img> xem truoc da hien du — Etsy con 1 buoc hoan tat rieng (vd tao thumbnail
@@ -3868,12 +3893,16 @@
     const ghiChuBangSize = thuVienBangSize.length
       ? ` (gồm ${cacFileSanPham.length} sản phẩm + ${cacFileBangSize.length} bảng size)`
       : '';
-    const thieu = tongSoAnhChon - cacFile.length;
+    const khongPublish = ghiChuKetThuc.includes('⛔');
     hienThongBao(
-      `✅ Đã upload ${cacFile.length}/${tongSoAnhChon} ảnh${ghiChuBangSize}${thieu ? ` (lỗi ${thieu} ảnh)` : ''}` +
+      `${khongPublish ? '⚠️' : '✅'} Đã upload ${cacFile.length}/${tongSoAnhChon} ảnh${ghiChuBangSize}${thieu ? ` (lỗi ${thieu} ảnh)` : ''}` +
         `${ghiChuSapXep}${ghiChuThumbnail}${ghiChuKetThuc}`,
-      soAnhCu > 0 || ghiChuKetThuc.includes('⚠️') || ghiChuThumbnail.includes('⚠️') || thieu ? '#F59E0B' : '#16A34A',
-      ghiChuThumbnail.includes('⚠️') ? 0 : 15000
+      khongPublish
+        ? '#DC2626'
+        : soAnhCu > 0 || ghiChuKetThuc.includes('⚠️') || ghiChuThumbnail.includes('⚠️') || thieu
+          ? '#F59E0B'
+          : '#16A34A',
+      khongPublish || ghiChuThumbnail.includes('⚠️') ? 0 : 15000
     );
   }
 
