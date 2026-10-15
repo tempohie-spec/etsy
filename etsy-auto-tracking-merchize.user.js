@@ -1,0 +1,793 @@
+// ==UserScript==
+// @name         Etsy Auto Tracking (from Merchize)
+// @namespace    etsy-auto-tracking
+// @version      3.7
+// @description  Auto complete Etsy orders with tracking number + carrier looked up from Merchize seller dashboard
+// @match        https://www.etsy.com/your/orders/sold*
+// @match        https://seller.merchize.com/a/orders*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_addValueChangeListener
+// @grant        GM_addStyle
+// @run-at       document-idle
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  const SCRIPT_VERSION = '3.7';
+
+  // ---------------------------------------------------------------------
+  // Shared cross-tab protocol (GM storage is shared per-script regardless
+  // of which domain/tab is reading/writing it).
+  //   AT_REQUEST  = { orderId, ts }                      set by Etsy tab
+  //   AT_RESPONSE = { orderId, found, tracking, carrier, ts }  set by Merchize tab
+  // ---------------------------------------------------------------------
+
+  const REQ_KEY = 'AT_REQUEST';
+  const RES_KEY = 'AT_RESPONSE';
+
+  // Manual overrides if the automatic substring match picks the wrong
+  // carrier option. Key = lowercase Merchize carrier text (or part of it),
+  // value = exact text of the Etsy <option> to pick. Leave empty if the
+  // automatic matching (see matchCarrierOption) works fine for your shop.
+  const CARRIER_ALIASES = {
+    // 'dhl ecommerce': 'DHL',
+  };
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function normalizeName(s) {
+    return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  // Short log lines shown inside the on-page panel (kept separate from the
+  // full console log, which stays verbose for debugging).
+  const MAX_UI_LOG_LINES = 12;
+
+  function uiLog(text) {
+    const box = document.getElementById('at-log');
+    if (!box) return;
+    const time = new Date().toLocaleTimeString('vi-VN', { hour12: false });
+    const line = document.createElement('div');
+    line.className = 'at-log-line';
+    line.textContent = `${time} ${text}`;
+    box.appendChild(line);
+    while (box.children.length > MAX_UI_LOG_LINES) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function log(...a) {
+    console.log('%c[AutoTrack]', 'color:#0ea5e9;font-weight:bold', ...a);
+    let text = a.map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ');
+    text = text.replace(/\s+/g, ' ').trim();
+    if (text.length > 90) text = text.slice(0, 87) + '...';
+    uiLog(text);
+  }
+
+  // Make `panel` draggable by its `handle` element, remembering position
+  // (per tab type) in localStorage so it persists across page reloads.
+  // `onTap` (optional) fires when the handle was clicked WITHOUT being
+  // dragged (moved less than a few px) — used to toggle collapse/expand
+  // without that also firing on the tail end of a drag.
+  function makeDraggable(panel, handle, storageKey, onTap) {
+    let dragging = false;
+    let moved = false;
+    let offsetX = 0;
+    let offsetY = 0;
+    let startX = 0;
+    let startY = 0;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+      if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+        panel.style.left = saved.left + 'px';
+        panel.style.top = saved.top + 'px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+      }
+    } catch (e) {
+      /* ignore malformed saved position */
+    }
+
+    handle.addEventListener('mousedown', (e) => {
+      dragging = true;
+      moved = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = panel.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      if (Math.abs(e.clientX - startX) > 4 || Math.abs(e.clientY - startY) > 4) moved = true;
+      const maxLeft = window.innerWidth - panel.offsetWidth;
+      const maxTop = window.innerHeight - panel.offsetHeight;
+      const left = Math.max(0, Math.min(e.clientX - offsetX, maxLeft));
+      const top = Math.max(0, Math.min(e.clientY - offsetY, maxTop));
+      panel.style.left = left + 'px';
+      panel.style.top = top + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.style.userSelect = '';
+      if (moved) {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify({ left: parseInt(panel.style.left, 10), top: parseInt(panel.style.top, 10) })
+        );
+      } else if (onTap) {
+        onTap();
+      }
+    });
+  }
+
+  async function waitFor(fn, { timeout = 10000, interval = 200, desc = '' } = {}) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const v = await fn();
+      if (v) return v;
+      await sleep(interval);
+    }
+    throw new Error('Timeout waiting for: ' + desc);
+  }
+
+  function setNativeValue(el, value) {
+    const proto = Object.getPrototypeOf(el);
+    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+    desc.set.call(el, value);
+  }
+
+  // ===================================================================
+  //  MERCHIZE TAB
+  // ===================================================================
+  if (location.hostname === 'seller.merchize.com') {
+    // The main "All orders" list (https://seller.merchize.com/a/orders) uses
+    // a different TrackingColumn than the old Shipment Status tab: it does
+    // NOT carry the tracking number in static HTML. Instead:
+    //   <td class="TrackingColumn text-center">
+    //     <div class="TooltipStatusOrderStyle Left-Custom">
+    //       <div id="TrackingOrderTooltip_<id>" class="TooltipHelp">
+    //         <i class="fas fa-check text-success" title="Completed"></i>   <- has tracking
+    //         <i class="fas fa-times text-danger" title="Missing"></i>     <- no tracking yet
+    //       </div>
+    //     </div>
+    //     <span class="badge ...">pre_transit</span>
+    //   </td>
+    // The actual tracking number/link only renders into the DOM (a Bootstrap
+    // tooltip) once you hover the icon — confirmed to appear instantly, no
+    // network request. So: find the row by its external order number
+    // (td.OrderCodeCell code — same as before), check the icon, and if it's
+    // the "has tracking" one, simulate a hover to force the tooltip's
+    // <a class="TrackingFulfillmentTooltipLink" href="...carrier's tracking URL...">
+    // to mount, read it, then un-hover.
+
+    function rowHasTracking(row) {
+      const cell = row.querySelector('td.TrackingColumn');
+      return !!(cell && cell.querySelector('i.fa-check.text-success'));
+    }
+
+    // Merchize doesn't allow two orders with the same code, so a cancelled
+    // order that gets redone shows up as a second row with a trailing
+    // letter appended to the same code (e.g. "...342" cancelled/no tracking
+    // -> "...342a" redone/has tracking). An exact-code match alone can pick
+    // the cancelled one and stop there, missing the actual tracking sitting
+    // right next to it — so this gathers every candidate row (exact code,
+    // code+letter-suffix, or matching customer name) and prefers whichever
+    // one actually has tracking, regardless of which candidate matched first.
+    function findMerchizeRow(orderId, customerName) {
+      const codeCandidates = [];
+      const codeEls = document.querySelectorAll('td.OrderCodeCell code');
+      for (const codeEl of codeEls) {
+        const code = codeEl.textContent.trim();
+        if (code === orderId) {
+          codeCandidates.push(codeEl.closest('tr'));
+        } else if (code.startsWith(orderId) && /^[a-zA-Z]$/.test(code.slice(orderId.length))) {
+          codeCandidates.push(codeEl.closest('tr'));
+        }
+      }
+      let pick = codeCandidates.find((r) => rowHasTracking(r));
+      if (pick) return pick;
+      if (codeCandidates.length) return codeCandidates[0]; // no tracking anywhere yet, but a real match
+
+      // Fallback: order code (and its lettered variants) didn't match
+      // anything on this page — try the shipping recipient's name instead
+      // (td.ShippingAddressOrderColumn .FullName; the element also nests a
+      // .TooltipContent with the email, so only its direct text nodes are
+      // the actual name).
+      if (!customerName) return null;
+      const target = normalizeName(customerName);
+      if (!target) return null;
+      const nameCandidates = [];
+      const nameEls = document.querySelectorAll('.ShippingAddressOrderColumn .FullName');
+      for (const nameEl of nameEls) {
+        let text = '';
+        nameEl.childNodes.forEach((n) => {
+          if (n.nodeType === Node.TEXT_NODE) text += n.textContent;
+        });
+        if (normalizeName(text) === target) nameCandidates.push(nameEl.closest('tr'));
+      }
+      pick = nameCandidates.find((r) => rowHasTracking(r));
+      return pick || nameCandidates[0] || null;
+    }
+
+    // Carrier can only be inferred from the tracking URL's domain here (the
+    // tooltip has no separate carrier text) — extend this if your shop uses
+    // other carriers whose domains aren't covered yet.
+    function carrierFromTrackingUrl(url) {
+      if (/usps\.com/i.test(url)) return 'USPS';
+      if (/dhlglobalmail\.com/i.test(url)) return 'DHL eCommerce';
+      if (/\bups\.com/i.test(url)) return 'UPS';
+      if (/fedex\.com/i.test(url)) return 'FedEx';
+      if (/canadapost/i.test(url)) return 'Canada Post';
+      if (/auspost\.com\.au/i.test(url)) return 'Australia Post';
+      return ''; // unrecognized domain -> leave blank (Etsy side falls back to "Other")
+    }
+
+    async function readTrackingViaHover(row) {
+      const trackingCell = row.querySelector('td.TrackingColumn');
+      if (!trackingCell) return { found: false };
+      if (!trackingCell.querySelector('i.fa-check.text-success')) return { found: false };
+
+      const trigger = trackingCell.querySelector('.TooltipHelp');
+      if (!trigger) return { found: false };
+
+      trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+
+      let result = { found: false };
+      try {
+        await waitFor(() => document.querySelector('a.TrackingFulfillmentTooltipLink'), {
+          timeout: 2000,
+          interval: 30,
+          desc: 'tracking tooltip',
+        });
+        const link = document.querySelector('a.TrackingFulfillmentTooltipLink');
+        if (link) {
+          result = {
+            found: true,
+            tracking: link.textContent.trim(),
+            carrier: carrierFromTrackingUrl(link.href || ''),
+          };
+        }
+      } catch (e) {
+        // Tooltip never appeared -> treat as no tracking available.
+      } finally {
+        trigger.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        trigger.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+        await sleep(30);
+      }
+      return result;
+    }
+
+    async function handleRequest(orderId, customerName) {
+      log('Lookup requested for order', orderId, customerName ? `(name: "${customerName}")` : '(no name sent)');
+      const row = findMerchizeRow(orderId, customerName);
+      if (!row) {
+        log('  -> not found on this page (tried order code + name)');
+        GM_setValue(RES_KEY, { orderId, found: false, ts: Date.now() });
+        return;
+      }
+      const result = await readTrackingViaHover(row);
+      if (result.found) {
+        log('  -> found', { tracking: result.tracking, carrier: result.carrier });
+        GM_setValue(RES_KEY, {
+          orderId,
+          found: true,
+          tracking: result.tracking,
+          carrier: result.carrier,
+          ts: Date.now(),
+        });
+      } else {
+        log('  -> no tracking yet');
+        GM_setValue(RES_KEY, { orderId, found: false, ts: Date.now() });
+      }
+    }
+
+    GM_addValueChangeListener(REQ_KEY, (name, oldVal, newVal) => {
+      if (!newVal || !newVal.orderId) return;
+      handleRequest(newVal.orderId, newVal.customerName); // async, fire-and-forget
+    });
+
+    // Small floating panel so you know the helper is alive on this tab, with
+    // a short rolling log of lookups it has answered. Draggable via its title bar.
+    GM_addStyle(`
+      #at-panel{position:fixed;bottom:16px;right:16px;z-index:999999;
+        background:#111;color:#fff;font:13px sans-serif;padding:10px 12px;
+        border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:240px}
+      .at-drag-handle{cursor:pointer;user-select:none;padding-bottom:6px;margin-bottom:6px;
+        border-bottom:1px solid rgba(255,255,255,.15);display:flex;align-items:center;
+        justify-content:space-between}
+      #at-panel.at-collapsed .at-drag-handle{padding-bottom:0;margin-bottom:0;border-bottom:none}
+      #at-panel.at-collapsed > *:not(.at-drag-handle){display:none}
+      #at-toggle-icon-merchize{opacity:.6;font-size:10px;margin-left:8px}
+      .at-version{opacity:.5;font-weight:400;font-size:10px}
+      #at-status{font:12px monospace;opacity:.8}
+      .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
+        border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
+      .at-log-line{white-space:pre-wrap;word-break:break-word;
+        border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}
+      .at-log-line:last-child{border-bottom:none}
+    `);
+
+    const panel = document.createElement('div');
+    panel.id = 'at-panel';
+    panel.innerHTML = `
+      <div class="at-drag-handle"><strong>Merchize AutoTrack <span class="at-version">v${SCRIPT_VERSION}</span></strong><span id="at-toggle-icon-merchize">▾</span></div>
+      <div id="at-status">Listening...</div>
+      <div id="at-log" class="at-log"></div>
+    `;
+    document.body.appendChild(panel);
+
+    const MERCHIZE_PANEL_COLLAPSED_KEY = 'at_panel_collapsed_merchize';
+    function applyMerchizeCollapsedUI() {
+      const collapsed = localStorage.getItem(MERCHIZE_PANEL_COLLAPSED_KEY) === '1';
+      panel.classList.toggle('at-collapsed', collapsed);
+      const icon = document.getElementById('at-toggle-icon-merchize');
+      if (icon) icon.textContent = collapsed ? '▸' : '▾';
+    }
+    applyMerchizeCollapsedUI();
+
+    makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_merchize', () => {
+      const collapsed = localStorage.getItem(MERCHIZE_PANEL_COLLAPSED_KEY) === '1';
+      localStorage.setItem(MERCHIZE_PANEL_COLLAPSED_KEY, collapsed ? '0' : '1');
+      applyMerchizeCollapsedUI();
+    });
+
+    log('Merchize helper loaded.');
+
+    return; // nothing else to do on this domain
+  }
+
+  // ===================================================================
+  //  ETSY TAB
+  // ===================================================================
+
+  const RUN_KEY = 'AT_RUNNING';
+  const PAUSE_KEY = 'AT_PAUSED';
+
+  function getOrderIds() {
+    return Array.from(document.querySelectorAll('a[href*="order_id="]'))
+      .map((a) => {
+        const m = a.href.match(/order_id=(\d+)/);
+        return m ? m[1] : null;
+      })
+      .filter((v, i, arr) => v && arr.indexOf(v) === i);
+  }
+
+  // Look the row up fresh by order id rather than keeping a DOM reference
+  // captured earlier — completing an order re-renders the list (the
+  // finished row disappears), which can leave previously-captured element
+  // references detached/stale, causing clicks on them to silently do
+  // nothing (symptom: "dropdown open" timeouts right after a completion).
+  function findRowByOrderId(orderId) {
+    const a = document.querySelector(`a[href*="order_id=${orderId}"]`);
+    return a ? a.closest('.panel-body-row') : null;
+  }
+
+  async function waitForRow(orderId, timeout = 4000) {
+    try {
+      return await waitFor(() => findRowByOrderId(orderId), {
+        timeout,
+        interval: 200,
+        desc: 'row for order ' + orderId,
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Shipping recipient's name, used as a fallback match key when an order
+  // code doesn't turn up a match on Merchize.
+  // Prefers the "Ship to" summary name (the actual shipping recipient, which
+  // is what Merchize data keys on) over the buyer's account name shown
+  // at the top of the order (can differ, e.g. "Avery H" vs "Avery Howard").
+  function getOrderCustomerName(row) {
+    // Prefer the "Ship to" summary name (the actual shipping recipient) — a
+    // <div class="text-body-smaller strong"> beneath the Ship to accordion.
+    // Whether Etsy wraps the text in an extra
+    // <span data-test-id="unsanitize"> or not varies per order (confirmed:
+    // some orders render it as plain text with no such span at all), so
+    // just read the element's own text instead of depending on that span.
+    const shipToEl = row.querySelector('.text-body-smaller.strong');
+    if (shipToEl && shipToEl.textContent.trim()) return shipToEl.textContent.trim();
+
+    // Fallback: the buyer's account name shown at the top of the order (a
+    // dropdown-button holding the name + a chevron icon). The row has other
+    // dropdown buttons too (e.g. "Update progress"), so explicitly skip any
+    // whose container carries a clg-tooltip — only the action-menu ones do.
+    const dropdownButtons = row.querySelectorAll('[data-dropdown-button="true"]');
+    for (const btn of dropdownButtons) {
+      const container = btn.closest('[data-dropdown-container="true"]');
+      if (container && container.querySelector('clg-tooltip')) continue;
+      const text = btn.textContent.trim();
+      if (text) return text;
+    }
+    return '';
+  }
+
+  function findUpdateProgressTrigger(row) {
+    const groups = row.querySelectorAll('[data-dropdown-container="true"]');
+    for (const g of groups) {
+      const tip = g.querySelector('clg-tooltip');
+      if (tip && tip.textContent.includes('Update progress')) {
+        return g.querySelector('[data-dropdown-button="true"]');
+      }
+    }
+    return null;
+  }
+
+  async function openCompleteOrderModal(row, orderId) {
+    const trigger = findUpdateProgressTrigger(row);
+    if (!trigger) return false; // no "Update progress" action on this row -> skip
+
+    // Scroll the row into view first — some pages skip/deprioritise click
+    // handling on elements sitting outside the viewport.
+    row.scrollIntoView({ block: 'center' });
+    await sleep(150);
+
+    const container = trigger.closest('[data-dropdown-container="true"]');
+    const menu = container.querySelector('[data-dropdown-target="true"]');
+    // Check multiple signals (trigger's own aria-expanded as well as the
+    // menu's aria-hidden/class) since which one flips first can vary.
+    const isOpen = () =>
+      trigger.getAttribute('aria-expanded') === 'true' ||
+      menu.getAttribute('aria-hidden') === 'false' ||
+      !menu.classList.contains('is-closed');
+
+    trigger.click();
+    await sleep(250);
+
+    try {
+      await waitFor(isOpen, { timeout: 8000, desc: 'dropdown open for order ' + orderId });
+    } catch (e) {
+      // Dropdown never opened in time (page was busy/laggy). Try to close it
+      // again so it doesn't sit open and block clicks on the next order.
+      trigger.click();
+      throw e;
+    }
+
+    const completeBtn = Array.from(menu.querySelectorAll('button')).find((b) =>
+      b.textContent.trim().includes('Complete order')
+    );
+    if (!completeBtn) {
+      // No "Complete order" action (already shipped / cancelled / etc.) -> skip
+      trigger.click(); // close the dropdown again
+      return false;
+    }
+    completeBtn.click();
+
+    await waitFor(
+      () => document.querySelector(`select[name="carrierNameSelect-${orderId}"]`),
+      { timeout: 8000, desc: 'Complete order modal for ' + orderId }
+    );
+    return true;
+  }
+
+  function matchCarrierOption(select, carrierRaw) {
+    const carrierNorm = carrierRaw.trim().toLowerCase();
+
+    for (const key of Object.keys(CARRIER_ALIASES)) {
+      if (carrierNorm.includes(key)) {
+        const wanted = CARRIER_ALIASES[key].toLowerCase();
+        const opt = Array.from(select.querySelectorAll('option')).find(
+          (o) => o.textContent.trim().toLowerCase() === wanted
+        );
+        if (opt) return opt;
+      }
+    }
+
+    const options = Array.from(select.querySelectorAll('option')).filter((o) => {
+      const t = o.textContent.trim().toLowerCase();
+      return t && t !== 'other' && t !== 'select shipping carrier';
+    });
+
+    return options.find((o) => {
+      const t = o.textContent.trim().toLowerCase();
+      return carrierNorm.includes(t) || t.includes(carrierNorm);
+    });
+  }
+
+  async function setClgTextInputValue(clgEl, value) {
+    const input = await waitFor(
+      () => clgEl.shadowRoot && clgEl.shadowRoot.querySelector('input'),
+      { timeout: 4000, desc: 'inner <input> of ' + (clgEl.getAttribute('name') || clgEl.tagName) }
+    );
+    const proto = Object.getPrototypeOf(input);
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+    setter.call(input, value);
+    // Only 'input' + 'change' — dispatching 'blur' too has been seen to send
+    // this custom element (and Etsy's own React tree) into a heavy re-render
+    // loop that can hang/crash the tab, especially with DevTools open.
+    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+  }
+
+  async function fillAndSubmit(orderId, tracking, carrierRaw) {
+    const select = document.querySelector(`select[name="carrierNameSelect-${orderId}"]`);
+    if (!select) throw new Error('carrier select not found for ' + orderId);
+
+    const matched = matchCarrierOption(select, carrierRaw);
+
+    if (matched) {
+      log(`  carrier "${carrierRaw}" -> "${matched.textContent.trim()}"`);
+      setNativeValue(select, matched.value);
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      // Let Etsy's own React tree finish re-rendering around the select
+      // before we touch anything else in the modal.
+      await sleep(500);
+    } else {
+      const other = Array.from(select.querySelectorAll('option')).find(
+        (o) => o.textContent.trim().toLowerCase() === 'other'
+      );
+      if (!other) throw new Error('No "Other" option found in carrier select');
+      log(`  carrier "${carrierRaw}" -> Other (custom text)`);
+      setNativeValue(select, other.value);
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      // Selecting "Other" makes the custom carrier-name field appear/enable;
+      // give the app a moment to settle before we grab and fill it — doing
+      // this too fast back-to-back is what tends to freeze the tab.
+      await sleep(500);
+
+      const carrierInput = await waitFor(
+        () => document.querySelector(`clg-text-input[name="carrierName-${orderId}"]`),
+        { timeout: 3000, desc: 'custom carrier text input' }
+      );
+      await setClgTextInputValue(carrierInput, carrierRaw);
+      await sleep(300);
+    }
+
+    const trackingInput = await waitFor(
+      () => document.querySelector(`clg-text-input[name="trackingCode-${orderId}"]`),
+      { timeout: 3000, desc: 'tracking number input' }
+    );
+    await setClgTextInputValue(trackingInput, tracking);
+
+    await sleep(500);
+
+    // The modal's own footer button, not the dropdown menu item -> exclude
+    // anything still living inside a dropdown container.
+    const submitBtn = Array.from(document.querySelectorAll('button')).find(
+      (b) =>
+        b.textContent.trim() === 'Complete order' &&
+        !b.closest('[data-dropdown-target="true"]')
+    );
+    if (!submitBtn) throw new Error('Modal submit button not found');
+
+    await waitFor(() => !submitBtn.disabled, { timeout: 5000, desc: 'submit button enabled' });
+    submitBtn.click();
+
+    await waitFor(
+      () => !document.querySelector(`select[name="carrierNameSelect-${orderId}"]`),
+      { timeout: 8000, desc: 'modal closed for ' + orderId }
+    );
+  }
+
+  function closeModalIfOpen(orderId) {
+    const select = document.querySelector(`select[name="carrierNameSelect-${orderId}"]`);
+    if (!select) return;
+    const cancelBtn = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent.trim() === 'Cancel'
+    );
+    if (cancelBtn) cancelBtn.click();
+  }
+
+  async function lookupTracking(orderId, customerName) {
+    GM_deleteValue(RES_KEY);
+    GM_setValue(REQ_KEY, { orderId, customerName, ts: Date.now() });
+    try {
+      return await waitFor(
+        () => {
+          const r = GM_getValue(RES_KEY);
+          return r && r.orderId === orderId ? r : null;
+        },
+        { timeout: 15000, interval: 300, desc: 'Merchize response for ' + orderId }
+      );
+    } catch (e) {
+      log('  no response from Merchize tab (is it open on the Orders list?)', e.message);
+      return { orderId, found: false };
+    }
+  }
+
+  // Returns true if a real "open modal / fill / submit" attempt happened
+  // (used by runAll to decide how long to pause before the next order —
+  // a quick skip shouldn't cost the same settle time as a real completion).
+  async function processOrder(orderId) {
+    // Fetch the row first — completing an order re-renders the list (see
+    // findRowByOrderId), and we now also need the customer name off of it
+    // as a fallback match key in case the order code itself doesn't match.
+    const row = await waitForRow(orderId);
+    if (!row) {
+      return false; // order no longer on page -> skip silently
+    }
+    const customerName = getOrderCustomerName(row);
+
+    log(
+      'Checking order',
+      orderId,
+      customerName ? `(name: "${customerName}")` : '(no name found)',
+      'against Merchize ...'
+    );
+
+    // Look up Merchize FIRST. Only open the "Complete order" modal at all
+    // if we actually have tracking data to put into it.
+    const result = await lookupTracking(orderId, customerName);
+
+    if (!result.found) {
+      log('  not found in Merchize -> skipped (no modal opened)');
+      return false;
+    }
+    log(result.byName ? '  found (by customer name):' : '  found:', result.tracking, '/', result.carrier);
+
+    const opened = await openCompleteOrderModal(row, orderId);
+    if (!opened) {
+      log('  no "Complete order" action available on this row -> skipped');
+      return false;
+    }
+
+    try {
+      await fillAndSubmit(orderId, result.tracking, result.carrier);
+      log('  done:', result.tracking, '/', result.carrier);
+    } catch (e) {
+      log('  ERROR filling modal:', e.message);
+      closeModalIfOpen(orderId);
+    }
+    return true;
+  }
+
+  async function runAll() {
+    GM_setValue(RUN_KEY, true);
+    GM_setValue(PAUSE_KEY, false);
+    setStatus('Running...');
+
+    // Always driven by the Etsy page: scan every order currently shown on
+    // this page first, then check each one against the Merchize tab.
+    const orderIds = getOrderIds();
+    log(`Found ${orderIds.length} order(s) on this page.`);
+
+    for (const orderId of orderIds) {
+      if (!GM_getValue(RUN_KEY)) {
+        log('Stopped by user.');
+        break;
+      }
+
+      // Pause: block right here (loop position/order id list is kept,
+      // nothing is re-scanned) until Resume is clicked or Stop cancels the run.
+      while (GM_getValue(PAUSE_KEY)) {
+        setStatus('Paused');
+        await sleep(300);
+        if (!GM_getValue(RUN_KEY)) break;
+      }
+      if (!GM_getValue(RUN_KEY)) {
+        log('Stopped by user.');
+        break;
+      }
+      setStatus('Running...');
+
+      let attempted = false;
+      try {
+        attempted = await processOrder(orderId);
+      } catch (e) {
+        log('ERROR processing row:', e.message);
+        // Best-effort cleanup: close any dropdown/modal left open by the
+        // failed step so it doesn't block clicks on the next order.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        attempted = true;
+      }
+      // Only pay the full "let the page settle" pause after a real
+      // open-modal/fill/submit attempt; a quick non-match skip doesn't need it.
+      await sleep(attempted ? 2000 : 150);
+    }
+
+    GM_setValue(RUN_KEY, false);
+    GM_setValue(PAUSE_KEY, false);
+    setStatus('Idle');
+    setPauseButtonLabel();
+    log('All done.');
+  }
+
+  // --- minimal floating control panel -------------------------------
+  GM_addStyle(`
+    #at-panel{position:fixed;bottom:16px;right:16px;z-index:999999;
+      background:#111;color:#fff;font:13px sans-serif;padding:10px 12px;
+      border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);width:240px}
+    .at-drag-handle{cursor:pointer;user-select:none;padding-bottom:6px;margin-bottom:6px;
+      border-bottom:1px solid rgba(255,255,255,.15);display:flex;align-items:center;
+      justify-content:space-between}
+    #at-panel.at-collapsed .at-drag-handle{padding-bottom:0;margin-bottom:0;border-bottom:none}
+    #at-panel.at-collapsed > *:not(.at-drag-handle){display:none}
+    #at-toggle-icon-etsy{opacity:.6;font-size:10px;margin-left:8px}
+    .at-version{opacity:.5;font-weight:400;font-size:10px}
+    #at-panel button{width:100%;margin-top:6px;padding:6px 0;border:0;border-radius:6px;
+      cursor:pointer;font:13px sans-serif;font-weight:600}
+    #at-panel .start{background:#16a34a;color:#fff}
+    #at-panel .pause{background:#d97706;color:#fff}
+    #at-panel .stop{background:#dc2626;color:#fff}
+    #at-status{font:12px monospace;opacity:.8;margin-top:4px}
+    .at-log{margin-top:8px;max-height:150px;overflow-y:auto;background:#000;
+      border-radius:6px;padding:6px;font:11px/1.4 monospace;color:#9ca3af}
+    .at-log-line{white-space:pre-wrap;word-break:break-word;
+      border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}
+    .at-log-line:last-child{border-bottom:none}
+  `);
+
+  const panel = document.createElement('div');
+  panel.id = 'at-panel';
+  panel.innerHTML = `
+    <div class="at-drag-handle"><strong>Etsy Auto Tracking <span class="at-version">v${SCRIPT_VERSION}</span></strong><span id="at-toggle-icon-etsy">▾</span></div>
+    <div id="at-status">Idle</div>
+    <button class="start" id="at-start">Start</button>
+    <button class="pause" id="at-pause">Pause</button>
+    <button class="stop" id="at-stop">Stop</button>
+    <div id="at-log" class="at-log"></div>
+  `;
+  document.body.appendChild(panel);
+
+  const PANEL_COLLAPSED_KEY = 'at_panel_collapsed_etsy';
+  function applyCollapsedUI() {
+    const collapsed = localStorage.getItem(PANEL_COLLAPSED_KEY) === '1';
+    panel.classList.toggle('at-collapsed', collapsed);
+    const icon = document.getElementById('at-toggle-icon-etsy');
+    if (icon) icon.textContent = collapsed ? '▸' : '▾';
+  }
+  applyCollapsedUI();
+
+  makeDraggable(panel, panel.querySelector('.at-drag-handle'), 'at_panel_pos_etsy', () => {
+    const collapsed = localStorage.getItem(PANEL_COLLAPSED_KEY) === '1';
+    localStorage.setItem(PANEL_COLLAPSED_KEY, collapsed ? '0' : '1');
+    applyCollapsedUI();
+  });
+
+  function setStatus(text) {
+    const el = document.getElementById('at-status');
+    if (el) el.textContent = text;
+  }
+
+  function setPauseButtonLabel() {
+    const btn = document.getElementById('at-pause');
+    if (btn) btn.textContent = GM_getValue(PAUSE_KEY) ? 'Resume' : 'Pause';
+  }
+
+  // Start: begins a brand-new run (fresh scan of the current order list) if
+  // idle, or resumes if currently paused. Pause: temporarily halts the loop
+  // in place — same in-progress list, same position, nothing re-scanned.
+  // Stop: cancels the run entirely; the next Start rescans from the top.
+  document.getElementById('at-start').addEventListener('click', () => {
+    if (GM_getValue(RUN_KEY)) {
+      if (GM_getValue(PAUSE_KEY)) {
+        GM_setValue(PAUSE_KEY, false);
+        setPauseButtonLabel();
+        log('Resumed by user.');
+      }
+      return;
+    }
+    runAll();
+  });
+  document.getElementById('at-pause').addEventListener('click', () => {
+    if (!GM_getValue(RUN_KEY)) return; // nothing running to pause
+    const nowPaused = !GM_getValue(PAUSE_KEY);
+    GM_setValue(PAUSE_KEY, nowPaused);
+    setPauseButtonLabel();
+    log(nowPaused ? 'Paused by user.' : 'Resumed by user.');
+  });
+  document.getElementById('at-stop').addEventListener('click', () => {
+    GM_setValue(RUN_KEY, false);
+    GM_setValue(PAUSE_KEY, false);
+    setPauseButtonLabel();
+    setStatus('Stopping...');
+
+    const logBox = document.getElementById('at-log');
+    if (logBox) logBox.innerHTML = '';
+  });
+
+  log('Etsy helper loaded. Open the Merchize Orders list (seller.merchize.com/a/orders) too, then click Start.');
+})();
