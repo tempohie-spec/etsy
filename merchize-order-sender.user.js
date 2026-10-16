@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.43
+// @version      1.44
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.43';
+  const SCRIPT_VERSION = '1.44';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -975,7 +975,7 @@
   // (uu tien hon Teb va Merchize), moi san pham 1 dong tren sheet fulfill.
   const STATUS_ZOOTOP = 'ZooTop';
   // shipping_type ghi vao cot D sheet fulfill: 'PLATFORM' hoac 'SELLER'.
-  const ZOOTOP_SHIPPING_TYPE = 'PLATFORM';
+  const ZOOTOP_SHIPPING_TYPE = 'SELLER';
   const ZOOTOP_FILE_SKU = '1mCPCCleDu4GuYZhmWr_-BAPdkUiuhvo2rqKYk9hELtI';
   // 3 tab trong file SKU ZooTop (theo gid): cot 0-based cua Product Name / Type / Color / Size / SKU.
   // Tab khong co cot Type thi dung phuong phap in co dinh (pm).

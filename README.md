@@ -1405,7 +1405,7 @@ ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
     Adult Sweatshirt, Bella Adult, Gildan Youth (tên sản phẩm ở `ZOOTOP_TEN`).
   - Màu so không phân biệt hoa thường; size chuẩn hoá (XXL = 2XL).
 - Ghi sheet fulfill nối tiếp (dòng trống kế tiếp theo cột B), chỉ cột B đến Y: order_id, store_code trống,
-  shipping_type `PLATFORM` (đổi ở `ZOOTOP_SHIPPING_TYPE`), buyer_first_name = tên đầy đủ, phone, email, country,
+  shipping_type `SELLER` (đổi ở `ZOOTOP_SHIPPING_TYPE`), buyer_first_name = tên đầy đủ, phone, email, country,
   state, city, address 1/2, postcode, quantity, sku, design_front/back (F/G), mockup_front (D). Sheet đơn: AB = SKU
   ZooTop, AC = `ZooTop` cho mọi dòng của đơn.
 - Worker: đọc sheet ZooTop của tab (share cho service account, quyền xem), với đơn AC = `ZooTop` trong 10 ngày:
