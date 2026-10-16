@@ -819,6 +819,13 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Không tự tắt Visible dòng "Sold out" khi dán variations/giá từ Google Sheets (v9.52)
+
+Dán variations và "Chỉ điền giá" từ bảng Google Sheets trước đây tự tắt Visible những dòng có chữ "Sold out" (vd "Onesie (Sold out)").
+Giờ **mọi dòng có giá đều để Visible**, dòng "Sold out" được xử lý như các dòng khác; dòng nào không có giá ở cột đã chọn vẫn bị bỏ qua
+(Etsy khoá Visible khi giá trống). Dòng thông báo "🙈 Tạo nhưng tắt Visible" trong hộp xem trước cũng bỏ. "Copy variations" từ listing
+nguồn thì vẫn giữ nguyên trạng thái Visible của từng option ở nguồn — chỉ có đường dán từ Sheets thay đổi.
+
 ### Ảnh thiếu/lỗi thì không tự Publish (v9.51)
 
 Khi chọn "Bấm hộ Publish", script giờ **kiểm tra lần cuối trên trang** ngay trước khi bấm (sau khi chờ thêm 1,5s để Etsy kịp
@@ -1729,7 +1736,7 @@ Không cần listing nguồn nữa: bảng giá/size/màu nằm trên Google She
    - **Variation 2** (mặc định `Color`) lấy từ cột màu, không đặt giá. Bỏ tick nếu không cần.
    - Phần xem trước báo số option, khoảng giá, các dòng **bị bỏ qua vì cột giá đang trống** (vd các dòng
      Gildan chưa có giá — Etsy khoá switch Visible khi giá trống nên không tạo dòng ẩn không giá được), các
-     dòng có chữ **"Sold out"** (vẫn tạo nhưng tắt Visible), và **chặn dán** nếu có tên dài quá
+     dòng có chữ "Sold out" (từ v9.52 **không còn tự tắt Visible**), và **chặn dán** nếu có tên dài quá
      **20 ký tự** hoặc bị trùng (Etsy sẽ cắt/từ chối, làm lệch bước điền giá).
 3. Bấm **Dán vào Etsy** → chạy đúng luồng "Dán variations" cũ (tạo variation → Prices vary → Apply → điền giá).
 
