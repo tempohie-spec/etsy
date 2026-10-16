@@ -1393,6 +1393,25 @@ mở tab. Nếu script báo `⚠️ Worker chưa vào được file`: share file
 thông báo (Sheet đơn: Editor, file Teb: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
 ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
 
+## ZooTop (v1.43)
+
+- Gắn sheet fulfill: mở tab, bấm dòng **ZooTop** trên bảng, dán link sheet fulfill ZooTop (mở đúng tab, link có
+  `#gid=`) rồi bấm **Lưu sheet ZooTop cho tab này** (tự gửi lên Worker). Để trống rồi bấm Lưu = bỏ dùng ZooTop.
+- Chọn đơn: tab đã gắn sheet ZooTop, đơn mà **mọi dòng** đều tìm được SKU ZooTop thì đi ZooTop (ưu tiên hơn Teb và
+  Merchize), mỗi sản phẩm 1 dòng. Tra SKU trong file SKU ZooTop (`ZOOTOP_FILE_SKU`, 3 tab theo gid):
+  - gid 193554855: Product Name (I), Type (K, so với cột A PrintingMethod), Color (L), Size (M), SKU (N) cho
+    Gildan Adult (Gildan Unisex T-Shirt 5000) và Comfort Adult (Comfort Colors Unisex T-Shirt 1717).
+  - gid 1487135370 (DTF) và gid 2135860525 (DTG): Product Name (B), Color (E), Size (F), SKU (G) cho Adult Hoodie,
+    Adult Sweatshirt, Bella Adult, Gildan Youth (tên sản phẩm ở `ZOOTOP_TEN`).
+  - Màu so không phân biệt hoa thường; size chuẩn hoá (XXL = 2XL).
+- Ghi sheet fulfill nối tiếp (dòng trống kế tiếp theo cột B), chỉ cột B đến Y: order_id, store_code trống,
+  shipping_type `PLATFORM` (đổi ở `ZOOTOP_SHIPPING_TYPE`), buyer_first_name = tên đầy đủ, phone, email, country,
+  state, city, address 1/2, postcode, quantity, sku, design_front/back (F/G), mockup_front (D). Sheet đơn: AB = SKU
+  ZooTop, AC = `ZooTop` cho mọi dòng của đơn.
+- Worker: đọc sheet ZooTop của tab (share cho service account, quyền xem), với đơn AC = `ZooTop` trong 10 ngày:
+  tracking (Z, trống thì A) + hãng (AA) vào AE/AF, Base Cost (Y) = tổng Total Cost (AD) các dòng của đơn. Telegram
+  báo `Tracking ZooTop mới` / `Cost ZooTop`.
+
 ## Luật AU và Teb Print (v1.21, thay Apps Script cũ)
 
 - **SKU Merchize tra thẳng catalog.** Luật AU giữ như Apps Script cũ: Comfort Adult (1717US) gửi

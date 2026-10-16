@@ -24,6 +24,7 @@
 //   STORES                  JSON: {"<ten tab>": {"baseUrl": "https://...merchize.com/<store>/bo-api", "token": "<Access Token>"}}
 //                           Tab nam o file Sheet khac: them "spreadsheetId": "<ID file>" (va "sheet": "<ten tab
 //                           that trong file>" neu ten muc khac ten tab), file do phai share cho service account.
+//   ZOOTOP (tuy chon)       JSON giong TEB: sheet fulfill ZooTop cua tung tab (userscript tu gui len, khong can khai bao)
 //   TEB (tuy chon)          JSON: {"<ten tab>": {"spreadsheetId": "<ID file Teb>", "sheet": "<ten tab trong file Teb>"}}
 // KV binding: EVENTS
 
@@ -576,7 +577,7 @@ function donCanTra(rows) {
     if (dong.some(({ row }) => cell(row, COL.tracking))) return false;
     // Don chua gui (AC trong), don loi (chua gui duoc / loi import) va don di Teb khong co tren Merchize.
     if (!cell(dong[0].row, COL.status)) return false;
-    if (dong.some(({ row }) => /^Lỗi/.test(cell(row, COL.status)) || cell(row, COL.status) === 'Teb')) return false;
+    if (dong.some(({ row }) => /^Lỗi/.test(cell(row, COL.status)) || ['Teb', 'ZooTop'].includes(cell(row, COL.status)))) return false;
     const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
     return ngay && ngay >= moc;
   });
@@ -584,7 +585,7 @@ function donCanTra(rows) {
 
 async function chayLich(env, event) {
   const dem = taoBoDem();
-  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, teb: [], tebCost: [], canXuLy: [] };
+  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, teb: [], tebCost: [], zoo: [], zooCost: [], canXuLy: [] };
   // Moi muc thong ke: { tab, ma } (canXuLy them note) de tin Telegram ghi ro don nao cua tab nao.
   const daTraMa = new Set();
   const ghiNhan = (tab, ma, kq) => {
@@ -702,6 +703,66 @@ async function chayLich(env, event) {
     } catch (e) {
       tebInfo[tab] = 'lỗi đọc sheet Teb: ' + e.message.slice(0, 200);
       await baoLoiHeThong(env, dem, `Không đọc được sheet Teb của tab "${tab}": ${e.message}`).catch(() => {});
+    }
+  }
+
+  // 3b. Don di ZooTop (AC = "ZooTop"): sheet fulfill ZooTop cua tab (B order_id, Z tracking_number hoac
+  //     A Tracking Number, AA tracking_carrier, AD Total Cost). Moi san pham 1 dong -> cost = tong AD cac
+  //     dong cua don. Ghi tracking/DVVC (AE/AF) va Base Cost (Y) o dong dau cua don.
+  const zooInfo = {};
+  let cauHinhZoo = {};
+  try { cauHinhZoo = JSON.parse(env.ZOOTOP || '{}') || {}; } catch (e) { zooInfo.loi = 'biến ZOOTOP không phải JSON hợp lệ'; }
+  for (const tab of Object.keys(cauHinhZoo)) {
+    const cfg = cauHinhZoo[tab];
+    const rows = duLieu[tab];
+    if (!rows || !cfg || !cfg.spreadsheetId || !cfg.sheet) { zooInfo[tab] = 'tab không có trong STORES hoặc thiếu sheet'; continue; }
+    const moc = new Date();
+    moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
+    const canZoo = new Map();
+    rows.forEach((row, i) => {
+      const ma = cell(row, COL.orderNumber);
+      if (i === 0 || !ma || cell(row, COL.status) !== 'ZooTop') return;
+      if (!canZoo.has(ma)) canZoo.set(ma, []);
+      canZoo.get(ma).push({ rowNumber: i + 1, row });
+    });
+    canZoo.forEach((dong, ma) => {
+      const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
+      if (!ngay || ngay < moc) canZoo.delete(ma);
+    });
+    if (!canZoo.size) { zooInfo[tab] = `không có đơn ZooTop nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất`; continue; }
+    try {
+      const data = await sheetsFetch(env, dem,
+        `/values/${encodeURIComponent(`'${cfg.sheet}'!A:AD`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
+      const theoMa = {};
+      (data.values || []).forEach((r) => {
+        const ma = cell(r, 1);
+        if (!ma) return;
+        const t = theoMa[ma] || (theoMa[ma] = { tracking: '', dvvc: '', total: 0, coCost: false });
+        const tk = cell(r, 25) || cell(r, 0);
+        if (tk && !t.tracking) { t.tracking = tk; t.dvvc = cell(r, 26); }
+        const c = soTien(r[29]);
+        if (c !== null) { t.total = Math.round((t.total + c) * 100) / 100; t.coCost = true; }
+      });
+      zooInfo[tab] = { soDongSheetZooTop: (data.values || []).length, khopMaDon: Array.from(canZoo.keys()).filter((m) => theoMa[m]).length };
+      canZoo.forEach((dong, ma) => {
+        const tk = theoMa[ma];
+        if (!tk) return;
+        const { rowNumber, row } = dong[0];
+        if (tk.tracking && !dong.some(({ row: r }) => cell(r, COL.tracking))) {
+          boGhi.dat(tab, rowNumber, COL.tracking, tk.tracking);
+          boGhi.dat(tab, rowNumber, COL.carrier, tk.dvvc);
+          boGhi.tieuDe(tab, COL.tracking, 'Tracking');
+          boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
+          thongKe.zoo.push({ tab, ma });
+        }
+        if (tk.coCost && tk.total > 0 && soTien(cell(row, COL.baseCost)) !== tk.total) {
+          boGhi.dat(tab, rowNumber, COL.baseCost, tk.total, true);
+          thongKe.zooCost.push({ tab, ma });
+        }
+      });
+    } catch (e) {
+      zooInfo[tab] = 'lỗi đọc sheet ZooTop: ' + e.message.slice(0, 200);
+      await baoLoiHeThong(env, dem, `Không đọc được sheet ZooTop của tab "${tab}": ${e.message}`).catch(() => {});
     }
   }
 
@@ -912,7 +973,7 @@ async function chayLich(env, event) {
     }).join('\n');
   };
   const muc = (tieuDe, arr) => (arr.length ? `${tieuDe}: ${arr.length} đơn\n${theoTab(arr)}` : '');
-  const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.teb.length || thongKe.tebCost.length ||
+  const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.teb.length || thongKe.tebCost.length || thongKe.zoo.length || thongKe.zooCost.length ||
     thongKe.canXuLy.length;
   await guiTelegram(env, dem, [
     `🔄 Cập nhật tự động lúc ${gioVN(luc)}` + (tiep ? `. Lần chạy tiếp theo: ${tiep}` : ''),
@@ -920,6 +981,8 @@ async function chayLich(env, event) {
     muc('Tracking Teb mới', thongKe.teb),
     muc('Cost thật', thongKe.cost),
     muc('Cost Teb', thongKe.tebCost),
+    muc('Tracking ZooTop mới', thongKe.zoo),
+    muc('Cost ZooTop', thongKe.zooCost),
     thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length}\n` +
       thongKe.canXuLy.map((x) => `  • ${x.tab} | ${x.ma}: ${x.note || 'xem trên Merchize'}`).join('\n') : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
@@ -930,7 +993,7 @@ async function chayLich(env, event) {
 
   return {
     tracking: thongKe.tracking, cost: thongKe.cost,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb, costTeb: thongKe.tebCost, canXuLy: thongKe.canXuLy, teb: tebInfo, conThieuTracking: conThieu, donThieu, soDu
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, trackingTeb: thongKe.teb, costTeb: thongKe.tebCost, canXuLy: thongKe.canXuLy, teb: tebInfo, zootop: zooInfo, trackingZooTop: thongKe.zoo, costZooTop: thongKe.zooCost, conThieuTracking: conThieu, donThieu, soDu
   };
 }
 
@@ -954,6 +1017,7 @@ async function napCauHinh(env) {
   const e2 = Object.create(env);
   e2.STORES = gop('STORES', kv.stores);
   if (env.TEB || Object.keys(kv.teb || {}).length) e2.TEB = gop('TEB', kv.teb);
+  if (env.ZOOTOP || Object.keys(kv.zootop || {}).length) e2.ZOOTOP = gop('ZOOTOP', kv.zootop);
   // Secret key webhook rieng cua tung store (nhap tren userscript), dung them voi SECRET_KEYS.
   e2.WEBHOOK_KEYS = Object.values(kv.webhookKeys || {}).map(str).filter(Boolean);
   return e2;
@@ -998,11 +1062,13 @@ async function xuLyConfig(request, env) {
   if (!khoa) khoa = stores[sheet] ? `${sheet} (${spreadsheetId.slice(0, 6)})` : sheet;
   kv.stores = kv.stores || {};
   kv.teb = kv.teb || {};
+  kv.zootop = kv.zootop || {};
   kv.webhookKeys = kv.webhookKeys || {};
   const ketQua = { ok: true, khoa, serviceAccount: emailServiceAccount(env) };
   if (body.store === null) {
     kv.stores[khoa] = null;
     kv.teb[khoa] = null;
+    kv.zootop[khoa] = null;
     delete kv.webhookKeys[khoa];
   } else if (body.store) {
     const cu = stores[khoa] || {};
@@ -1028,6 +1094,14 @@ async function xuLyConfig(request, env) {
         ketQua.tenFileTeb = str((d.properties || {}).title);
       } catch (e) { /* khong lay duoc ten file, bo qua */ }
     }
+  }
+  if (body.zootop === null) {
+    kv.zootop[khoa] = null;
+  } else if (body.zootop) {
+    const z = { spreadsheetId: str(body.zootop.spreadsheetId), sheet: str(body.zootop.sheet) };
+    if (!z.spreadsheetId || !z.sheet) return json({ ok: false, error: 'thiếu thông tin sheet ZooTop' }, 400);
+    kv.zootop[khoa] = z;
+    ketQua.quyenZooTop = await thuQuyen(env, dem, z.spreadsheetId, z.sheet);
   }
   await env.EVENTS.put('cfg', JSON.stringify(kv));
   return json(ketQua);
