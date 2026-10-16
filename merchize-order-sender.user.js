@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.45
+// @version      1.46
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.45';
+  const SCRIPT_VERSION = '1.46';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -76,7 +76,8 @@
   // Phu phi in them mat sau (moi san pham co link designBack), tinh theo tung cai.
   const PHU_PHI_MAT_SAU = 4.5;
 
-  const STATUS_SENT = 'Đã gửi';
+  // Gui thanh cong: AC ghi ten nha cung cap (Merchize / Teb / ZooTop).
+  const STATUS_SENT = 'Merchize';
   const STATUS_OLD = 'Cũ';
   const STATUS_ERROR_PREFIX = 'Lỗi: ';
 

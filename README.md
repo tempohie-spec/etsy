@@ -1354,7 +1354,7 @@ dòng thì sửa `SO_DONG_CUOI` đầu script.
 | Cột | Nội dung |
 |---|---|
 | AB | Merchize SKU tự tra |
-| AC | `Đã gửi` / `Cũ` / `Lỗi: ...` |
+| AC | Tên nhà cung cấp khi gửi thành công (`Merchize` / `Teb` / `ZooTop`) / `Cũ` / `Lỗi: ...` |
 | AD | Mã đơn Merchize (ID nội bộ, dùng khi hỏi hỗ trợ). Mã đơn Etsy gửi lên thành External number |
 
 Đơn bị lỗi: sửa dữ liệu rồi **xoá ô AC** của các dòng đơn đó để gửi lại. Gửi lại đơn đã bị
@@ -1507,7 +1507,7 @@ thông báo có gửi). Ticket tìm theo mã RX ở cột AD.
 |---|---|
 | Order invalid address | AC = `Lỗi địa chỉ: <loại lỗi> - <chi tiết>` |
 | Order importer error | AC = `Lỗi import: <lỗi>` |
-| Order changed tracking / API tracking | AC = `Có tracking` (dòng `Cũ` giữ nguyên), AE = tracking, AF = hãng vận chuyển |
+| Order changed tracking / API tracking | AE = tracking, AF = hãng vận chuyển (AC giữ nguyên) |
 | Order payment fulfillment cost | Y (dòng đầu của đơn) = cost thật |
 | API tracking | Y (chỉ khi ô Y trống) = giá sản phẩm + phí ship (+3.5$ thuế nếu gửi đi châu Âu) |
 | Order issue updated | AG = `<trạng thái> [vấn đề]: <tin nhắn mới nhất>` |

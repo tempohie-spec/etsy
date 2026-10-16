@@ -44,7 +44,6 @@ const COL = {
 // AC tracking_carrier, AF Total Cost.
 const ZOO_COT = { trackingA: 2, orderId: 3, trackingNumber: 27, carrier: 28, totalCost: 31 };
 const TEN_COT = { 24: 'Y', 28: 'AC', 29: 'AD', 30: 'AE', 31: 'AF', 32: 'AG' };
-const STATUS_OLD = 'Cũ';
 
 // Thue nhap khau 3.5$ moi kien tu kho US toi 50 nuoc chau Au (tu 26/06/2026).
 const THUE_NHAP_KHAU_CHAU_AU = 3.5;
@@ -350,7 +349,7 @@ function noiDungTuSuKien(ev) {
     co.status = `Lỗi import: ${str(r.error) || str(r.status)}`;
   } else if (loai === 'ORDER.CHANGED.TRACKING') {
     if (!str(r.tracking_number)) return co.maRx ? co : null;
-    co.status = 'Có tracking';
+    // Co tracking: chi dien AE/AF, khong doi trang thai (AC giu ten nha cung cap).
     co.tracking = str(r.tracking_number);
     co.carrier = str(r.tracking_company);
   } else if (loai === 'ORDER.PAYMENT.FULFILLMENT_COST') {
@@ -406,7 +405,7 @@ function apDungSuKien(ev, duLieu, boGhi) {
   });
   tim.forEach(({ t, rowNumber, row }) => {
     const dau = rowNumber === dongDau[t];
-    if (co.status && !(cell(row, COL.status) === STATUS_OLD && co.status === 'Có tracking')) {
+    if (co.status) {
       boGhi.dat(t, rowNumber, COL.status, co.status);
     }
     if (co.maRx) datDongDau(boGhi, t, rowNumber, row, dau, COL.merchizeId, co.maRx);
@@ -504,7 +503,6 @@ function apDungKetQuaApi(tab, dong, kq, boGhi) {
     if (kq.tracking.length) {
       datDongDau(boGhi, tab, rowNumber, row, dau, COL.tracking, kq.tracking.join(', '));
       datDongDau(boGhi, tab, rowNumber, row, dau, COL.carrier, kq.carrier.join(', '));
-      if (cell(row, COL.status) !== STATUS_OLD) boGhi.dat(tab, rowNumber, COL.status, 'Có tracking');
       boGhi.tieuDe(tab, COL.tracking, 'Tracking');
       boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
     }
