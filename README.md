@@ -1404,12 +1404,13 @@ ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
   - gid 1487135370 (DTF) và gid 2135860525 (DTG): Product Name (B), Color (E), Size (F), SKU (G) cho Adult Hoodie,
     Adult Sweatshirt, Bella Adult, Gildan Youth (tên sản phẩm ở `ZOOTOP_TEN`).
   - Màu so không phân biệt hoa thường; size chuẩn hoá (XXL = 2XL).
-- Ghi sheet fulfill nối tiếp (dòng trống kế tiếp theo cột B), chỉ cột B đến Y: order_id, store_code trống,
+- Sheet fulfill (v1.45): A DATE, B trạng thái, C Tracking Number, D order_id ... AA note, AB tracking_number, AC
+  tracking_carrier, AF Total Cost. Ghi nối tiếp (dòng trống kế tiếp theo cột D), chỉ cột D đến AA: order_id, store_code trống,
   shipping_type `SELLER` (đổi ở `ZOOTOP_SHIPPING_TYPE`), buyer_first_name = tên đầy đủ, phone, email, country,
   state, city, address 1/2, postcode, quantity, sku, design_front/back (F/G), mockup_front (D). Sheet đơn: AB = SKU
   ZooTop, AC = `ZooTop` cho mọi dòng của đơn.
 - Worker: đọc sheet ZooTop của tab (share cho service account, quyền xem), với đơn AC = `ZooTop` trong 10 ngày:
-  tracking (Z, trống thì A) + hãng (AA) vào AE/AF, Base Cost (Y) = tổng Total Cost (AD) các dòng của đơn. Telegram
+  tracking (AB, trống thì C) + hãng (AC) vào AE/AF, Base Cost (Y) = tổng Total Cost (AF) các dòng của đơn. Telegram
   báo `Tracking ZooTop mới` / `Cost ZooTop`.
 
 ## Luật AU và Teb Print (v1.21, thay Apps Script cũ)

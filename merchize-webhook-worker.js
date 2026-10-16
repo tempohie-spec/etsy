@@ -40,6 +40,9 @@ const COL = {
   account: 1, orderNumber: 2, country: 19, dateFulfill: 22, baseCost: 24,
   status: 28, merchizeId: 29, tracking: 30, carrier: 31, ticket: 32
 };
+// Cot (0-based) sheet fulfill ZooTop: A DATE, B trang thai, C Tracking Number, D order_id, AB tracking_number,
+// AC tracking_carrier, AF Total Cost.
+const ZOO_COT = { trackingA: 2, orderId: 3, trackingNumber: 27, carrier: 28, totalCost: 31 };
 const TEN_COT = { 24: 'Y', 28: 'AC', 29: 'AD', 30: 'AE', 31: 'AF', 32: 'AG' };
 const STATUS_OLD = 'Cũ';
 
@@ -706,8 +709,8 @@ async function chayLich(env, event) {
     }
   }
 
-  // 3b. Don di ZooTop (AC = "ZooTop"): sheet fulfill ZooTop cua tab (B order_id, Z tracking_number hoac
-  //     A Tracking Number, AA tracking_carrier, AD Total Cost). Moi san pham 1 dong -> cost = tong AD cac
+  // 3b. Don di ZooTop (AC = "ZooTop"): sheet fulfill ZooTop cua tab (D order_id, AB tracking_number hoac
+  //     C Tracking Number, AC tracking_carrier, AF Total Cost; A DATE, B trang thai). Moi san pham 1 dong -> cost = tong AD cac
   //     dong cua don. Ghi tracking/DVVC (AE/AF) va Base Cost (Y) o dong dau cua don.
   const zooInfo = {};
   let cauHinhZoo = {};
@@ -732,15 +735,15 @@ async function chayLich(env, event) {
     if (!canZoo.size) { zooInfo[tab] = `không có đơn ZooTop nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất`; continue; }
     try {
       const data = await sheetsFetch(env, dem,
-        `/values/${encodeURIComponent(`'${cfg.sheet}'!A:AD`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
+        `/values/${encodeURIComponent(`'${cfg.sheet}'!A:AF`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
       const theoMa = {};
       (data.values || []).forEach((r) => {
-        const ma = cell(r, 1);
+        const ma = cell(r, ZOO_COT.orderId);
         if (!ma) return;
         const t = theoMa[ma] || (theoMa[ma] = { tracking: '', dvvc: '', total: 0, coCost: false });
-        const tk = cell(r, 25) || cell(r, 0);
-        if (tk && !t.tracking) { t.tracking = tk; t.dvvc = cell(r, 26); }
-        const c = soTien(r[29]);
+        const tk = cell(r, ZOO_COT.trackingNumber) || cell(r, ZOO_COT.trackingA);
+        if (tk && !t.tracking) { t.tracking = tk; t.dvvc = cell(r, ZOO_COT.carrier); }
+        const c = soTien(r[ZOO_COT.totalCost]);
         if (c !== null) { t.total = Math.round((t.total + c) * 100) / 100; t.coCost = true; }
       });
       zooInfo[tab] = { soDongSheetZooTop: (data.values || []).length, khopMaDon: Array.from(canZoo.keys()).filter((m) => theoMa[m]).length };

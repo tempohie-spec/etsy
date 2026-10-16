@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.44
+// @version      1.45
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.44';
+  const SCRIPT_VERSION = '1.45';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -1038,42 +1038,46 @@
     return skus.every(Boolean) ? skus : null;
   }
 
-  // 1 dong sheet fulfill ZooTop, cot B -> Y (24 o).
+  // Sheet fulfill ZooTop: A DATE, B trang thai, C Tracking Number, D order_id ... AA note (script ghi D -> AA),
+  // AB tracking_number, AC tracking_carrier, AD shipping_label, AE Note, AF Total Cost.
+  const ZOOTOP_COT_DAU = 'D';
+  const ZOOTOP_COT_CUOI = 'AA';
+  // 1 dong sheet fulfill ZooTop, cot D -> AA (24 o).
   function dongZooTop(r, sku) {
     const v = new Array(24).fill('');
-    v[0] = cell(r, COL.orderNumber);          // B order_id
-    v[2] = ZOOTOP_SHIPPING_TYPE;              // D shipping_type
-    v[3] = cell(r, COL.name);                 // E buyer_first_name
-    v[5] = cell(r, COL.phone);                // G
-    v[6] = cell(r, COL.email);                // H
-    v[7] = cell(r, COL.country);              // I
-    v[8] = cell(r, COL.state);                // J
-    v[9] = cell(r, COL.city);                 // K
-    v[10] = cell(r, COL.address1);            // L
-    v[11] = cell(r, COL.address2);            // M
-    v[12] = cell(r, COL.postalCode);          // N
-    v[13] = cell(r, COL.quantity) || '1';     // O
-    v[14] = sku;                              // P
-    v[15] = cell(r, COL.designFront);         // Q
-    v[16] = cell(r, COL.designBack);          // R
-    v[19] = cell(r, COL.mockUpFront);         // U mockup_front
+    v[0] = cell(r, COL.orderNumber);          // D order_id
+    v[2] = ZOOTOP_SHIPPING_TYPE;              // F shipping_type
+    v[3] = cell(r, COL.name);                 // G buyer_first_name
+    v[5] = cell(r, COL.phone);                // I
+    v[6] = cell(r, COL.email);                // J
+    v[7] = cell(r, COL.country);              // K
+    v[8] = cell(r, COL.state);                // L
+    v[9] = cell(r, COL.city);                 // M
+    v[10] = cell(r, COL.address1);            // N
+    v[11] = cell(r, COL.address2);            // O
+    v[12] = cell(r, COL.postalCode);          // P
+    v[13] = cell(r, COL.quantity) || '1';     // Q
+    v[14] = sku;                              // R
+    v[15] = cell(r, COL.designFront);         // S
+    v[16] = cell(r, COL.designBack);          // T
+    v[19] = cell(r, COL.mockUpFront);         // W mockup_front
     return v;
   }
 
-  // Ghi NOI TIEP vao sheet fulfill ZooTop (cot B -> Y), dong trong ke tiep theo cot B (order_id).
+  // Ghi NOI TIEP vao sheet fulfill ZooTop (cot D -> AA), dong trong ke tiep theo cot D (order_id).
   async function ghiSheetZooTop(target, dsZoo) {
     const dong = [];
     dsZoo.forEach((d) => d.rows.forEach(({ r }, i) => dong.push(dongZooTop(r, d.zooSkus[i]))));
     if (!dong.length) return;
     const cotB = await sheetsApiFetch(
-      `${target.spreadsheetId}/values/${encodeURIComponent(`'${target.sheetTitle}'!B:B`)}?majorDimension=COLUMNS`,
+      `${target.spreadsheetId}/values/${encodeURIComponent(`'${target.sheetTitle}'!${ZOOTOP_COT_DAU}:${ZOOTOP_COT_DAU}`)}?majorDimension=COLUMNS`,
       { method: 'GET' });
     const dongTiep = (((cotB.values || [])[0]) || []).length + 1;
     await sheetsApiFetch(`${target.spreadsheetId}/values:batchUpdate`, {
       method: 'POST',
       body: JSON.stringify({
         valueInputOption: 'RAW',
-        data: [{ range: `'${target.sheetTitle}'!B${dongTiep}:Y${dongTiep + dong.length - 1}`, values: dong }]
+        data: [{ range: `'${target.sheetTitle}'!${ZOOTOP_COT_DAU}${dongTiep}:${ZOOTOP_COT_CUOI}${dongTiep + dong.length - 1}`, values: dong }]
       })
     });
   }
