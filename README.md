@@ -819,6 +819,29 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Chọn ảnh + chọn/sửa Custom options trong MỘT hộp thoại (v9.54)
+
+Trước đây Alt+V hỏi 2 lần: hộp thoại Custom options (v9.53) lúc bắt đầu dán, rồi hộp thoại chọn ảnh ở bước upload. Giờ gộp thành
+**một hộp thoại mở ngay lúc bắt đầu Alt+V**, trước khi dán bất cứ thứ gì:
+
+- Phần **⚙️ Custom options** ở trên (có thể thu gọn): tick/sửa/đổi thứ tự/xoá/thêm ô như v9.53.
+- Phần **chọn ảnh** ở dưới: tick, đổi thứ tự, ✂️ thumbnail ảnh #1, "Sau khi upload xong: Publish / dừng lại" như trước.
+- Nút **"Bắt đầu dán + upload"**: dán tiêu đề + tag + các Custom options đã chọn/sửa → mở tab Photo & Video → upload đúng các ảnh đã
+  chọn, **không hỏi lại**. **"Huỷ (không dán)"** = không dán gì.
+- **Chọn 0 ảnh** vẫn bấm được: chỉ dán tiêu đề + tag + Custom options, không upload.
+- Kiểm tra trước khi bắt đầu: ô Custom option được tick phải có tên; ô List of options phải có ít nhất 1 lựa chọn (lỗi hiện ngay
+  trong phần Custom options).
+- Số chỗ trống ảnh trong hộp thoại là **ước lượng lúc bắt đầu** (Etsy giữ sẵn nội dung các tab trong DOM). Tới bước upload script đo lại
+  thật; nếu số ảnh đã chọn không còn vừa thì báo và mở lại hộp chọn ảnh thường. Nếu lúc upload listing thực tế đã có ảnh thì không
+  tự Publish và không chỉnh thumbnail.
+- Listing **không có Custom options**: hộp thoại chỉ có phần chọn ảnh. Clipboard **không có ảnh** (chỉ có Custom options): vẫn dùng hộp
+  thoại Custom options riêng của v9.53. Ô "Luôn hiện phần này khi dán" (trong phần Custom options): tắt thì Custom options dán thẳng,
+  không hỏi (hộp chọn ảnh vẫn hiện); Alt+Shift+V luôn hiện lại phần Custom options.
+
+Đã thử trên một trang soạn listing giả (ô tiêu đề/tag, Add field → Text box / List of options, khung upload ảnh có thẻ "đang upload"):
+1 hộp thoại chung với 3 ảnh + 2 ô Custom; sửa tên ô, bỏ tick 1 ô, bỏ chọn 1 ảnh → dán đúng 1 ô đã sửa + upload đúng 2 ảnh, không hiện hộp
+thoại lần 2; huỷ, 0 ảnh, tên ô trống, không có Custom/không có ảnh đều đúng.
+
 ### Chọn / sửa Custom options trước khi dán (v9.53)
 
 Khi dán (Alt+V hoặc nút 📝) mà Clipboard có Custom options (ô cá nhân hoá), một hộp thoại hiện ra **trước khi script bắt đầu dán**:

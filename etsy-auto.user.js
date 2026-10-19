@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.53
+// @version      9.54
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.53';
+  const PHIEN_BAN = '9.54';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -1841,22 +1841,130 @@
     return String(chuoi).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   }
 
+  // Bo sua Custom options dung chung cho 2 noi (v9.54): hop thoai rieng (khong co anh) va phan
+  // "Custom options" nam CHUNG hop thoai chon anh. Tra ve { el, kiemTra(), docKetQua(), khiDoi }.
+  function taoBoSuaCustomOptions(dsBanDau) {
+    let ds = dsBanDau.map((t, i) => ({
+      id: i,
+      chon: true,
+      nhan: t.nhan,
+      huongDan: t.huongDan || '',
+      kieu: t.cacLuaChon && t.cacLuaChon.length ? 'dropdown' : 'text_input',
+      luaChon: (t.cacLuaChon || []).join('\n'),
+    }));
+    let idTiep = ds.length;
+    const oNhap = 'width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px;';
+    const nutPhu = 'padding:5px 9px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;';
+    const goc = document.createElement('div');
+    goc.style.cssText = 'font-size:13px;color:#111827;';
+    goc.innerHTML = `
+      <div data-vung="ds"></div>
+      <div style="padding:4px 0;"><button data-vung="them" style="${nutPhu}">➕ Thêm ô Custom option</button></div>
+      <div data-vung="loi" style="color:#B91C1C;min-height:18px;"></div>`;
+    const vung = goc.querySelector('[data-vung="ds"]');
+    const oLoi = goc.querySelector('[data-vung="loi"]');
+    const laCacLuaChon = (chuoi) => String(chuoi).split('\n').map((x) => x.trim()).filter(Boolean);
+    const bo = { el: goc, khiDoi: () => {} };
+
+    function ve() {
+      vung.innerHTML = ds
+        .map((o, i) => {
+          const la = o.kieu === 'dropdown';
+          return `
+        <div data-id="${o.id}" style="border:1px solid ${o.chon ? '#93C5FD' : '#E5E7EB'};background:${o.chon ? '#F8FAFF' : '#F9FAFB'};border-radius:8px;padding:8px 10px;margin:6px 0;${o.chon ? '' : 'opacity:.6;'}">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" data-f="chon" ${o.chon ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer;">
+            <input data-f="nhan" maxlength="${GIOI_HAN_NHAN_FIELD}" placeholder="Tên ô (bắt buộc)" value="${thoatHtml(o.nhan)}" style="${oNhap}flex:1;font-weight:bold;">
+            <select data-f="kieu" style="${oNhap}width:auto;"><option value="text_input" ${la ? '' : 'selected'}>Text box</option><option value="dropdown" ${la ? 'selected' : ''}>List of options</option></select>
+            <button data-act="len" ${i === 0 ? 'disabled' : ''} title="Lên" style="${nutPhu}padding:3px 7px;">▲</button>
+            <button data-act="xuong" ${i === ds.length - 1 ? 'disabled' : ''} title="Xuống" style="${nutPhu}padding:3px 7px;">▼</button>
+            <button data-act="xoa" title="Xoá ô này" style="${nutPhu}padding:3px 7px;color:#B91C1C;">✕</button>
+          </div>
+          <div style="margin-top:6px;">
+            <input data-f="huongDan" maxlength="${GIOI_HAN_HUONG_DAN_FIELD}" placeholder="Hướng dẫn cho khách (tuỳ chọn, tối đa ${GIOI_HAN_HUONG_DAN_FIELD} ký tự)" value="${thoatHtml(o.huongDan)}" style="${oNhap}">
+          </div>
+          ${
+            la
+              ? `<div style="margin-top:6px;"><textarea data-f="luaChon" rows="${Math.min(8, Math.max(3, o.luaChon.split('\n').length + 1))}" placeholder="Mỗi dòng 1 lựa chọn (tối đa ${GIOI_HAN_NHAN_FIELD} ký tự/lựa chọn)" style="${oNhap}resize:vertical;font-family:inherit;">${thoatHtml(o.luaChon)}</textarea><div data-vung="dem" style="color:#6B7280;font-size:11px;margin-top:2px;">${laCacLuaChon(o.luaChon).length} lựa chọn</div></div>`
+              : ''
+          }
+        </div>`;
+        })
+        .join('');
+      bo.khiDoi();
+    }
+
+    const timO = (el) => ds.find((x) => x.id === Number(el.closest('[data-id]').dataset.id));
+    // Go chu: cap nhat du lieu, KHONG ve lai ca danh sach (de khong mat con tro/focus)
+    vung.addEventListener('input', (e) => {
+      const f = e.target.dataset.f;
+      if (!f || f === 'chon' || f === 'kieu') return;
+      const o = timO(e.target);
+      o[f] = e.target.value;
+      if (f === 'luaChon') {
+        const dem = e.target.parentElement.querySelector('[data-vung="dem"]');
+        if (dem) dem.textContent = `${laCacLuaChon(o.luaChon).length} lựa chọn`;
+      }
+      oLoi.textContent = '';
+    });
+    vung.addEventListener('change', (e) => {
+      const f = e.target.dataset.f;
+      if (f !== 'chon' && f !== 'kieu') return;
+      const o = timO(e.target);
+      if (f === 'chon') o.chon = e.target.checked;
+      else o.kieu = e.target.value;
+      ve();
+    });
+    vung.addEventListener('click', (e) => {
+      const nut = e.target.closest('button[data-act]');
+      if (!nut) return;
+      const o = timO(nut);
+      const i = ds.indexOf(o);
+      if (nut.dataset.act === 'len' && i > 0) [ds[i - 1], ds[i]] = [ds[i], ds[i - 1]];
+      else if (nut.dataset.act === 'xuong' && i < ds.length - 1) [ds[i + 1], ds[i]] = [ds[i], ds[i + 1]];
+      else if (nut.dataset.act === 'xoa') ds.splice(i, 1);
+      ve();
+    });
+    goc.querySelector('[data-vung="them"]').onclick = () => {
+      ds.push({ id: idTiep++, chon: true, nhan: '', huongDan: '', kieu: 'text_input', luaChon: '' });
+      ve();
+      const oCuoi = vung.querySelector('[data-id]:last-child [data-f="nhan"]');
+      if (oCuoi) oCuoi.focus();
+    };
+
+    bo.soDaChon = () => ds.filter((o) => o.chon).length;
+    // Tra ve chuoi loi ('' = hop le) va hien loi ngay duoi danh sach
+    bo.kiemTra = () => {
+      let loi = '';
+      for (const o of ds.filter((x) => x.chon)) {
+        if (!o.nhan.trim()) loi = 'Có ô Custom option được tick nhưng chưa có tên — nhập tên hoặc bỏ tick.';
+        else if (o.kieu === 'dropdown' && !laCacLuaChon(o.luaChon).length)
+          loi = `Ô "${o.nhan}" kiểu List of options cần ít nhất 1 lựa chọn (hoặc đổi sang Text box).`;
+        if (loi) break;
+      }
+      oLoi.textContent = loi;
+      return loi;
+    };
+    bo.docKetQua = () =>
+      ds
+        .filter((o) => o.chon)
+        .map((o) => ({
+          nhan: o.nhan.trim().slice(0, GIOI_HAN_NHAN_FIELD),
+          huongDan: o.huongDan.trim().slice(0, GIOI_HAN_HUONG_DAN_FIELD),
+          loai: o.kieu,
+          cacLuaChon: o.kieu === 'dropdown' ? laCacLuaChon(o.luaChon).map((x) => x.slice(0, GIOI_HAN_NHAN_FIELD)) : [],
+        }));
+    ve();
+    return bo;
+  }
+
+  // Hop thoai RIENG chi cho Custom options — dung khi Clipboard khong co anh (co anh thi Custom options
+  // nam chung hop thoai chon anh, xem moBangChonAnh). Tra ve Promise<mang o | null> (null = Huy).
   function moHopThoaiCustomOptions(dsBanDau, tieuDe) {
     return new Promise((resolve) => {
-      let ds = dsBanDau.map((t, i) => ({
-        id: i,
-        chon: true,
-        nhan: t.nhan,
-        huongDan: t.huongDan || '',
-        kieu: t.cacLuaChon && t.cacLuaChon.length ? 'dropdown' : 'text_input',
-        luaChon: (t.cacLuaChon || []).join('\n'),
-      }));
-      let idTiep = ds.length;
-
       const lop = document.createElement('div');
       lop.style.cssText =
         'position:fixed;inset:0;z-index:1000002;background:rgba(17,24,39,.6);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
-      const oNhap = 'width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px;';
       const nutPhu = 'padding:5px 9px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;';
       lop.innerHTML = `
         <div style="background:#fff;border-radius:12px;width:min(640px,94vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.35);color:#111827;font-size:13px;">
@@ -1864,9 +1972,7 @@
             <div style="font-weight:bold;font-size:15px;">⚙️ Chọn / sửa Custom options trước khi dán</div>
             <div style="color:#6B7280;margin-top:4px;line-height:1.5;">Tick ô nào sẽ được tạo, sửa nội dung nếu cần. Chỉ áp dụng cho lần dán này${tieuDe ? ` — listing: <b>${thoatHtml(tieuDe).slice(0, 80)}</b>` : ''}.</div>
           </div>
-          <div id="ea-co-ds" style="padding:4px 18px;overflow:auto;flex:1;"></div>
-          <div style="padding:8px 18px 4px;"><button id="ea-co-them" style="${nutPhu}">➕ Thêm ô Custom option</button></div>
-          <div id="ea-co-loi" style="padding:0 18px;color:#B91C1C;min-height:18px;"></div>
+          <div data-vung="thanh" style="padding:4px 18px;overflow:auto;flex:1;"></div>
           <div style="padding:6px 18px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
             <label style="cursor:pointer;color:#374151;"><input type="checkbox" id="ea-co-luonhoi" checked> Luôn hỏi trước khi dán <span style="color:#6B7280;">(tắt thì dán thẳng; Alt+Shift+V vẫn hỏi)</span></label>
             <div style="display:flex;gap:8px;">
@@ -1877,112 +1983,23 @@
         </div>`;
       document.body.appendChild(lop);
       const $ = (id) => lop.querySelector('#' + id);
-      const vung = $('ea-co-ds');
-
-      function ve() {
-        vung.innerHTML = ds
-          .map((o, i) => {
-            const la = o.kieu === 'dropdown';
-            return `
-          <div data-id="${o.id}" style="border:1px solid ${o.chon ? '#93C5FD' : '#E5E7EB'};background:${o.chon ? '#F8FAFF' : '#F9FAFB'};border-radius:8px;padding:8px 10px;margin:6px 0;${o.chon ? '' : 'opacity:.6;'}">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <input type="checkbox" data-f="chon" ${o.chon ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer;">
-              <input data-f="nhan" maxlength="${GIOI_HAN_NHAN_FIELD}" placeholder="Tên ô (bắt buộc)" value="${thoatHtml(o.nhan)}" style="${oNhap}flex:1;font-weight:bold;">
-              <select data-f="kieu" style="${oNhap}width:auto;"><option value="text_input" ${la ? '' : 'selected'}>Text box</option><option value="dropdown" ${la ? 'selected' : ''}>List of options</option></select>
-              <button data-act="len" ${i === 0 ? 'disabled' : ''} title="Lên" style="${nutPhu}padding:3px 7px;">▲</button>
-              <button data-act="xuong" ${i === ds.length - 1 ? 'disabled' : ''} title="Xuống" style="${nutPhu}padding:3px 7px;">▼</button>
-              <button data-act="xoa" title="Xoá ô này" style="${nutPhu}padding:3px 7px;color:#B91C1C;">✕</button>
-            </div>
-            <div style="margin-top:6px;">
-              <input data-f="huongDan" maxlength="${GIOI_HAN_HUONG_DAN_FIELD}" placeholder="Hướng dẫn cho khách (tuỳ chọn, tối đa ${GIOI_HAN_HUONG_DAN_FIELD} ký tự)" value="${thoatHtml(o.huongDan)}" style="${oNhap}">
-            </div>
-            ${
-              la
-                ? `<div style="margin-top:6px;"><textarea data-f="luaChon" rows="${Math.min(8, Math.max(3, o.luaChon.split('\n').length + 1))}" placeholder="Mỗi dòng 1 lựa chọn (tối đa ${GIOI_HAN_NHAN_FIELD} ký tự/lựa chọn)" style="${oNhap}resize:vertical;font-family:inherit;">${thoatHtml(o.luaChon)}</textarea><div style="color:#6B7280;font-size:11px;margin-top:2px;">${laCacLuaChon(o.luaChon).length} lựa chọn</div></div>`
-                : ''
-            }
-          </div>`;
-          })
-          .join('');
-        capNhatNutDan();
-      }
-
-      const laCacLuaChon = (chuoi) => String(chuoi).split('\n').map((x) => x.trim()).filter(Boolean);
-      const soDaChon = () => ds.filter((o) => o.chon).length;
-      function capNhatNutDan() {
-        $('ea-co-dan').textContent = soDaChon() ? `Dán (${soDaChon()} ô Custom option)` : 'Dán (không tạo Custom option)';
-      }
-      function kiemTra() {
-        for (const o of ds.filter((x) => x.chon)) {
-          if (!o.nhan.trim()) return 'Có ô được tick nhưng chưa có tên — nhập tên hoặc bỏ tick.';
-          if (o.kieu === 'dropdown' && !laCacLuaChon(o.luaChon).length) return `Ô "${o.nhan}" kiểu List of options cần ít nhất 1 lựa chọn (hoặc đổi sang Text box).`;
-        }
-        return '';
-      }
-
-      const timO = (el) => ds.find((x) => x.id === Number(el.closest('[data-id]').dataset.id));
-      // Go chu: cap nhat du lieu, KHONG ve lai ca danh sach (de khong mat con tro/focus)
-      vung.addEventListener('input', (e) => {
-        const f = e.target.dataset.f;
-        if (!f || f === 'chon' || f === 'kieu') return;
-        const o = timO(e.target);
-        o[f] = e.target.value;
-        if (f === 'luaChon') {
-          const dem = e.target.parentElement.querySelector('div');
-          if (dem) dem.textContent = `${laCacLuaChon(o.luaChon).length} lựa chọn`;
-        }
-        $('ea-co-loi').textContent = '';
-      });
-      vung.addEventListener('change', (e) => {
-        const f = e.target.dataset.f;
-        if (f !== 'chon' && f !== 'kieu') return;
-        const o = timO(e.target);
-        if (f === 'chon') o.chon = e.target.checked;
-        else o.kieu = e.target.value;
-        ve();
-      });
-      vung.addEventListener('click', (e) => {
-        const nut = e.target.closest('button[data-act]');
-        if (!nut) return;
-        const o = timO(nut);
-        const i = ds.indexOf(o);
-        if (nut.dataset.act === 'len' && i > 0) [ds[i - 1], ds[i]] = [ds[i], ds[i - 1]];
-        else if (nut.dataset.act === 'xuong' && i < ds.length - 1) [ds[i + 1], ds[i]] = [ds[i], ds[i + 1]];
-        else if (nut.dataset.act === 'xoa') ds.splice(i, 1);
-        ve();
-      });
-      $('ea-co-them').onclick = () => {
-        ds.push({ id: idTiep++, chon: true, nhan: '', huongDan: '', kieu: 'text_input', luaChon: '' });
-        ve();
-        const oCuoi = vung.querySelector('[data-id]:last-child [data-f="nhan"]');
-        if (oCuoi) oCuoi.focus();
-        vung.scrollTop = vung.scrollHeight;
+      const bo = taoBoSuaCustomOptions(dsBanDau);
+      lop.querySelector('[data-vung="thanh"]').appendChild(bo.el);
+      const capNhatNut = () => {
+        $('ea-co-dan').textContent = bo.soDaChon() ? `Dán (${bo.soDaChon()} ô Custom option)` : 'Dán (không tạo Custom option)';
       };
-
+      bo.khiDoi = capNhatNut;
+      capNhatNut();
       const dong = (kq) => {
         lop.remove();
         resolve(kq);
       };
       $('ea-co-huy').onclick = () => dong(null);
       $('ea-co-dan').onclick = () => {
-        const loi = kiemTra();
-        if (loi) {
-          $('ea-co-loi').textContent = loi;
-          return;
-        }
+        if (bo.kiemTra()) return;
         luuGiaTri(KHOA_HOI_CUSTOM_OPTIONS, $('ea-co-luonhoi').checked ? '1' : '0');
-        dong(
-          ds
-            .filter((o) => o.chon)
-            .map((o) => ({
-              nhan: o.nhan.trim().slice(0, GIOI_HAN_NHAN_FIELD),
-              huongDan: o.huongDan.trim().slice(0, GIOI_HAN_HUONG_DAN_FIELD),
-              loai: o.kieu,
-              cacLuaChon: o.kieu === 'dropdown' ? laCacLuaChon(o.luaChon).map((x) => x.slice(0, GIOI_HAN_NHAN_FIELD)) : [],
-            }))
-        );
+        dong(bo.docKetQua());
       };
-      ve();
     });
   }
 
@@ -2005,8 +2022,33 @@
       return;
     }
 
-    // v9.53: cho nguoi dung chon / sua Custom options truoc khi dan (Huy = khong dan gi ca)
-    if (dsPerso && dsPerso.length && (epHoi === true || dangHoiCustomOptions())) {
+    // v9.54: MOT hop thoai duy nhat de chon anh + chon/sua Custom options truoc khi dan (Huy = khong dan
+    // gi ca). Khong co anh trong Clipboard thi chi hien phan Custom options (hop thoai rieng, v9.53).
+    // Chon anh xong thi buoc upload o cuoi khong hoi lai nua (luaChonSan).
+    let luaChonSan = null;
+    const hienCustom = !!(dsPerso && dsPerso.length) && (epHoi === true || dangHoiCustomOptions());
+    if (danhSachAnh && danhSachAnh.length) {
+      const goiAnh = {
+        tieuDe,
+        listingId: idNguon,
+        anh: danhSachAnh.map((a) => ({
+          url: a.url,
+          alt: a.alt || '',
+          bang: typeof a.bang === 'boolean' ? a.bang : laAnhBangSize(a.alt),
+        })),
+      };
+      const uoc = uocLuongAnhDich();
+      const thuVien = docThuVienBangSize();
+      luaChonSan = await moBangChonAnh(goiAnh, uoc.soAnhDangCo, Math.max(0, uoc.conLai - thuVien.length), thuVien.length, {
+        dsPerso: hienCustom ? dsPerso : null,
+        truocKhiDan: true,
+      });
+      if (luaChonSan === null) {
+        hienThongBao('Đã huỷ dán — chưa dán gì vào listing', '#6B7280');
+        return;
+      }
+      if (luaChonSan.customOptions) dsPerso = luaChonSan.customOptions;
+    } else if (hienCustom) {
       const daSua = await moHopThoaiCustomOptions(dsPerso, tieuDe);
       if (daSua === null) {
         hienThongBao('Đã huỷ dán — chưa dán gì vào listing', '#6B7280');
@@ -2116,10 +2158,11 @@
 
     // Dan xong thi tu chay luon buoc upload anh (gop chung vao Alt+V, khong con nut/phim rieng).
     // Doi them 1 chut de tab "Photo & Video" (vua bam o tren, neu co) kip ve xong o upload.
-    if (danhSachAnh && danhSachAnh.length) {
+    // Chon 0 anh trong hop thoai chung = chi dan tieu de + tag + Custom options, khong upload.
+    if (danhSachAnh && danhSachAnh.length && !(luaChonSan && luaChonSan.cacAnh.length === 0)) {
       await cho(500);
       try {
-        await tuUploadAnh();
+        await tuUploadAnh(luaChonSan);
       } catch (loi) {
         console.error('[Etsy Auto] Lỗi khi upload ảnh:', loi);
         hienThongBao('❌ Lỗi khi upload ảnh: ' + loi.message, '#DC2626');
@@ -2893,7 +2936,12 @@
       : { ok: false, chiTiet: 'đã bấm Apply nhưng hộp thoại chưa đóng — bạn kiểm tra giúp' };
   }
 
-  function moBangChonAnh(goi, soAnhDangCo, conLai, soBangSizeCoDinh = 0) {
+  // tuyChon (v9.54): { dsPerso } — co thi them phan sua Custom options NGAY TRONG hop thoai nay;
+  // { truocKhiDan: true } — hop thoai mo luc BAT DAU Alt+V (chua dan gi) nen cho phep khong chon anh.
+  // Ket qua them: customOptions (mang o da sua, neu co dsPerso).
+  function moBangChonAnh(goi, soAnhDangCo, conLai, soBangSizeCoDinh = 0, tuyChon = {}) {
+    const coCustom = !!(tuyChon.dsPerso && tuyChon.dsPerso.length);
+    const truocKhiDan = !!tuyChon.truocKhiDan;
     return new Promise((resolve) => {
       const lop = document.createElement('div');
       lop.style.cssText = `
@@ -2911,7 +2959,7 @@
 
       hop.innerHTML = `
         <div style="background:linear-gradient(135deg,#F56400,#FF8C42);color:#fff;padding:12px 16px;font-weight:bold;font-size:15px;">
-          🖼️ Chọn ảnh để tự upload
+          ${truocKhiDan ? `📝 Chọn ảnh${coCustom ? ' + Custom options' : ''} trước khi dán` : '🖼️ Chọn ảnh để tự upload'}
         </div>
         <div style="padding:10px 16px;font-size:12px;color:#374151;border-bottom:1px solid #E5E7EB;line-height:1.6;">
           Listing nguồn: <b>${(goi.tieuDe || '(không rõ tiêu đề)').replace(/</g, '&lt;').slice(0, 90)}</b><br>
@@ -2925,6 +2973,15 @@
               : ''
           }
         </div>
+        ${
+          coCustom
+            ? `<details id="ea-up-custom" open style="border-bottom:1px solid #E5E7EB;flex-shrink:0;">
+                 <summary style="padding:8px 16px;cursor:pointer;font-weight:bold;font-size:13px;color:#1D4ED8;">⚙️ Custom options (<span id="ea-up-custom-dem"></span>) — tick ô nào sẽ tạo, sửa nếu cần</summary>
+                 <div id="ea-up-custom-thanh" style="padding:0 16px 4px;max-height:34vh;overflow:auto;"></div>
+                 <label style="display:block;padding:2px 16px 8px;font-size:12px;color:#374151;cursor:pointer;"><input type="checkbox" id="ea-up-luonhoi" checked> Luôn hiện phần này khi dán <span style="color:#6B7280;">(tắt thì Custom options dán thẳng không hỏi; Alt+Shift+V vẫn hiện)</span></label>
+               </details>`
+            : ''
+        }
         <div id="ea-up-luoi" style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;overflow:auto;"></div>
         <div style="padding:10px 16px;border-top:1px solid #E5E7EB;font-size:12px;color:#374151;">
           ${
@@ -2943,8 +3000,8 @@
         <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;gap:10px;">
           <div id="ea-up-dem" style="font-size:12px;font-weight:bold;color:#374151;"></div>
           <div style="display:flex;gap:8px;">
-            <button id="ea-up-huy" style="padding:8px 14px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;cursor:pointer;">Huỷ</button>
-            <button id="ea-up-ok" style="padding:8px 16px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">Bắt đầu upload</button>
+            <button id="ea-up-huy" style="padding:8px 14px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;cursor:pointer;">${truocKhiDan ? 'Huỷ (không dán)' : 'Huỷ'}</button>
+            <button id="ea-up-ok" style="padding:8px 16px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">${truocKhiDan ? 'Bắt đầu dán + upload' : 'Bắt đầu upload'}</button>
           </div>
         </div>
       `;
@@ -2963,6 +3020,18 @@
       const luoi = hop.querySelector('#ea-up-luoi');
       const oDem = hop.querySelector('#ea-up-dem');
       const nutOk = hop.querySelector('#ea-up-ok');
+
+      // Phan Custom options (neu co): thanh phan dung chung voi hop thoai rieng
+      let boCustom = null;
+      if (coCustom) {
+        boCustom = taoBoSuaCustomOptions(tuyChon.dsPerso);
+        hop.querySelector('#ea-up-custom-thanh').appendChild(boCustom.el);
+        const capNhatDemCustom = () => {
+          hop.querySelector('#ea-up-custom-dem').textContent = `${boCustom.soDaChon()} ô sẽ tạo`;
+        };
+        boCustom.khiDoi = capNhatDemCustom;
+        capNhatDemCustom();
+      }
 
       // Trang thai thu tu: mang cac CHI SO GOC (trong goi.anh) theo DUNG thu tu se upload.
       // Mac dinh: chon san moi anh KHONG nghi la bang size, giu nguyen thu tu carousel ban dau.
@@ -3126,8 +3195,9 @@
         oDem.textContent = quaNhieu
           ? `⚠️ Đang chọn ${soChon} ảnh nhưng chỉ còn chỗ cho ${conLai}`
           : `Đang chọn ${soChon} ảnh`;
-        oDem.style.color = quaNhieu ? '#DC2626' : soChon === 0 ? '#DC2626' : '#374151';
-        nutOk.disabled = quaNhieu || soChon === 0;
+        oDem.style.color = quaNhieu ? '#DC2626' : soChon === 0 && !truocKhiDan ? '#DC2626' : '#374151';
+        // Mo luc bat dau Alt+V thi cho phep khong chon anh (chi dan tieu de + tag + Custom options)
+        nutOk.disabled = quaNhieu || (soChon === 0 && !truocKhiDan);
         nutOk.style.opacity = nutOk.disabled ? '.5' : '1';
         nutOk.style.cursor = nutOk.disabled ? 'not-allowed' : 'pointer';
       }
@@ -3142,10 +3212,19 @@
         if (e.target === lop) dong(null);
       });
       nutOk.onclick = () => {
+        if (boCustom && boCustom.kiemTra()) {
+          hop.querySelector('#ea-up-custom').open = true; // mo phan Custom options de thay loi
+          return;
+        }
         const hanhDong = hop.querySelector('input[name="ea-up-xong"]:checked').value;
         const cacAnh = thuTu.map((i) => goi.anh[i]);
         const thumbnail = choPhepThumbnail && thuTu.length ? cauHinhThumbnail.get(thuTu[0]) || null : null;
-        dong({ cacAnh, hanhDong, thumbnail });
+        let customOptions = null;
+        if (boCustom) {
+          customOptions = boCustom.docKetQua();
+          luuGiaTri(KHOA_HOI_CUSTOM_OPTIONS, hop.querySelector('#ea-up-luonhoi').checked ? '1' : '0');
+        }
+        dong({ cacAnh, hanhDong, thumbnail, customOptions });
       };
     });
   }
@@ -3818,7 +3897,17 @@
 
   // ---- Luong chinh ----
 
-  async function tuUploadAnh() {
+  // Uoc luong cho trong cua listing dich LUC BAT DAU Alt+V (tab Photo & Video co the chua mo nhung
+  // Etsy giu san noi dung cac tab trong DOM). Chi de hien trong hop thoai chon — buoc upload do lai
+  // so that va chon lai bang bang chon thuong neu so anh da chon khong con vua.
+  function uocLuongAnhDich() {
+    if (!timOChonAnhSanPham()) return { soAnhDangCo: 0, conLai: GIOI_HAN_ANH_MAC_DINH };
+    const so = demSoAnhDangCo();
+    return { soAnhDangCo: so, conLai: Math.max(0, laySoAnhConLai(so)) };
+  }
+
+  // luaChonSan (tuy chon): ket qua da chon trong hop thoai chung luc dan (cacAnh, hanhDong, thumbnail).
+  async function tuUploadAnh(luaChonSan = null) {
     const goi = await layAnhNguonMoiNoi();
     if (!goi) {
       hienThongBao(
@@ -3857,7 +3946,23 @@
     }
     const conLaiChoSanPham = conLai - thuVienBangSize.length;
 
-    const luaChon = await moBangChonAnh(goi, soAnhCu, conLaiChoSanPham, thuVienBangSize.length);
+    let luaChon = null;
+    if (luaChonSan && luaChonSan.cacAnh.length <= conLaiChoSanPham) {
+      luaChon = { ...luaChonSan };
+      // Hop thoai chung uoc luong luc dau; neu thuc te listing da co anh thi khong Publish tu dong, khong chinh thumbnail
+      if (soAnhCu > 0) {
+        luaChon.hanhDong = 'khong';
+        luaChon.thumbnail = null;
+      }
+    } else {
+      if (luaChonSan) {
+        hienThongBao(
+          `⚠️ Chỉ còn chỗ cho ${conLaiChoSanPham} ảnh sản phẩm nhưng đã chọn ${luaChonSan.cacAnh.length} — mở lại hộp chọn ảnh.`,
+          '#F59E0B'
+        );
+      }
+      luaChon = await moBangChonAnh(goi, soAnhCu, conLaiChoSanPham, thuVienBangSize.length);
+    }
     if (!luaChon) return;
 
     const { cacAnh, hanhDong, thumbnail } = luaChon;
