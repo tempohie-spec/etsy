@@ -819,6 +819,19 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Chọn / sửa Custom options trước khi dán (v9.53)
+
+Khi dán (Alt+V hoặc nút 📝) mà Clipboard có Custom options (ô cá nhân hoá), một hộp thoại hiện ra **trước khi script bắt đầu dán**:
+- **Tick** ô nào sẽ được tạo (bỏ tick = bỏ qua ô đó); bỏ tick hết thì vẫn dán tiêu đề + tag, không tạo Custom option nào.
+- **Sửa** tên ô (tối đa 45 ký tự), hướng dẫn (tối đa 120 ký tự), đổi kiểu **Text box ↔ List of options**, sửa các lựa chọn
+  (mỗi dòng 1 lựa chọn, tối đa 45 ký tự/lựa chọn, dòng trống bị bỏ).
+- **Đổi thứ tự** (▲▼), **xoá** (✕), **➕ thêm ô mới**.
+- Kiểm tra trước khi dán: ô được tick phải có tên; ô List of options phải có ít nhất 1 lựa chọn.
+- **Huỷ** = không dán gì cả (Clipboard giữ nguyên, không ghi nhớ listing nguồn). Chỉnh sửa chỉ áp dụng cho lần dán này, không đổi
+  Clipboard hay listing nguồn.
+- Ô **"Luôn hỏi trước khi dán"** (mặc định bật): tắt thì Alt+V dán thẳng như trước; **Alt+Shift+V** (hoặc Shift + bấm nút 📝) luôn hiện lại
+  hộp thoại. Listing không có Custom options thì không hiện hộp thoại.
+
 ### Không tự tắt Visible dòng "Sold out" khi dán variations/giá từ Google Sheets (v9.52)
 
 Dán variations và "Chỉ điền giá" từ bảng Google Sheets trước đây tự tắt Visible những dòng có chữ "Sold out" (vd "Onesie (Sold out)").
