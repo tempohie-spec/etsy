@@ -127,6 +127,15 @@ function ngayTuO(v) {
 
 // Ma don, tracking, hang van chuyen, ticket chi ghi o DONG DAU cua don (don nhieu dong); cac dong
 // sau neu dang co gia tri (ghi tu ban cu) thi xoa di.
+// Khong co ten hang van chuyen: doan theo dau ma tracking (92.../42... = USPS, 20... = DHL).
+function hangVanChuyen(tracking, carrier) {
+  if (str(carrier)) return str(carrier);
+  const t = str(tracking).split(',')[0].trim();
+  if (/^(92|42)/.test(t)) return 'USPS';
+  if (/^20/.test(t)) return 'DHL';
+  return '';
+}
+
 function datDongDau(boGhi, tab, rowNumber, row, laDongDau, col, value) {
   if (laDongDau) boGhi.dat(tab, rowNumber, col, value);
   else if (cell(row, col)) boGhi.dat(tab, rowNumber, col, '');
@@ -411,7 +420,7 @@ function apDungSuKien(ev, duLieu, boGhi) {
     if (co.maRx) datDongDau(boGhi, t, rowNumber, row, dau, COL.merchizeId, co.maRx);
     if (co.tracking) {
       datDongDau(boGhi, t, rowNumber, row, dau, COL.tracking, co.tracking);
-      datDongDau(boGhi, t, rowNumber, row, dau, COL.carrier, co.carrier);
+      datDongDau(boGhi, t, rowNumber, row, dau, COL.carrier, hangVanChuyen(co.tracking, co.carrier));
       boGhi.tieuDe(t, COL.tracking, 'Tracking');
       boGhi.tieuDe(t, COL.carrier, 'Hãng vận chuyển');
     }
@@ -502,7 +511,7 @@ function apDungKetQuaApi(tab, dong, kq, boGhi) {
     }
     if (kq.tracking.length) {
       datDongDau(boGhi, tab, rowNumber, row, dau, COL.tracking, kq.tracking.join(', '));
-      datDongDau(boGhi, tab, rowNumber, row, dau, COL.carrier, kq.carrier.join(', '));
+      datDongDau(boGhi, tab, rowNumber, row, dau, COL.carrier, hangVanChuyen(kq.tracking[0], kq.carrier.join(', ')));
       boGhi.tieuDe(tab, COL.tracking, 'Tracking');
       boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
     }
@@ -691,7 +700,7 @@ async function chayLich(env, event) {
         });
         if (tk.tracking && !dong.some(({ row: r }) => cell(r, COL.tracking))) {
           boGhi.dat(tab, rowNumber, COL.tracking, tk.tracking);
-          boGhi.dat(tab, rowNumber, COL.carrier, tk.dvvc);
+          boGhi.dat(tab, rowNumber, COL.carrier, hangVanChuyen(tk.tracking, tk.dvvc));
           boGhi.tieuDe(tab, COL.tracking, 'Tracking');
           boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
           thongKe.teb.push({ tab, ma });
@@ -752,7 +761,7 @@ async function chayLich(env, event) {
         const { rowNumber, row } = dong[0];
         if (tk.tracking && !dong.some(({ row: r }) => cell(r, COL.tracking))) {
           boGhi.dat(tab, rowNumber, COL.tracking, tk.tracking);
-          boGhi.dat(tab, rowNumber, COL.carrier, tk.dvvc);
+          boGhi.dat(tab, rowNumber, COL.carrier, hangVanChuyen(tk.tracking, tk.dvvc));
           boGhi.tieuDe(tab, COL.tracking, 'Tracking');
           boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
           thongKe.zoo.push({ tab, ma });

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.48
+// @version      1.49
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.48';
+  const SCRIPT_VERSION = '1.49';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -888,7 +888,7 @@
     return docGhepTeb()[str(title).toLowerCase()] || '';
   }
   function tebSkuCuaDon(don, tenTab, bangPhu) {
-    if (!laTabTeb(tenTab) || don.rows.length !== 1) return '';
+    if (!DUNG_TEB || !laTabTeb(tenTab) || don.rows.length !== 1) return '';
     const r = don.rows[0].r;
     if (maQuocGia(cell(r, COL.country)) !== 'US') return '';
     const style = styleTeb(cell(r, COL.title));
@@ -986,6 +986,14 @@
   // Don cua tab da gan sheet ZooTop: moi dong tim duoc SKU trong bang SKU ZooTop thi ca don di ZooTop
   // (uu tien hon Teb va Merchize), moi san pham 1 dong tren sheet fulfill.
   const STATUS_ZOOTOP = 'ZooTop';
+  // Tam tat Teb: thu tu chi con ZooTop -> Merchize (doi thanh true de bat lai).
+  const DUNG_TEB = false;
+  // Bang SKU cho don NGOAI US (tra truoc cac bang khac): cot B "G5000-DTG" (ma loai ao - kieu in),
+  // E Color, F Size, H SKU. Don ngoai US chi nhan SKU bat dau bang G hoac C (ma UT... chi di trong US).
+  const ZOOTOP_QT = { file: '1wsnF3NTXuax5ZFPswnJsokrIykDENvvvHNnKB9lYbwQ', gid: 0, cot: { loai: 1, color: 4, size: 5, sku: 7 } };
+  // Title tren Sheet -> ma loai ao trong bang quoc te.
+  const ZOOTOP_QT_MA = { 'gildan adult': 'G5000', 'comfort adult': 'C1717' };
+  const skuDiNgoaiUs = (sku) => /^[GC]/i.test(str(sku));
   // shipping_type ghi vao cot D sheet fulfill: 'PLATFORM' hoac 'SELLER'.
   const ZOOTOP_SHIPPING_TYPE = 'SELLER';
   const ZOOTOP_FILE_SKU = '1mCPCCleDu4GuYZhmWr_-BAPdkUiuhvo2rqKYk9hELtI';
@@ -1041,16 +1049,42 @@
         }
       });
     });
+    // Bang quoc te (don ngoai US): "ma loai|pm|mau|size" -> SKU.
+    const quocTe = {};
+    try {
+      const metaQt = await sheetsApiFetch(`${ZOOTOP_QT.file}?fields=sheets.properties(sheetId,title)`, { method: 'GET' });
+      const p = (metaQt.sheets || []).map((x) => x.properties).find((x) => x.sheetId === ZOOTOP_QT.gid);
+      if (p) {
+        const d = await sheetsApiFetch(`${ZOOTOP_QT.file}/values/${encodeURIComponent(`'${p.title}'`)}?valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
+        soSku[`${p.title} (quốc tế)`] = 0;
+        (d.values || []).forEach((r) => {
+          const m = str(r[ZOOTOP_QT.cot.loai]).match(/^(.+?)-(DTG|DTF)$/i);
+          const ma = str(r[ZOOTOP_QT.cot.sku]);
+          if (!m || !ma) return;
+          quocTe[[m[1].toUpperCase(), m[2].toUpperCase(), chuanHoaMau(r[ZOOTOP_QT.cot.color]), chuanHoaSize(r[ZOOTOP_QT.cot.size])].join('|')] = ma;
+          soSku[`${p.title} (quốc tế)`]++;
+        });
+      }
+    } catch (e) {
+      soSku['bảng quốc tế'] = 'lỗi: ' + e.message.slice(0, 80);
+    }
     Object.defineProperty(sku, 'chanDoan', { value: { sanPham, soSku }, enumerable: false });
+    Object.defineProperty(sku, 'quocTe', { value: quocTe, enumerable: false });
     return sku;
   }
 
-  // SKU ZooTop cua 1 dong (rong neu khong co).
+  // SKU ZooTop cua 1 dong (rong neu khong co). Don ngoai US: bang quoc te truoc, roi cac bang khac,
+  // va chi nhan SKU bat dau bang G / C.
   function zootopSkuDong(r, bangZoo) {
     const pm = phuongPhapIn(cell(r, COL.printingMethod));
+    if (!pm) return '';
     const tenSp = (ZOOTOP_TEN[chuanTen(cell(r, COL.title))] || {})[pm];
-    if (!tenSp) return '';
-    return bangZoo[khoaZooTop(tenSp, pm, cell(r, COL.color), cell(r, COL.size))] || '';
+    const skuThuong = tenSp ? bangZoo[khoaZooTop(tenSp, pm, cell(r, COL.color), cell(r, COL.size))] || '' : '';
+    if (maQuocGia(cell(r, COL.country)) === 'US') return skuThuong;
+    const maLoai = ZOOTOP_QT_MA[chuanTen(cell(r, COL.title))];
+    const skuQt = maLoai ? (bangZoo.quocTe || {})[[maLoai, pm, chuanHoaMau(cell(r, COL.color)), chuanHoaSize(cell(r, COL.size))].join('|')] || '' : '';
+    if (skuDiNgoaiUs(skuQt)) return skuQt;
+    return skuDiNgoaiUs(skuThuong) ? skuThuong : '';
   }
 
   // Ly do 1 dong khong co SKU ZooTop (de bao loi ro rang).
@@ -1058,6 +1092,7 @@
     const pm = phuongPhapIn(cell(r, COL.printingMethod));
     const moTa = `${cell(r, COL.printingMethod) || '?'} | ${cell(r, COL.title)} | ${cell(r, COL.color)} | ${cell(r, COL.size)}`;
     if (!pm) return `${moTa}: cột A không phải DTG/DTF`;
+    if (maQuocGia(cell(r, COL.country)) !== 'US') return `${moTa} (${cell(r, COL.country)}): không có SKU đi ngoài US (G/C) trong bảng quốc tế hay các bảng khác`;
     const tenSp = (ZOOTOP_TEN[chuanTen(cell(r, COL.title))] || {})[pm];
     if (!tenSp) return `${moTa}: title chưa có trong danh sách ZooTop`;
     const cd = bangZoo.chanDoan || { sanPham: {} };
@@ -1126,7 +1161,7 @@
     if (guiThat && !store) throw new Error(`Tab "${title}" chưa cài store Merchize (Base URL + Access Token).`);
     const rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
     const tebTarget = docCacSheetTeb()[title];
-    const bangPhu = await docBangPhu(tebTarget);
+    const bangPhu = DUNG_TEB ? await docBangPhu(tebTarget) : { teb: {} };
     const zooTarget = docCacSheetZooTop()[title];
     const bangZoo = zooTarget ? await docBangZooTop() : null;
     const tatCa = gomDon(rows).map((d) => {
@@ -1141,7 +1176,7 @@
       }
       if (d.chiDinh === 'Teb') {
         const tebSku = tebSkuCuaDon(d, title, bangPhu);
-        const loiChiDinh = tebSku ? '' : tebTarget ? 'chỉ định @Teb nhưng không có SKU Teb (cần đơn US 1 dòng, khớp SKU LIST)'
+        const loiChiDinh = tebSku ? '' : !DUNG_TEB ? 'chỉ định @Teb nhưng Teb đang tạm tắt' : tebTarget ? 'chỉ định @Teb nhưng không có SKU Teb (cần đơn US 1 dòng, khớp SKU LIST)'
           : 'chỉ định @Teb nhưng tab chưa chọn sheet Teb';
         return { ...d, zooSkus: null, tebSku, loiChiDinh };
       }
@@ -1166,13 +1201,13 @@
         const r = (d.rows.find(({ r: x }) => !zootopSkuDong(x, bangZoo)) || d.rows[0]).r;
         return `• ${d.orderNumber}: ${lyDoKhongCoZooTop(r, bangZoo)}`;
       });
-      if (thieuZoo.length) dongTebBaoCao.splice(1, 0, 'Không có SKU ZooTop (đi Teb / Merchize):', ...thieuZoo);
+      if (thieuZoo.length) dongTebBaoCao.splice(1, 0, `Không có SKU ZooTop (đi ${DUNG_TEB ? 'Teb / ' : ''}Merchize):`, ...thieuZoo);
       const soSku = (bangZoo.chanDoan || {}).soSku || {};
       dongTebBaoCao.splice(1, 0, `File SKU ZooTop: ${Object.entries(soSku).map(([t, n]) => `"${t}" ${n} SKU`).join(', ')}`);
     }
-    if (!tebTarget) dongTebBaoCao.push(`Tab "${title}" chưa chọn sheet Teb.`);
+    if (DUNG_TEB && !tebTarget) dongTebBaoCao.push(`Tab "${title}" chưa chọn sheet Teb.`);
     // Chan doan Teb: don US 1 dong khong tim thay SKU trong SKU LIST (de so voi SKU LIST).
-    if (tebTarget) {
+    if (DUNG_TEB && tebTarget) {
       const khongKhop = tatCa.filter((d) => !d.tebSku && d.rows.length === 1 && maQuocGia(cell(d.rows[0].r, COL.country)) === 'US');
       const mau = Object.keys(bangPhu.teb).slice(0, 3);
       dongTebBaoCao.push(`SKU LIST: ${Object.keys(bangPhu.teb).length} dòng (cột ${bangPhu.cot})` +
@@ -1462,7 +1497,7 @@
     }
     [taiCatalogBtn, dsLoaiAo.khung, dsGhepTeb.khung, goiYStyle].forEach((x) => catalogBox.appendChild(x));
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
-    const sendBtn = nut('3. Gửi đơn (Merchize / Teb / ZooTop)', '#4CAF50');
+    const sendBtn = nut('3. Gửi đơn (ZooTop / Merchize)', '#4CAF50');
     const workerBtn = nut('Cài Worker (link + key, 1 lần)', '#455a64');
 
 

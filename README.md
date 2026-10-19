@@ -1400,6 +1400,15 @@ Gõ `@ZooTop`, `@Teb` hoặc `@Merchize` (không phân biệt hoa thường) và
 Không tìm được SKU của bên đó (hoặc tab chưa gắn sheet) thì đơn bị đánh dấu `Lỗi: chỉ định ...`, không tự chuyển bên.
 Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng chỉ cần ghi ở 1 dòng.
 
+## ZooTop ngoài US, tạm tắt Teb, đoán hãng vận chuyển (v1.49)
+
+- Thứ tự: **ZooTop → Merchize**. Teb tạm tắt (`DUNG_TEB = false` đầu phần ZooTop; đổi thành `true` để bật lại).
+- Đơn **ngoài US**: tra bảng SKU quốc tế (`ZOOTOP_QT`, file `1wsnF3NT...`, gid 0) trước: cột B `G5000-DTG` (mã loại áo
+  - kiểu in; `G5000` = Gildan Adult, `C1717` = Comfort Adult, ở `ZOOTOP_QT_MA`), E Color, F Size, H SKU. Không có thì
+  tra các bảng ZooTop khác. Đơn ngoài US chỉ nhận SKU bắt đầu bằng **G** hoặc **C** (mã `UT...` chỉ đi trong US); không
+  có thì đơn đi Merchize.
+- Worker: tracking không có tên hãng thì đoán theo đầu mã: `92...` / `42...` = USPS, `20...` = DHL (cho mọi nguồn).
+
 ## ZooTop (v1.43)
 
 - Gắn sheet fulfill: mở tab, bấm dòng **ZooTop** trên bảng, dán link sheet fulfill ZooTop (mở đúng tab, link có
