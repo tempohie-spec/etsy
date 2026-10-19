@@ -1407,7 +1407,8 @@ Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng
   - kiểu in; `G5000` = Gildan Adult, `C1717` = Comfort Adult, ở `ZOOTOP_QT_MA`), E Color, F Size, H SKU. Không có thì
   tra các bảng ZooTop khác. Đơn ngoài US chỉ nhận SKU bắt đầu bằng **G** hoặc **C** (mã `UT...` chỉ đi trong US); không
   có thì đơn đi Merchize.
-- Worker: tracking không có tên hãng thì đoán theo đầu mã: `92...` / `42...` = USPS, `20...` = DHL (cho mọi nguồn).
+- Worker: tracking không có tên hãng thì đoán theo đầu mã: `92...` / `94...` / `42...` = USPS, `20...` = DHL (cho mọi nguồn).
+- Telegram: gõ `/update` để cập nhật ngay (giống mở `/run?key=`), kết quả là tin tóm tắt như mỗi lần chạy; `/help` xem lệnh.
 
 ## ZooTop (v1.43)
 

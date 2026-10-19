@@ -127,11 +127,11 @@ function ngayTuO(v) {
 
 // Ma don, tracking, hang van chuyen, ticket chi ghi o DONG DAU cua don (don nhieu dong); cac dong
 // sau neu dang co gia tri (ghi tu ban cu) thi xoa di.
-// Khong co ten hang van chuyen: doan theo dau ma tracking (92.../42... = USPS, 20... = DHL).
+// Khong co ten hang van chuyen: doan theo dau ma tracking (92.../94.../42... = USPS, 20... = DHL).
 function hangVanChuyen(tracking, carrier) {
   if (str(carrier)) return str(carrier);
   const t = str(tracking).split(',')[0].trim();
-  if (/^(92|42)/.test(t)) return 'USPS';
+  if (/^(92|94|42)/.test(t)) return 'USPS';
   if (/^20/.test(t)) return 'DHL';
   return '';
 }
@@ -1145,8 +1145,16 @@ async function xuLyTinTelegram(env, msg) {
   const text = str(msg.text);
   const lenhXong = /^\/?(xong|done|ok|đã xử lý|da xu ly)\b/i.test(text);
   if (/^\/(help|start)\b/i.test(text)) {
-    await traLoiTelegram(env, dem, chatId, msg.message_id,
-      'Tắt nhắc đơn cần xử lý: trả lời (reply) tin 🛑 bằng "xong", hoặc gõ /xong <mã đơn> (nhiều mã cách nhau dấu cách).');
+    await traLoiTelegram(env, dem, chatId, msg.message_id, [
+      '/update: cập nhật ngay (giống mở link /run).',
+      'Tắt nhắc đơn cần xử lý: trả lời (reply) tin 🛑 bằng "xong", hoặc gõ /xong <mã đơn> (nhiều mã cách nhau dấu cách).'
+    ].join('\n'));
+    return;
+  }
+  // /update: chay lich ngay; ket qua gui bang tin tom tat nhu moi lan chay (khong tra loi them de
+  // danh het request cho lan chay).
+  if (/^\/(update|run)\b/i.test(text)) {
+    await chayLich(env, null).catch((e) => baoLoiHeThong(env, taoBoDem(), 'Lệnh /update lỗi: ' + e.message));
     return;
   }
   if (!lenhXong) return;
