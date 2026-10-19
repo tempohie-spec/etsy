@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.47
+// @version      1.48
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.47';
+  const SCRIPT_VERSION = '1.48';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -1025,14 +1025,23 @@
     const q = bang.map((b) => 'ranges=' + encodeURIComponent(`'${tenTab[b.gid]}'`)).join('&');
     const data = await sheetsApiFetch(`${ZOOTOP_FILE_SKU}/values:batchGet?${q}&valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
     const sku = {};
+    // Chan doan: san pham nao (theo pm) co trong file SKU, va moi tab doc duoc bao nhieu SKU.
+    const sanPham = {};
+    const soSku = {};
     (data.valueRanges || []).forEach((vr, i) => {
       const b = bang[i];
+      soSku[tenTab[b.gid]] = 0;
       (vr.values || []).forEach((r) => {
         const pm = b.pm || phuongPhapIn(r[b.cot.type]);
         const ma = str(r[b.cot.sku]);
-        if (pm && ma && str(r[b.cot.product])) sku[khoaZooTop(r[b.cot.product], pm, r[b.cot.color], r[b.cot.size])] = ma;
+        if (pm && ma && str(r[b.cot.product]) && chuanTen(r[b.cot.product]) !== 'product name') {
+          sku[khoaZooTop(r[b.cot.product], pm, r[b.cot.color], r[b.cot.size])] = ma;
+          sanPham[pm + '|' + chuanTen(r[b.cot.product])] = true;
+          soSku[tenTab[b.gid]]++;
+        }
       });
     });
+    Object.defineProperty(sku, 'chanDoan', { value: { sanPham, soSku }, enumerable: false });
     return sku;
   }
 
@@ -1042,6 +1051,18 @@
     const tenSp = (ZOOTOP_TEN[chuanTen(cell(r, COL.title))] || {})[pm];
     if (!tenSp) return '';
     return bangZoo[khoaZooTop(tenSp, pm, cell(r, COL.color), cell(r, COL.size))] || '';
+  }
+
+  // Ly do 1 dong khong co SKU ZooTop (de bao loi ro rang).
+  function lyDoKhongCoZooTop(r, bangZoo) {
+    const pm = phuongPhapIn(cell(r, COL.printingMethod));
+    const moTa = `${cell(r, COL.printingMethod) || '?'} | ${cell(r, COL.title)} | ${cell(r, COL.color)} | ${cell(r, COL.size)}`;
+    if (!pm) return `${moTa}: cột A không phải DTG/DTF`;
+    const tenSp = (ZOOTOP_TEN[chuanTen(cell(r, COL.title))] || {})[pm];
+    if (!tenSp) return `${moTa}: title chưa có trong danh sách ZooTop`;
+    const cd = bangZoo.chanDoan || { sanPham: {} };
+    if (!cd.sanPham[pm + '|' + chuanTen(tenSp)]) return `${moTa}: file SKU không có sản phẩm "${tenSp}" (${pm})`;
+    return `${moTa}: "${tenSp}" không có màu/size này`;
   }
 
   // Ca don di ZooTop khi MOI dong deu co SKU ZooTop -> mang SKU theo dong, khong thi null.
@@ -1113,8 +1134,9 @@
       if (d.chiDinh === 'Merchize') return { ...d, zooSkus: null, tebSku: '' };
       if (d.chiDinh === 'ZooTop') {
         const zooSkus = bangZoo ? zootopSkuCuaDon(d, bangZoo) : null;
-        const loiChiDinh = zooSkus ? '' : zooTarget ? 'chỉ định @ZooTop nhưng có dòng không có SKU ZooTop'
-          : 'chỉ định @ZooTop nhưng tab chưa gắn sheet ZooTop';
+        const loiChiDinh = zooSkus ? '' : !zooTarget ? 'chỉ định @ZooTop nhưng tab chưa gắn sheet ZooTop'
+          : 'chỉ định @ZooTop nhưng không có SKU ZooTop: ' + d.rows.filter(({ r }) => !zootopSkuDong(r, bangZoo))
+            .map(({ r }) => lyDoKhongCoZooTop(r, bangZoo)).join('; ');
         return { ...d, zooSkus, tebSku: '', loiChiDinh };
       }
       if (d.chiDinh === 'Teb') {
@@ -1133,7 +1155,7 @@
     }
     const donList = tatCa.filter((d) => !d.tebSku && !d.zooSkus).map((d) => {
       const kq = dungDon(d, catalog, title);
-      return { ...d, ...kq, loi: d.loiChiDinh ? [d.loiChiDinh, ...kq.loi] : kq.loi };
+      return { ...d, ...kq, loi: d.loiChiDinh ? [d.loiChiDinh] : kq.loi };
     });
     if (donList.length === 0 && dsTeb.length === 0 && dsZoo.length === 0) return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
     const dongTebBaoCao = dsTeb.length ? [`${dsTeb.length} đơn đi Teb: ${dsTeb.map((d) => d.orderNumber).join(', ')}`] : [];
@@ -1142,9 +1164,11 @@
       // Don co dong khong tim thay SKU ZooTop (de doi chieu voi file SKU ZooTop).
       const thieuZoo = tatCa.filter((d) => !d.zooSkus && !d.chiDinh).slice(0, 10).map((d) => {
         const r = (d.rows.find(({ r: x }) => !zootopSkuDong(x, bangZoo)) || d.rows[0]).r;
-        return `• ${d.orderNumber}: ${cell(r, COL.printingMethod)} | ${cell(r, COL.title)} | ${cell(r, COL.color)} | ${cell(r, COL.size)}`;
+        return `• ${d.orderNumber}: ${lyDoKhongCoZooTop(r, bangZoo)}`;
       });
       if (thieuZoo.length) dongTebBaoCao.splice(1, 0, 'Không có SKU ZooTop (đi Teb / Merchize):', ...thieuZoo);
+      const soSku = (bangZoo.chanDoan || {}).soSku || {};
+      dongTebBaoCao.splice(1, 0, `File SKU ZooTop: ${Object.entries(soSku).map(([t, n]) => `"${t}" ${n} SKU`).join(', ')}`);
     }
     if (!tebTarget) dongTebBaoCao.push(`Tab "${title}" chưa chọn sheet Teb.`);
     // Chan doan Teb: don US 1 dong khong tim thay SKU trong SKU LIST (de so voi SKU LIST).
