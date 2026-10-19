@@ -1393,6 +1393,13 @@ mở tab. Nếu script báo `⚠️ Worker chưa vào được file`: share file
 thông báo (Sheet đơn: Editor, file Teb: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
 ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
 
+## Chỉ định nhà cung cấp cho từng đơn (v1.47)
+
+Gõ `@ZooTop`, `@Teb` hoặc `@Merchize` (không phân biệt hoa thường) vào cột AC của đơn trước khi bấm Kiểm tra / Gửi
+đơn. Đơn đó vẫn tính là chờ gửi và chỉ đi đúng nhà cung cấp đã chọn (bỏ qua thứ tự ưu tiên ZooTop > Teb > Merchize).
+Không tìm được SKU của bên đó (hoặc tab chưa gắn sheet) thì đơn bị đánh dấu `Lỗi: chỉ định ...`, không tự chuyển bên.
+Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng chỉ cần ghi ở 1 dòng.
+
 ## ZooTop (v1.43)
 
 - Gắn sheet fulfill: mở tab, bấm dòng **ZooTop** trên bảng, dán link sheet fulfill ZooTop (mở đúng tab, link có

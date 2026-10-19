@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.46
+// @version      1.47
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.46';
+  const SCRIPT_VERSION = '1.47';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -740,20 +740,31 @@
   }
 
   // Tra ve danh sach don CHO GUI (cac dong co orderNumber va cot AC trong), gop theo orderNumber.
+  // Chi dinh nha cung cap: go "@ZooTop" / "@Teb" / "@Merchize" vao cot AC truoc khi gui. Don nay van la
+  // don cho gui, va chi di dung nha cung cap do (khong tim duoc SKU thi bao loi, khong tu doi ben).
+  function chiDinhNcc(st) {
+    const m = str(st).match(/^@\s*(merchize|teb|zootop)$/i);
+    return m ? { merchize: 'Merchize', teb: 'Teb', zootop: 'ZooTop' }[m[1].toLowerCase()] : '';
+  }
+
   function gomDon(rows) {
     const daGui = new Set();
     rows.slice(1).forEach((r) => {
       const ma = cell(r, COL.orderNumber);
-      if (ma && cell(r, COL.status)) daGui.add(ma);
+      if (ma && cell(r, COL.status) && !chiDinhNcc(cell(r, COL.status))) daGui.add(ma);
     });
 
     const donMap = new Map();
     rows.forEach((r, i) => {
       if (i === 0) return;
       const ma = cell(r, COL.orderNumber);
-      if (!ma || cell(r, COL.status)) return;
-      if (!donMap.has(ma)) donMap.set(ma, { orderNumber: ma, rows: [], daGuiTruoc: daGui.has(ma) });
-      donMap.get(ma).rows.push({ rowNumber: i + 1, r });
+      const st = cell(r, COL.status);
+      const cd = chiDinhNcc(st);
+      if (!ma || (st && !cd)) return;
+      if (!donMap.has(ma)) donMap.set(ma, { orderNumber: ma, rows: [], daGuiTruoc: daGui.has(ma), chiDinh: '' });
+      const d = donMap.get(ma);
+      d.rows.push({ rowNumber: i + 1, r });
+      if (cd && !d.chiDinh) d.chiDinh = cd;
     });
     return Array.from(donMap.values());
   }
@@ -1098,6 +1109,20 @@
     const zooTarget = docCacSheetZooTop()[title];
     const bangZoo = zooTarget ? await docBangZooTop() : null;
     const tatCa = gomDon(rows).map((d) => {
+      // Don chi dinh nha cung cap (@ZooTop / @Teb / @Merchize o cot AC).
+      if (d.chiDinh === 'Merchize') return { ...d, zooSkus: null, tebSku: '' };
+      if (d.chiDinh === 'ZooTop') {
+        const zooSkus = bangZoo ? zootopSkuCuaDon(d, bangZoo) : null;
+        const loiChiDinh = zooSkus ? '' : zooTarget ? 'chỉ định @ZooTop nhưng có dòng không có SKU ZooTop'
+          : 'chỉ định @ZooTop nhưng tab chưa gắn sheet ZooTop';
+        return { ...d, zooSkus, tebSku: '', loiChiDinh };
+      }
+      if (d.chiDinh === 'Teb') {
+        const tebSku = tebSkuCuaDon(d, title, bangPhu);
+        const loiChiDinh = tebSku ? '' : tebTarget ? 'chỉ định @Teb nhưng không có SKU Teb (cần đơn US 1 dòng, khớp SKU LIST)'
+          : 'chỉ định @Teb nhưng tab chưa chọn sheet Teb';
+        return { ...d, zooSkus: null, tebSku, loiChiDinh };
+      }
       const zooSkus = bangZoo ? zootopSkuCuaDon(d, bangZoo) : null;
       return { ...d, zooSkus, tebSku: zooSkus ? '' : tebSkuCuaDon(d, title, bangPhu) };
     });
@@ -1106,13 +1131,16 @@
     if (guiThat && dsTeb.length && !tebTarget) {
       throw new Error(`Có ${dsTeb.length} đơn đi Teb nhưng tab "${title}" chưa chọn sheet Teb. Dán link sheet Teb rồi bấm "Lưu sheet Teb".`);
     }
-    const donList = tatCa.filter((d) => !d.tebSku && !d.zooSkus).map((d) => ({ ...d, ...dungDon(d, catalog, title) }));
+    const donList = tatCa.filter((d) => !d.tebSku && !d.zooSkus).map((d) => {
+      const kq = dungDon(d, catalog, title);
+      return { ...d, ...kq, loi: d.loiChiDinh ? [d.loiChiDinh, ...kq.loi] : kq.loi };
+    });
     if (donList.length === 0 && dsTeb.length === 0 && dsZoo.length === 0) return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
     const dongTebBaoCao = dsTeb.length ? [`${dsTeb.length} đơn đi Teb: ${dsTeb.map((d) => d.orderNumber).join(', ')}`] : [];
     if (zooTarget) {
       dongTebBaoCao.unshift(`${dsZoo.length} đơn đi ZooTop` + (dsZoo.length ? `: ${dsZoo.map((d) => d.orderNumber).join(', ')}` : '.'));
       // Don co dong khong tim thay SKU ZooTop (de doi chieu voi file SKU ZooTop).
-      const thieuZoo = tatCa.filter((d) => !d.zooSkus).slice(0, 10).map((d) => {
+      const thieuZoo = tatCa.filter((d) => !d.zooSkus && !d.chiDinh).slice(0, 10).map((d) => {
         const r = (d.rows.find(({ r: x }) => !zootopSkuDong(x, bangZoo)) || d.rows[0]).r;
         return `• ${d.orderNumber}: ${cell(r, COL.printingMethod)} | ${cell(r, COL.title)} | ${cell(r, COL.color)} | ${cell(r, COL.size)}`;
       });
