@@ -1408,6 +1408,7 @@ Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng
   tra các bảng ZooTop khác. Đơn ngoài US chỉ nhận SKU bắt đầu bằng **G** hoặc **C** (mã `UT...` chỉ đi trong US); không
   có thì đơn đi Merchize.
 - Worker: tracking không có tên hãng thì đoán theo đầu mã: `92...` / `94...` / `42...` = USPS, `20...` = DHL (cho mọi nguồn).
+- Tracking từ sheet ZooTop / Teb chỉ lấy mã thật (8+ ký tự chữ/số, ít nhất 6 chữ số); chữ ghi chú như `NGOÀI US`, `Priority` bị bỏ qua.
 - Telegram: gõ `/update` để cập nhật ngay (giống mở `/run?key=`), kết quả là tin tóm tắt như mỗi lần chạy; `/help` xem lệnh.
 
 ## ZooTop (v1.43)

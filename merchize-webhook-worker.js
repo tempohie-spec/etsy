@@ -136,6 +136,12 @@ function hangVanChuyen(tracking, carrier) {
   return '';
 }
 
+// Chi nhan ma tracking that (bo chu ghi chu nhu "NGOAI US", "Priority"): 8+ ky tu chu/so, it nhat 6 chu so.
+function laTracking(v) {
+  const t = str(v).replace(/\s+/g, '');
+  return /^[A-Za-z0-9-]{8,}$/.test(t) && (t.match(/\d/g) || []).length >= 6 ? t : '';
+}
+
 function datDongDau(boGhi, tab, rowNumber, row, laDongDau, col, value) {
   if (laDongDau) boGhi.dat(tab, rowNumber, col, value);
   else if (cell(row, col)) boGhi.dat(tab, rowNumber, col, '');
@@ -683,7 +689,7 @@ async function chayLich(env, event) {
       const theoMa = {};
       (data.values || []).forEach((r) => {
         const ma = cell(r, 1);
-        if (ma) theoMa[ma] = { tracking: cell(r, 19), dvvc: cell(r, 20), total: soTien(r[26]) };
+        if (ma) theoMa[ma] = { tracking: laTracking(cell(r, 19)), dvvc: cell(r, 20), total: soTien(r[26]) };
       });
       const timTeb = (ma) => theoMa[ma];
       tebInfo[tab] = {
@@ -749,7 +755,7 @@ async function chayLich(env, event) {
         const ma = cell(r, ZOO_COT.orderId);
         if (!ma) return;
         const t = theoMa[ma] || (theoMa[ma] = { tracking: '', dvvc: '', total: 0, coCost: false });
-        const tk = cell(r, ZOO_COT.trackingNumber) || cell(r, ZOO_COT.trackingA);
+        const tk = laTracking(cell(r, ZOO_COT.trackingNumber)) || laTracking(cell(r, ZOO_COT.trackingA));
         if (tk && !t.tracking) { t.tracking = tk; t.dvvc = cell(r, ZOO_COT.carrier); }
         const c = soTien(r[ZOO_COT.totalCost]);
         if (c !== null) { t.total = Math.round((t.total + c) * 100) / 100; t.coCost = true; }
