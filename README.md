@@ -819,6 +819,14 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Nhãn chỉ hiện tên tài khoản đã đăng, sát mép phải ảnh (v9.57)
+
+- **Chỉ còn tên các tài khoản đã đăng** (mỗi tài khoản một dòng, "✅ Tên"). Bỏ dòng 📋👁 và các nhãn "Đã xem" / "Đã lấy" trên lưới; listing chưa
+  đăng ở tài khoản nào thì **không có nhãn**. Thông tin 👁 / 📋 vẫn có ở tooltip (rê chuột vào nhãn) và ở dòng tóm tắt dưới tiêu đề trang listing.
+- Nhãn **dính sát mép phải** của ảnh (lề 0, chỉ bo góc bên trái). Không còn né nút tim nữa: nút tim của Etsy hiện lên **trên** nhãn khi rê chuột
+  nên có thể che đuôi vài ký tự của 1–2 dòng đầu lúc đó. Vẫn tránh tag bên trái ("Popular now"…): tên vừa chỗ thì ở góc trên, dài hơn thì tự
+  hạ xuống dưới tag để không bị cắt.
+
 ### Nhãn hiện đủ tên mọi tài khoản đã đăng, mỗi tài khoản một dòng (v9.56)
 
 Trước đây nhãn gộp "✅ A, B +1" (chỉ 2 tên đầu). Giờ **mỗi tài khoản đã đăng một dòng riêng** (mới đăng nhất ở trên), tối đa 10 dòng, quá thì
