@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.55
+// @version      9.56
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.55';
+  const PHIEN_BAN = '9.56';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -5202,6 +5202,82 @@
 
   // Nhan o goc tren-PHAI anh cua 1 the san pham: goc tren-trai danh cho tag cua Etsy ("Popular now",
   // "Bestseller"...). z-index thap hon nut tim cua Etsy (cung goc phai, hien khi re chuot) de khong che no.
+  // v9.56: moi TAI KHOAN da dang 1 dong rieng (khong gop "A, B +1" nua) de nhin ra ngay da dang o
+  // nhung tai khoan nao; toi da SO_DONG_TAI_KHOAN_TOI_DA dong, du thi gop thanh "+N".
+  const SO_DONG_TAI_KHOAN_TOI_DA = 10;
+  const KIEU_DONG_NHAN =
+    'padding:2px 6px;border-radius:4px;font:bold 11px/1.4 sans-serif;color:#fff;white-space:nowrap;overflow:hidden;' +
+    'text-overflow:ellipsis;max-width:100%;box-sizing:border-box;box-shadow:0 1px 3px rgba(0,0,0,.35);';
+
+  // Cac dong cua nhan: [{ chu, nen }]
+  function cacDongNhanDanhDau(m) {
+    const may = cacMayDaDang(m).map(([n]) => n);
+    const dong = may.slice(0, SO_DONG_TAI_KHOAN_TOI_DA).map((ten) => ({ chu: `✅ ${ten}`, nen: '#15803D' }));
+    if (may.length > SO_DONG_TAI_KHOAN_TOI_DA) {
+      dong.push({ chu: `+${may.length - SO_DONG_TAI_KHOAN_TOI_DA} tài khoản nữa`, nen: '#15803D' });
+    }
+    if (may.length) {
+      const bieuTuong = `${m.l ? '📋' : ''}${m.x ? '👁' : ''}`;
+      if (bieuTuong) dong.push({ chu: bieuTuong, nen: 'rgba(55,65,81,.85)' });
+    } else if (m.l) {
+      dong.push({ chu: `📋 Đã lấy${m.x ? ' 👁' : ''}`, nen: '#2563EB' });
+    } else {
+      dong.push({ chu: '👁 Đã xem', nen: 'rgba(55,65,81,.85)' });
+    }
+    return dong;
+  }
+
+  // Nhan nam o goc tren-phai; hai thu co the che / bi che: nut tim (yeu thich) cua Etsy o goc phai va tag
+  // ("Popular now", "Bestseller"...) o goc trai. Do vi tri THAT cua ca hai: day nhan sang trai vua du de
+  // khong de len nut tim, va gioi han chieu rong de khong tran sang tag/ra ngoai anh. Khong do duoc thi
+  // giu le phai 6px va rong toi da (100% - 12px).
+  function datViTriNhanDanhDau(nhan, vung, the) {
+    nhan.style.right = '6px';
+    nhan.style.top = '6px';
+    nhan.style.maxWidth = 'calc(100% - 12px)';
+    const rv = vung.getBoundingClientRect();
+    if (!rv.width) return;
+    let le = 6;
+    let daySatTrenTraiPhai = 0; // mep duoi cua tag / nut tim, tinh tu mep tren cua anh
+    const tim = [...the.querySelectorAll('button, [role="button"]')].find((b) =>
+      /favou?rite|yêu thích/i.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('data-ui') || ''} ${b.textContent}`)
+    );
+    if (tim) {
+      const rt = tim.getBoundingClientRect();
+      if (rt.width && rt.left > rv.left && rt.top - rv.top <= 60) {
+        le = Math.max(6, Math.round(rv.right - rt.left + 6));
+        daySatTrenTraiPhai = Math.max(daySatTrenTraiPhai, rt.bottom - rv.top);
+      }
+    }
+    // Tag ben trai: phan tu nho nam sat goc tren-trai cua anh (khong phai chinh nhan, anh hay nut tim)
+    let tagPhai = 0;
+    for (const el of vung.querySelectorAll('div, span, a')) {
+      if (nhan.contains(el) || el === nhan || el.contains(nhan) || (tim && (el === tim || tim.contains(el) || el.contains(tim)))) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.width < 0.7 * rv.width && r.height < 60 && r.left - rv.left < 30 && r.top - rv.top < 30 && r.right > tagPhai) {
+        tagPhai = r.right;
+        daySatTrenTraiPhai = Math.max(daySatTrenTraiPhai, r.bottom - rv.top);
+      }
+    }
+    const traiToiThieu = tagPhai ? tagPhai - rv.left + 4 : 6;
+    const conLai = Math.floor(rv.width - traiToiThieu - le);
+
+    // Do be rong TU NHIEN cua dong dai nhat: vua chu thi giu o goc tren-phai (canh nut tim / tag),
+    // khong vua thi HA XUONG duoi hang tag + nut tim de duoc dung het chieu rong, ten khong bi cat.
+    nhan.style.width = 'max-content';
+    nhan.style.maxWidth = 'none';
+    const rongTuNhien = nhan.offsetWidth;
+    nhan.style.width = '';
+    if (rongTuNhien <= conLai) {
+      nhan.style.right = `${le}px`;
+      nhan.style.maxWidth = `${Math.max(90, conLai)}px`;
+    } else {
+      nhan.style.right = '6px';
+      nhan.style.top = `${Math.round(daySatTrenTraiPhai + 4)}px`;
+      nhan.style.maxWidth = `${Math.max(90, Math.floor(rv.width - 12))}px`;
+    }
+  }
+
   function veNhanDanhDau(the, m) {
     const anh = the.querySelector('img');
     const vung = (anh && anh.parentElement) || the;
@@ -5215,20 +5291,24 @@
       nhan = document.createElement('div');
       nhan.className = 'ea-danh-dau';
       nhan.style.cssText =
-        'position:absolute;top:6px;right:6px;z-index:1;max-width:60%;padding:2px 6px;border-radius:4px;' +
-        'font:bold 11px/1.4 sans-serif;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
-        'box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:auto;';
+        'position:absolute;top:6px;right:6px;z-index:1;max-width:calc(100% - 12px);display:flex;flex-direction:column;' +
+        'align-items:flex-end;gap:2px;pointer-events:auto;';
       vung.appendChild(nhan);
     }
-    const may = cacMayDaDang(m).map(([n]) => n);
-    const bieuTuong = `${m.x ? '👁' : ''}${m.l ? '📋' : ''}`;
-    nhan.textContent = may.length
-      ? `✅ ${may.slice(0, 2).join(', ')}${may.length > 2 ? ` +${may.length - 2}` : ''}${bieuTuong ? ' ' + bieuTuong : ''}`
-      : m.l
-        ? `📋 Đã lấy${m.x ? ' 👁' : ''}`
-        : '👁 Đã xem';
-    nhan.style.background = may.length ? '#15803D' : m.l ? '#2563EB' : 'rgba(55,65,81,.85)';
+    const dong = cacDongNhanDanhDau(m);
+    const chuKy = JSON.stringify(dong);
+    if (nhan.dataset.chuKy !== chuKy) {
+      nhan.dataset.chuKy = chuKy;
+      nhan.textContent = '';
+      for (const d of dong) {
+        const o = document.createElement('div');
+        o.style.cssText = `${KIEU_DONG_NHAN}background:${d.nen};`;
+        o.textContent = d.chu;
+        nhan.appendChild(o);
+      }
+    }
     nhan.title = moTaDayDuDanhDau(m);
+    datViTriNhanDanhDau(nhan, vung, the);
   }
 
   function ganNhanDanhDauVaoLuoi(kho = docKhoDanhDau()) {

@@ -819,6 +819,18 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Nhãn hiện đủ tên mọi tài khoản đã đăng, mỗi tài khoản một dòng (v9.56)
+
+Trước đây nhãn gộp "✅ A, B +1" (chỉ 2 tên đầu). Giờ **mỗi tài khoản đã đăng một dòng riêng** (mới đăng nhất ở trên), tối đa 10 dòng, quá thì
+dòng cuối ghi "+N tài khoản nữa". Dưới các dòng tài khoản có 1 dòng nhỏ 📋👁 (đã lấy dữ liệu / đã xem) nếu có; chưa đăng ở đâu thì vẫn là nhãn
+đơn "📋 Đã lấy 👁" (xanh dương) hoặc "👁 Đã xem" (xám). Rê chuột vào nhãn vẫn thấy thời điểm đầy đủ.
+
+Vị trí tự tránh các thứ của Etsy (`datViTriNhanDanhDau()`): đo vị trí thật của **nút tim** và **tag bên trái** ("Popular now"…) trên từng thẻ:
+- nhãn dời sang trái đủ để không đè nút tim, giới hạn bề rộng để không tràn sang tag / ra ngoài ảnh;
+- tên **vừa chỗ bên cạnh** tag + tim thì giữ ở góc trên-phải; tên **dài không vừa** thì tự **hạ xuống dưới hàng tag + tim** để hiện đủ bề rộng
+  (chỉ khi tên dài hơn cả bề rộng thẻ mới bị cắt "…").
+Chuyển trang / thẻ nạp thêm khi cuộn thì vẽ lại, không bị nhân đôi dòng.
+
 ### Ghi chú "đang đăng listing nào" theo từng tab + nghe Publish trên mọi trang (v9.55)
 
 Triệu chứng: dùng Alt+V nhưng đôi khi listing không được ghi "✅ đã đăng" (đã điền đủ URL, mã, nhãn). Hai nguyên nhân đã sửa:
