@@ -735,10 +735,11 @@ async function chayLich(env, event) {
     if (!rows || !cfg || !cfg.spreadsheetId || !cfg.sheet) { zooInfo[tab] = 'tab không có trong STORES hoặc thiếu sheet'; continue; }
     const moc = new Date();
     moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
+    // Khong xet cot AC: don nao (trong 10 ngay) co ma trong sheet ZooTop thi lay tracking / cost tu do.
     const canZoo = new Map();
     rows.forEach((row, i) => {
       const ma = cell(row, COL.orderNumber);
-      if (i === 0 || !ma || cell(row, COL.status) !== 'ZooTop') return;
+      if (i === 0 || !ma) return;
       if (!canZoo.has(ma)) canZoo.set(ma, []);
       canZoo.get(ma).push({ rowNumber: i + 1, row });
     });
@@ -746,7 +747,7 @@ async function chayLich(env, event) {
       const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
       if (!ngay || ngay < moc) canZoo.delete(ma);
     });
-    if (!canZoo.size) { zooInfo[tab] = `không có đơn ZooTop nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất`; continue; }
+    if (!canZoo.size) { zooInfo[tab] = `không có đơn nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất`; continue; }
     try {
       const data = await sheetsFetch(env, dem,
         `/values/${encodeURIComponent(`'${cfg.sheet}'!A:AF`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
@@ -770,6 +771,8 @@ async function chayLich(env, event) {
           boGhi.dat(tab, rowNumber, COL.carrier, hangVanChuyen(tk.tracking, tk.dvvc));
           boGhi.tieuDe(tab, COL.tracking, 'Tracking');
           boGhi.tieuDe(tab, COL.carrier, 'Hãng vận chuyển');
+          // Da co tracking: buoc tra Merchize phia sau khong tra lai don nay.
+          row[COL.tracking] = tk.tracking;
           thongKe.zoo.push({ tab, ma });
         }
         if (tk.coCost && tk.total > 0 && soTien(cell(row, COL.baseCost)) !== tk.total) {
