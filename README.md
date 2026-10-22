@@ -819,6 +819,26 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Ghi chú "đang đăng listing nào" theo từng tab + nghe Publish trên mọi trang (v9.55)
+
+Triệu chứng: dùng Alt+V nhưng đôi khi listing không được ghi "✅ đã đăng" (đã điền đủ URL, mã, nhãn). Hai nguyên nhân đã sửa:
+
+1. **Ghi chú dùng chung cho cả trình duyệt.** Alt+V lưu ghi chú "listing nguồn X đang được soạn" vào 1 chỗ chung (`GM_setValue`). Mở 2 tab
+   soạn, Alt+V listing A ở tab 1 rồi Alt+V listing B ở tab 2 thì ghi chú bị ghi đè thành B → bấm Publish ở tab 1 đánh dấu **nhầm B** (rồi xoá
+   ghi chú), A và B đều không được đánh dấu đúng. Giờ ghi chú lưu **theo từng tab** (`sessionStorage`: riêng mỗi tab, giữ qua F5 và chuyển
+   trang nội bộ của Etsy). Không dùng được `sessionStorage` thì quay lại kho chung cũ để vẫn chạy.
+2. **Chỉ nghe click Publish khi trang soạn được tải trực tiếp.** Userscript chạy 1 lần mỗi lần tải trang; Etsy chuyển trang nội bộ (không tải
+   lại) thì không chạy lại — vào trang soạn bằng "Copy listing" từ trang danh sách sẽ không có ai nghe click. Giờ phần nghe click gắn trên
+   **mọi trang etsy.com**, và kiểm tra đường dẫn (`/your/shops/me/listing-editor`) **ngay lúc click**; nút "Publish" ở trang khác hoặc nút
+   "Publish copy with changes" không bị tính, chỉ nút "Publish" cuối cùng.
+
+Thử bằng Chromium với 2 tab chung 1 trình duyệt: Alt+V A (tab 1), Alt+V B (tab 2) → Publish tab 1 đánh dấu đúng A, tab 2 đánh dấu đúng B;
+Alt+V → F5 → Publish vẫn đúng; vào trang soạn bằng `pushState` (không tải lại) vẫn nghe được; Publish ở trang khác không bị tính. Bản 9.54 chạy
+cùng bài thử đó cho kết quả sai (tab 1 đánh dấu nhầm B).
+
+Chưa sửa (có thể làm tiếp): vẫn ghi nhận **ngay lúc click Publish**, chưa đợi Etsy báo đăng thành công (Etsy báo lỗi thiếu thông tin rồi bạn
+bấm Publish lần 2 thì lần 2 không có ghi chú). Dấu 👁 "đã xem" cũng chỉ ghi khi tải trang trực tiếp, chưa theo dõi chuyển trang nội bộ.
+
 ### Chọn ảnh + chọn/sửa Custom options trong MỘT hộp thoại (v9.54)
 
 Trước đây Alt+V hỏi 2 lần: hộp thoại Custom options (v9.53) lúc bắt đầu dán, rồi hộp thoại chọn ảnh ở bước upload. Giờ gộp thành

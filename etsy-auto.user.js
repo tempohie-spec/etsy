@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.54
+// @version      9.55
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.54';
+  const PHIEN_BAN = '9.55';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -5088,7 +5088,7 @@
   const KHOA_DANH_DAU_CAI_DAT = 'etsy_auto_danh_dau_cai_dat_v1'; // { nhanMay, urlSheet, biMat }
   const KHOA_DANH_DAU_CON_TRO = 'etsy_auto_danh_dau_con_tro_v1'; // { dong, luc } — da doc toi dong nao cua Sheet
   const KHOA_DANH_DAU_DANG_DONG_BO = 'etsy_auto_danh_dau_khoa_v1'; // moc thoi gian, tranh 2 tab dong bo cung luc
-  const KHOA_NGUON_DANG_SOAN = 'etsy_auto_nguon_dang_soan_v1'; // { id, tieuDe, t } listing nguon dang duoc dan o may nay
+  const KHOA_NGUON_DANG_SOAN = 'etsy_auto_nguon_dang_soan_v1'; // kho CHUNG cu (chi dung khi sessionStorage khong dung duoc)
   const SO_LISTING_DANH_DAU_TOI_DA = 30000;
   const THOI_GIAN_TINH_DA_XEM = 3000;
   const CHU_KY_DONG_BO_DANH_DAU = 60000;
@@ -5382,25 +5382,60 @@
 
   // ---- Ghi nhan 3 muc ----
 
-  // May dich: nho listing nguon dang duoc dan o day, de luc bam Publish biet danh dau listing nao
-  function ghiNguonDangSoan(id, tieuDe) {
-    if (!/^\d+$/.test(String(id || ''))) return;
-    luuGiaTri(KHOA_NGUON_DANG_SOAN, JSON.stringify({ id: String(id), tieuDe: tieuDe || '', t: Date.now() }));
+  // May dich: nho listing nguon dang duoc dan o TAB NAY, de luc bam Publish biet danh dau listing nao.
+  // v9.55: luu theo TUNG TAB (sessionStorage — rieng moi tab, song qua F5 va chuyen trang noi bo cua
+  // Etsy). Truoc day chi co 1 cho chung cho CA TRINH DUYET (GM_setValue): mo 2 tab soan, Alt+V
+  // listing A o tab 1 roi Alt+V listing B o tab 2 thi ghi chu bi ghi de thanh B -> bam Publish o tab 1
+  // danh dau NHAM listing B (xoa ghi chu), con A va B deu khong duoc danh dau dung. Khong dung duoc
+  // sessionStorage (bi chan) thi quay lai cho chung cu (GM) de chuc nang van chay.
+  const KHOA_NGUON_DANG_SOAN_TAB = 'etsy_auto_nguon_dang_soan_tab_v1';
+
+  function docNguonDangSoan() {
+    try {
+      // sessionStorage dung duoc thi CHI tin no (tab chua dan gi => null), khong doc kho chung cu cua ban truoc
+      const chuoi = sessionStorage.getItem(KHOA_NGUON_DANG_SOAN_TAB);
+      return chuoi === null ? null : JSON.parse(chuoi);
+    } catch (e) {
+      /* sessionStorage khong dung duoc -> thu kho chung */
+    }
+    return docJsonLuu(KHOA_NGUON_DANG_SOAN, null);
   }
 
+  function luuNguonDangSoan(giaTri) {
+    try {
+      if (giaTri) sessionStorage.setItem(KHOA_NGUON_DANG_SOAN_TAB, JSON.stringify(giaTri));
+      else sessionStorage.removeItem(KHOA_NGUON_DANG_SOAN_TAB);
+      return;
+    } catch (e) {
+      /* roi xuong kho chung */
+    }
+    luuGiaTri(KHOA_NGUON_DANG_SOAN, JSON.stringify(giaTri));
+  }
+
+  function ghiNguonDangSoan(id, tieuDe) {
+    if (!/^\d+$/.test(String(id || ''))) return;
+    luuNguonDangSoan({ id: String(id), tieuDe: tieuDe || '', t: Date.now() });
+  }
+
+  const DUONG_TRANG_SOAN_LISTING = '/your/shops/me/listing-editor';
+
+  // Bat ca click THAT cua nguoi dung lan click script tu bam (nut "Publish" cuoi cung / nut "Publish"
+  // cua listing moi). Pha capture de bat duoc truoc khi Etsy dong hop thoai.
+  // v9.55: gan tren MOI trang etsy.com (khong chi khi tai thang trang soan) va kiem tra duong dan LUC CLICK:
+  // Etsy chuyen trang noi bo khong tai lai nen script khong chay lai — neu chi gan luc tai trang
+  // thi vao trang soan bang "Copy listing" tu trang danh sach se KHONG co ai nghe click.
   function batGhiNhanPublish() {
-    // Bat ca click THAT cua nguoi dung lan click script tu bam (nut "Publish" cuoi cung / nut
-    // "Publish" cua listing moi). Pha capture de bat duoc truoc khi Etsy dong hop thoai.
     document.addEventListener(
       'click',
       (e) => {
+        if (!location.pathname.includes(DUONG_TRANG_SOAN_LISTING)) return;
         const nut = e.target && e.target.closest && e.target.closest('button, a[role="button"]');
         if (!nut || nut.closest('#etsy-auto-panel')) return;
         if (nut.textContent.trim().toLowerCase() !== 'publish') return;
-        const nguon = docJsonLuu(KHOA_NGUON_DANG_SOAN, null);
+        const nguon = docNguonDangSoan();
         if (!nguon || !nguon.id || Date.now() - nguon.t > HAN_NGUON_DANG_SOAN) return;
         ghiDanhDau('dang', nguon.id);
-        luuGiaTri(KHOA_NGUON_DANG_SOAN, 'null'); // 1 lan dan = 1 lan dang, khong danh dau trung
+        luuNguonDangSoan(null); // 1 lan dan = 1 lan dang, khong danh dau trung
         const nhan = docCaiDatDanhDau().nhanMay;
         if (!nhan) {
           hienThongBao('🏷️ Đã ghi "đã đăng" nhưng máy này CHƯA ĐẶT NHÃN — mở 🏷️ Đánh dấu listing trên panel để đặt tên máy/tài khoản.', '#F59E0B', 8000);
@@ -5418,7 +5453,7 @@
         if (layListingId() === id) ghiDanhDau('xem', id);
       }, THOI_GIAN_TINH_DA_XEM);
     }
-    if (location.pathname.includes('/your/shops/me/listing-editor')) batGhiNhanPublish();
+    batGhiNhanPublish();
 
     veLaiDanhDau();
     // Luoi nap them the khi cuon / sang trang -> gan nhan tiep (gom thay doi, 500ms 1 lan)
