@@ -127,12 +127,12 @@ function ngayTuO(v) {
 
 // Ma don, tracking, hang van chuyen, ticket chi ghi o DONG DAU cua don (don nhieu dong); cac dong
 // sau neu dang co gia tri (ghi tu ban cu) thi xoa di.
-// Khong co ten hang van chuyen: doan theo dau ma tracking (92.../94.../42... = USPS, 20... = DHL).
+// Khong co ten hang van chuyen: doan theo dau ma tracking (92.../94.../42... = USPS, 20.../GM... = DHL).
 function hangVanChuyen(tracking, carrier) {
   if (str(carrier)) return str(carrier);
   const t = str(tracking).split(',')[0].trim();
   if (/^(92|94|42)/.test(t)) return 'USPS';
-  if (/^20/.test(t)) return 'DHL';
+  if (/^(20|GM)/i.test(t)) return 'DHL';
   return '';
 }
 
@@ -733,20 +733,15 @@ async function chayLich(env, event) {
     const cfg = cauHinhZoo[tab];
     const rows = duLieu[tab];
     if (!rows || !cfg || !cfg.spreadsheetId || !cfg.sheet) { zooInfo[tab] = 'tab không có trong STORES hoặc thiếu sheet'; continue; }
-    const moc = new Date();
-    moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
+    // Moi don cua tab (khong ke AC, khong gioi han ngay) co ma trong sheet ZooTop deu la don ZooTop:
+    // giong phan Teb, de don gui truoc / AC bi doi van lay duoc tracking. Bo qua dong tong (khong ma).
     const canZoo = new Map();
     rows.forEach((row, i) => {
       const ma = cell(row, COL.orderNumber);
-      if (i === 0 || !ma || cell(row, COL.status) !== 'ZooTop') return;
+      if (i === 0 || !ma) return;
       if (!canZoo.has(ma)) canZoo.set(ma, []);
       canZoo.get(ma).push({ rowNumber: i + 1, row });
     });
-    canZoo.forEach((dong, ma) => {
-      const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
-      if (!ngay || ngay < moc) canZoo.delete(ma);
-    });
-    if (!canZoo.size) { zooInfo[tab] = `không có đơn ZooTop nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất`; continue; }
     try {
       const data = await sheetsFetch(env, dem,
         `/values/${encodeURIComponent(`'${cfg.sheet}'!A:AF`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
@@ -760,7 +755,12 @@ async function chayLich(env, event) {
         const c = soTien(r[ZOO_COT.totalCost]);
         if (c !== null) { t.total = Math.round((t.total + c) * 100) / 100; t.coCost = true; }
       });
-      zooInfo[tab] = { soDongSheetZooTop: (data.values || []).length, khopMaDon: Array.from(canZoo.keys()).filter((m) => theoMa[m]).length };
+      const khop = Array.from(canZoo.keys()).filter((m) => theoMa[m]);
+      zooInfo[tab] = {
+        soDongSheetZooTop: (data.values || []).length,
+        khopMaDon: khop.length,
+        coTrackingTrenZooTop: khop.filter((m) => theoMa[m].tracking).length
+      };
       canZoo.forEach((dong, ma) => {
         const tk = theoMa[ma];
         if (!tk) return;

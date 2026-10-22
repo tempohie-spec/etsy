@@ -1407,7 +1407,7 @@ Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng
   - kiểu in; `G5000` = Gildan Adult, `C1717` = Comfort Adult, ở `ZOOTOP_QT_MA`), E Color, F Size, H SKU. Không có thì
   tra các bảng ZooTop khác. Đơn ngoài US chỉ nhận SKU bắt đầu bằng **G** hoặc **C** (mã `UT...` chỉ đi trong US); không
   có thì đơn đi Merchize.
-- Worker: tracking không có tên hãng thì đoán theo đầu mã: `92...` / `94...` / `42...` = USPS, `20...` = DHL (cho mọi nguồn).
+- Worker: tracking không có tên hãng thì đoán theo đầu mã: `92...` / `94...` / `42...` = USPS, `20...` / `GM...` = DHL (cho mọi nguồn).
 - Tracking từ sheet ZooTop / Teb chỉ lấy mã thật (8+ ký tự chữ/số, ít nhất 6 chữ số); chữ ghi chú như `NGOÀI US`, `Priority` bị bỏ qua.
 - Telegram: gõ `/update` để cập nhật ngay (giống mở `/run?key=`), kết quả là tin tóm tắt như mỗi lần chạy; `/help` xem lệnh.
 
@@ -1427,7 +1427,7 @@ Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng
   shipping_type `SELLER` (đổi ở `ZOOTOP_SHIPPING_TYPE`), buyer_first_name = tên đầy đủ, phone, email, country,
   state, city, address 1/2, postcode, quantity, sku, design_front/back (F/G), mockup_front (D). Sheet đơn: AB = SKU
   ZooTop, AC = `ZooTop` cho mọi dòng của đơn.
-- Worker: đọc sheet ZooTop của tab (share cho service account, quyền xem), với đơn AC = `ZooTop` trong 10 ngày:
+- Worker: đọc sheet ZooTop của tab (share cho service account, quyền xem), với mọi đơn của tab có mã trong sheet ZooTop (không xét AC, không giới hạn ngày):
   tracking (AB, trống thì C) + hãng (AC) vào AE/AF, Base Cost (Y) = tổng Total Cost (AF) các dòng của đơn. Telegram
   báo `Tracking ZooTop mới` / `Cost ZooTop`.
 
