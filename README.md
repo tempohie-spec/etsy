@@ -1400,6 +1400,14 @@ Gõ `@ZooTop`, `@Teb` hoặc `@Merchize` (không phân biệt hoa thường) và
 Không tìm được SKU của bên đó (hoặc tab chưa gắn sheet) thì đơn bị đánh dấu `Lỗi: chỉ định ...`, không tự chuyển bên.
 Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng chỉ cần ghi ở 1 dòng.
 
+## Tự điền SKU trước (v1.50)
+
+Điền SKU vào cột **AB** của dòng chờ gửi (AC trống hoặc `@...`) thì dòng đó gửi đúng SKU này, không tra bảng.
+Nhà cung cấp theo SKU: có trong bảng SKU ZooTop → ZooTop, có trong catalog Merchize → Merchize. SKU không có ở đâu
+thì ghi thêm `@ZooTop` / `@Merchize` ở AC để ép. Đơn nhiều dòng: dòng có SKU dùng SKU đó, dòng trống tự tra theo
+nhà cung cấp của đơn. Lưu ý: nút Kiểm tra cũng điền SKU vào AB, nên nếu sau đó sửa màu / size thì xoá ô AB của
+dòng đó để script tra lại.
+
 ## ZooTop ngoài US, tạm tắt Teb, đoán hãng vận chuyển (v1.49)
 
 - Thứ tự: **ZooTop → Merchize**. Teb tạm tắt (`DUNG_TEB = false` đầu phần ZooTop; đổi thành `true` để bật lại).
