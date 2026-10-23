@@ -643,8 +643,12 @@ async function chayLich(env, event) {
     tebInfo.loi = 'biến TEB không phải JSON hợp lệ';
     await baoLoiHeThong(env, dem, 'Biến TEB không phải JSON hợp lệ.').catch(() => {});
   }
+  // So tien ca 2 kieu: "13.24" / "1,234.56" va "13,24" / "1.234,56" (dau phay thap phan, vd sheet ZooTop).
   const soTien = (v) => {
-    const t = str(v).replace(/[^0-9.\-]/g, '');
+    let t = str(v).replace(/[^0-9.,\-]/g, '');
+    const phay = t.lastIndexOf(',');
+    if (phay > t.lastIndexOf('.') && /,\d{1,2}$/.test(t)) t = t.replace(/\./g, '').replace(/,(?=\d{1,2}$)/, '.');
+    t = t.replace(/,/g, '');
     return t === '' || isNaN(Number(t)) ? null : Math.round(Number(t) * 100) / 100;
   };
   for (const tab of Object.keys(cauHinhTeb)) {
