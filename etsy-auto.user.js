@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.57
+// @version      9.58
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.57';
+  const PHIEN_BAN = '9.58';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -5286,13 +5286,18 @@
       }
     }
     nhan.title = moTaDayDuDanhDau(m);
-    datViTriNhanDanhDau(nhan, vung, the);
+    // Do vi tri chi khi noi dung hoac be rong the doi (ve lai dinh ky nen tranh do layout moi lan)
+    const rongVung = Math.round(vung.getBoundingClientRect().width);
+    const khoaViTri = `${chuKy}|${rongVung}`;
+    if (rongVung && nhan.dataset.viTri !== khoaViTri) {
+      datViTriNhanDanhDau(nhan, vung, the);
+      nhan.dataset.viTri = khoaViTri;
+    }
   }
 
   function ganNhanDanhDauVaoLuoi(kho = docKhoDanhDau()) {
-    for (const [id, the] of timCacTheListing()) {
-      // Bo qua the cua CHINH listing dang mo (vd khoi "anh lien quan" trung id) — da co dong tom tat rieng
-      veNhanDanhDau(the, kho[id]);
+    for (const [id, cacThe] of timMoiTheListing()) {
+      for (const the of cacThe) veNhanDanhDau(the, kho[id]);
     }
   }
 
@@ -5531,6 +5536,16 @@
         }
       }
     }).observe(document.body, { childList: true, subtree: true });
+
+    // Ve lai nhan dinh ky (2,5s, chi khi tab dang hien): Etsy/HeyEtsy co the ve lai noi dung the (khi re chuot,
+    // tai anh...) lam mat nhan ma khong co the moi nao co data-listing-id de MutationObserver o tren bat duoc.
+    // Rat nhe: chi them nhan con thieu, nhan con nguyen thi khong lam gi.
+    (function lapVeLai() {
+      HEN_GIO.setTimeout(() => {
+        if (document.visibilityState === 'visible') veLaiDanhDau();
+        lapVeLai();
+      }, 2500);
+    })();
 
     // Dong bo: ngay khi mo trang, roi moi 60s khi tab dang hien
     if (coSheetDanhDau()) {
@@ -6076,6 +6091,30 @@ function doGet(e) {
       theo.set(id, el);
     }
     return theo;
+  }
+
+  // v9.58: TAT CA cac the cua moi listing_id (khong chi the dau tien). Etsy hay hien cung 1 listing o nhieu
+  // cho tren 1 trang (hang "Featured/Popular items" roi lai "All items" cua shop, ket qua tim kiem co ca
+  // quang cao lan ket qua thuong...) — timCacTheListing() chi tra ve the dau nen cac the trung phia sau
+  // khong co nhan. Van chi lay phan tu NGOAI CUNG trong moi the (bo cac phan tu long ben trong cung id,
+  // vd nut tim, khoi anh) bang cach bo phan tu nam trong 1 the cung id da nhan.
+  function timMoiTheListing() {
+    const theoId = new Map();
+    for (const el of document.querySelectorAll('[data-listing-id]')) {
+      const id = el.getAttribute('data-listing-id');
+      if (!id || !/^\d+$/.test(id)) continue;
+      if (['BUTTON', 'INPUT', 'FORM', 'IMG', 'SELECT'].includes(el.tagName)) continue;
+      const laThe =
+        el.tagName === 'LI' ||
+        /listing-card/.test(String(el.className || '')) ||
+        el.querySelector('a[href*="/listing/"]');
+      if (!laThe) continue;
+      const ds = theoId.get(id) || [];
+      if (ds.some((daNhan) => daNhan.contains(el))) continue;
+      ds.push(el);
+      theoId.set(id, ds);
+    }
+    return theoId;
   }
 
   // Rut gon du lieu API xuong dung nhung truong can luu, cho cache nho gon

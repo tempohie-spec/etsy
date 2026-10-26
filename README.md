@@ -819,6 +819,23 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Sửa lỗi: thẻ trùng listing không có nhãn (v9.58)
+
+Triệu chứng: một số listing (vd đơn 4493811737) **không hiện nhãn "đã đăng ở shop nào" trên thumbnail** dù trang listing của chính nó vẫn
+ghi đủ "Đã đăng ở LitbyArt, GDShopzDesigns" (tức dữ liệu có, chỉ nhãn trên lưới thiếu). Nguyên nhân: `timCacTheListing()` chỉ lấy **thẻ đầu
+tiên của mỗi mã listing trên cả trang**. Etsy hay hiện cùng 1 listing ở nhiều chỗ (shop: hàng "Featured/Popular items" rồi lại "All items";
+kết quả tìm kiếm: quảng cáo + kết quả thường) nên thẻ đầu nhận nhãn, các thẻ trùng phía sau không.
+
+Sửa:
+- Hàm mới `timMoiTheListing()`: lấy **mọi thẻ** của mỗi listing (vẫn chỉ phần tử ngoài cùng trong mỗi thẻ; bỏ phần tử lồng bên trong cùng mã như
+  nút tim/khối ảnh), nhãn gắn lên **tất cả** các thẻ. Mini thống kê của Etsy API vẫn dùng hàm cũ.
+- **Vẽ lại định kỳ 2,5s** (chỉ khi tab đang hiện, chỉ thêm nhãn còn thiếu): Etsy/HeyEtsy có thể vẽ lại nội dung thẻ (rê chuột, tải ảnh) làm mất nhãn
+  mà không có node mới nào mang `data-listing-id` để bộ theo dõi DOM nhận ra.
+- Đo vị trí nhãn chỉ khi nội dung hoặc bề rộng thẻ đổi (tránh đo layout mỗi lần vẽ lại).
+
+Đã thử bằng Chromium với trang shop có hàng Featured + All items trùng listing, thẻ lồng nhiều phần tử cùng mã, xoá nhãn rồi chờ tự vẽ lại; bản 9.57
+chạy cùng bài thử cho đúng triệu chứng trên (thẻ trùng ở "All items" không có nhãn).
+
 ### Nhãn chỉ hiện tên tài khoản đã đăng, sát mép phải ảnh (v9.57)
 
 - **Chỉ còn tên các tài khoản đã đăng** (mỗi tài khoản một dòng, "✅ Tên"). Bỏ dòng 📋👁 và các nhãn "Đã xem" / "Đã lấy" trên lưới; listing chưa
