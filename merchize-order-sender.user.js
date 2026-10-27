@@ -1415,7 +1415,7 @@
       }
     } catch (e) { /* bo qua */ }
 
-    const panel = el('div', `position:fixed!important;z-index:${MAX_Z}!important;width:${PANEL_WIDTH}px;box-sizing:border-box;padding:14px;max-height:calc(100vh - 110px);overflow-y:auto;
+    const panel = el('div', `position:fixed!important;z-index:${MAX_Z}!important;width:${PANEL_WIDTH}px;box-sizing:border-box;padding:14px;overflow-y:auto;
       background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);
       font-family:Arial,sans-serif;font-size:13px;display:none;`);
 
@@ -1639,12 +1639,15 @@
       const rect = btn.getBoundingClientRect();
       let left = Math.min(rect.left, window.innerWidth - PANEL_WIDTH - 8);
       panel.style.left = Math.max(8, left) + 'px';
+      // Gioi han chieu cao theo khoang trong con lai, phan du thi cuon trong bang.
       if (window.innerHeight - rect.bottom >= 380 || rect.top < 380) {
         panel.style.top = (rect.bottom + 8) + 'px';
         panel.style.bottom = 'auto';
+        panel.style.maxHeight = Math.max(200, window.innerHeight - rect.bottom - 16) + 'px';
       } else {
         panel.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
         panel.style.top = 'auto';
+        panel.style.maxHeight = Math.max(200, rect.top - 16) + 'px';
       }
     }
 
