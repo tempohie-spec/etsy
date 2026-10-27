@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.50
+// @version      1.51
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.50';
+  const SCRIPT_VERSION = '1.51';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -483,7 +483,7 @@
 
   function traSkuTrongSp(catalog, maSp, color, size) {
     const sp = catalog.products[maSp];
-    if (!sp) return { loi: `catalog chưa có ${maSp}, bấm "Cập nhật catalog"` };
+    if (!sp) return { loi: `catalog chưa có ${maSp}, bấm "Cập nhật catalog Merchize"` };
     const s = chuanHoaSize(size);
     const bang = sp.variants;
     const khopMap = new Map();
@@ -547,7 +547,7 @@
   function uocTinhCost(dong, code) {
     const donVi = [];
     for (const d of dong) {
-      if (!d.variant) return { loi: 'catalog cũ, bấm "Cập nhật catalog"' };
+      if (!d.variant) return { loi: 'catalog cũ, bấm "Cập nhật catalog Merchize"' };
       const gia = d.variant.gia[`${d.pm.toLowerCase()}_${TIER}`] ?? d.variant.gia[TIER];
       if (typeof gia !== 'number' || isNaN(gia)) return { loi: `không có giá ${TIER} cho ${d.variant.sku}` };
       const phi = phiShipTheoBang(d.variant.sku, code) || chonPhiShip(d.variant.ship, code);
@@ -1164,7 +1164,7 @@
   // ============ 3 CHUC NANG CHINH ============
   async function kiemTraHoacGui(statusEl, guiThat) {
     const catalog = docCatalogDaLuu();
-    if (!catalog) throw new Error('Chưa có catalog. Bấm "Cập nhật catalog" trước.');
+    if (!catalog) throw new Error('Chưa có catalog. Bấm "1. Catalog SKU" > "Cập nhật catalog Merchize" trước.');
 
     log(statusEl, '⏳ Đang đọc trang tính...');
     const { spreadsheetId, title } = await layTrangTinhDangMo();
@@ -1258,7 +1258,7 @@
             const style = styleTeb(cell(r, COL.title));
             return `• ${d.orderNumber}: "${cell(r, COL.title)}" ${style ? `→ ${style}` : '(chưa ghép STYLE CODE)'} | ${cell(r, COL.color)} | ${cell(r, COL.size)}`;
           }),
-          'Ghép title với STYLE CODE trong mục "1. Cập nhật catalog".');
+          'Ghép title với STYLE CODE trong mục "1. Catalog SKU".');
       }
     }
 
@@ -1415,7 +1415,7 @@
       }
     } catch (e) { /* bo qua */ }
 
-    const panel = el('div', `position:fixed!important;z-index:${MAX_Z}!important;width:${PANEL_WIDTH}px;box-sizing:border-box;padding:14px;
+    const panel = el('div', `position:fixed!important;z-index:${MAX_Z}!important;width:${PANEL_WIDTH}px;box-sizing:border-box;padding:14px;max-height:calc(100vh - 110px);overflow-y:auto;
       background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);
       font-family:Arial,sans-serif;font-size:13px;display:none;`);
 
@@ -1460,10 +1460,13 @@
     }
     capNhatCatalogInfo();
 
-    const catalogBtn = nut('1. Cập nhật catalog', '#2196F3');
-    // Muc rieng khi bam "1. Cap nhat catalog": tai catalog + 2 danh sach (loai ao them, ghep Teb).
+    const catalogBtn = nut('1. Catalog SKU', '#2196F3');
+    // Muc rieng khi bam "1. Catalog SKU": xem catalog SKU cac nha cung cap, cap nhat catalog Merchize,
+    // 2 danh sach (loai ao them, ghep Teb).
     const catalogBox = el('div', 'display:none;border:1px solid #bbdefb;border-radius:6px;padding:8px;margin-bottom:8px;background:#f5faff;');
-    const taiCatalogBtn = nut('Tải catalog từ Merchize', '#1976d2');
+    const taiCatalogBtn = nut('Cập nhật catalog Merchize', '#1976d2');
+    const xemCatalogBtn = nut('Xem catalog SKU các nhà cung cấp', '#0288d1');
+    const xemCatalogBox = el('div', 'display:none;font-size:12px;line-height:1.45;max-height:340px;overflow:auto;background:#fff;border:1px solid #ddd;border-radius:4px;padding:6px 8px;margin-bottom:6px;');
     const oNho = 'flex:1;min-width:0;box-sizing:border-box;padding:5px;border:1px solid #ccc;border-radius:4px;font-size:12px;';
     const nutNho = (text, mau) => el('button', `padding:5px 8px;background:${mau};color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;`, text);
     // 1 danh sach: tieu de, cac dong "a → b [Xoá]", 2 o nhap + nut Them.
@@ -1534,7 +1537,69 @@
       try { styles = JSON.parse(GM_getValue('mz_teb_styles', '[]')) || []; } catch (e) { /* bo qua */ }
       styles.forEach((v) => { const o = el('option', ''); o.value = v; goiYStyle.appendChild(o); });
     }
-    [taiCatalogBtn, dsLoaiAo.khung, dsGhepTeb.khung, goiYStyle].forEach((x) => catalogBox.appendChild(x));
+    // Bang tom tat catalog SKU: nguon (link sheet) + quy chuan tra SKU cua tung nha cung cap.
+    function veXemCatalog() {
+      while (xemCatalogBox.firstChild) xemCatalogBox.removeChild(xemCatalogBox.firstChild);
+      const tieuDe = (t) => xemCatalogBox.appendChild(el('div', 'font-weight:bold;margin:6px 0 2px;color:#0d47a1;', t));
+      const dong = (t) => xemCatalogBox.appendChild(el('div', 'margin-left:6px;', t));
+      const lienKet = (nhan, url) => {
+        const d = el('div', 'margin-left:6px;');
+        const a = el('a', 'color:#1565c0;', nhan);
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        d.appendChild(a);
+        xemCatalogBox.appendChild(d);
+      };
+      const linkSheet = (id, gid) => `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${gid}`;
+      const tab = tabDaHien || '';
+      const cat = docCatalogDaLuu();
+
+      tieuDe('Thứ tự gửi: ZooTop → ' + (DUNG_TEB ? 'Teb → ' : '') + 'Merchize' + (DUNG_TEB ? '' : ' (Teb đang tạm tắt)'));
+      dong('Ép từng đơn: ghi @ZooTop / @Merchize ở cột AC, hoặc điền SKU sẵn ở cột AB.');
+
+      tieuDe('ZooTop');
+      const zoo = docCacSheetZooTop()[tab];
+      dong(zoo ? `Sheet fulfill của tab: ${zoo.fileTitle || ''} / ${zoo.sheetTitle} (ghi cột D → AA)` : 'Tab này chưa gắn sheet fulfill ZooTop (đơn không đi ZooTop).');
+      if (zoo) lienKet('Mở sheet fulfill', `https://docs.google.com/spreadsheets/d/${zoo.spreadsheetId}/edit`);
+      dong('Đơn US: tra 3 tab trong file SKU ZooTop, khớp Product Name + kiểu in (cột A) + màu + size:');
+      lienKet('Gildan Adult / Comfort Adult (I Product Name, K Type, L Color, M Size, N SKU)', linkSheet(ZOOTOP_FILE_SKU, ZOOTOP_BANG_SKU[0].gid));
+      lienKet('Variant DTF (B Product Name, E Color, F Size, G SKU)', linkSheet(ZOOTOP_FILE_SKU, ZOOTOP_BANG_SKU[1].gid));
+      lienKet('Variant DTG (B Product Name, E Color, F Size, G SKU)', linkSheet(ZOOTOP_FILE_SKU, ZOOTOP_BANG_SKU[2].gid));
+      Object.entries(ZOOTOP_TEN).forEach(([t, m]) => dong(`• ${t} → DTF: "${m.DTF}" | DTG: "${m.DTG}"`));
+      dong('Đơn ngoài US: tra bảng quốc tế trước (B mã loại-kiểu in, E Color, F Size, H SKU), rồi các tab trên; chỉ nhận SKU bắt đầu bằng G hoặc C.');
+      lienKet('Bảng SKU quốc tế', linkSheet(ZOOTOP_QT.file, ZOOTOP_QT.gid));
+      Object.entries(ZOOTOP_QT_MA).forEach(([t, m]) => dong(`• ${t} → ${m}`));
+      dong(`shipping_type: ${ZOOTOP_SHIPPING_TYPE}. Màu không phân biệt hoa thường, size XXL = 2XL.`);
+
+      tieuDe('Merchize');
+      dong(cat ? `Catalog đã lưu: ${Object.keys(cat.products).length} sản phẩm, cập nhật ${new Date(cat.updated).toLocaleString()}` : 'Chưa có catalog: bấm "Cập nhật catalog Merchize".');
+      dong('Loại áo theo title → mã sản phẩm, rồi tra màu + size trong catalog:');
+      [['toddler', '3321US'], ['sweatshirt', '1800US'], ['hoodie', '1850US'], ['comfort + youth', '9018US'], ['comfort + adult', '1717US'],
+        ['bella + youth', '301YUS'], ['bella + adult', '3001US']].forEach(([t, m]) => {
+        const sp = cat && cat.products[m];
+        dong(`• ${t} → ${m}${sp ? ` (${Object.keys(sp.variants).length} variant)` : cat ? ' (chưa có trong catalog)' : ''}`);
+      });
+      docLoaiAoThem().forEach((x) => {
+        const sp = cat && cat.products[x.ma];
+        dong(`• ${x.tu.join(' ')} → ${x.ma} (loại áo thêm${sp ? `, ${Object.keys(sp.variants).length} variant` : cat ? ', chưa có trong catalog' : ''})`);
+      });
+      dong('Luật AU: Comfort Adult gửi Australia dùng 1717AU nếu có đúng màu + size, không thì 1717US.');
+
+      tieuDe('Teb' + (DUNG_TEB ? '' : ' (đang tạm tắt)'));
+      const teb = docCacSheetTeb()[tab];
+      dong(teb ? `Sheet Teb của tab: ${teb.fileTitle || ''} / ${teb.sheetTitle}` : 'Tab này chưa chọn sheet Teb.');
+      if (teb) lienKet('Mở file Teb (tab SKU LIST: STYLE CODE cột D, COLOR, SIZE, SKU)', `https://docs.google.com/spreadsheets/d/${teb.spreadsheetId}/edit`);
+      const ghep = Object.entries(docGhepTeb());
+      dong(ghep.length ? 'Ghép title → STYLE CODE: ' + ghep.map(([a, b]) => `${a} → ${b}`).join('; ') : 'Chưa ghép title nào với STYLE CODE.');
+      dong('Điều kiện: đơn US, 1 dòng, khớp STYLE CODE + màu + size.');
+    }
+    xemCatalogBtn.addEventListener('click', () => {
+      const mo = xemCatalogBox.style.display === 'none';
+      xemCatalogBox.style.display = mo ? 'block' : 'none';
+      if (mo) veXemCatalog();
+    });
+    [xemCatalogBtn, xemCatalogBox, taiCatalogBtn, dsLoaiAo.khung, dsGhepTeb.khung, goiYStyle].forEach((x) => catalogBox.appendChild(x));
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
     const sendBtn = nut('3. Gửi đơn (ZooTop / Merchize)', '#4CAF50');
     const workerBtn = nut('Cài Worker (link + key, 1 lần)', '#455a64');

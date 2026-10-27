@@ -1373,7 +1373,8 @@ không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4
 - Bỏ store của 1 tab: bấm dòng ✅ store > **Bỏ store của tab này**. Script xoá store + sheet Teb của tab trên máy và
   báo Worker (kể cả mục trong biến `STORES`), Worker thôi tra tracking, số dư, Request update cho tab đó.
 - Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / sheet Teb, nhắc điền `Cũ` vào cột AC cho đơn cũ.
-- **1. Cập nhật catalog** (v1.41) mở một mục riêng gồm: nút **Tải catalog từ Merchize**, danh sách **Loại áo thêm**
+- **1. Catalog SKU** (v1.51) mở một mục riêng gồm: **Xem catalog SKU các nhà cung cấp** (thứ tự gửi, link sheet SKU /
+  sheet fulfill, quy chuẩn tra SKU của ZooTop, Merchize, Teb cho tab đang mở), nút **Cập nhật catalog Merchize**, danh sách **Loại áo thêm**
   (từ khóa trong title → mã sản phẩm Merchize, vd `gildan youth → 5000BUS`; title chứa đủ các từ khóa thì dùng mã đó,
   xét trước luật có sẵn; thêm xong bấm Tải catalog) và danh sách **Ghép Teb** (title trên Sheet → STYLE CODE cột D
   trong SKU LIST, vd `Comfort Adult → <style code>`; ô STYLE CODE gợi ý các mã đã đọc từ SKU LIST). Mỗi dòng có nút
