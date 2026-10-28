@@ -1586,7 +1586,8 @@ seller Merchize, trường `data.amount`), dưới 50$ thì gắn `⚠️ sắp 
 (`<SECRET_KEY>` là 1 key bất kỳ trong `SECRET_KEYS`). Trang trả về số đơn đã tra / có tracking mới /
 cost mới, hoặc nội dung lỗi.
 
-Giờ theo giờ Việt Nam. Lịch `*/30 * * * *` chạy vào phút 00 và 30 mỗi giờ. Lịch sử các lần chạy
+Giờ theo giờ Việt Nam. Lịch `*/30 * * * *` chạy vào phút 00 và 30 mỗi giờ; lịch `0 */2 * * *` chạy 2 tiếng/lần
+(giờ UTC chẵn = giờ lẻ Việt Nam: 01:00, 03:00, ...). Gõ `/update` trên Telegram để chạy ngay. Lịch sử các lần chạy
 xem ở Worker → **Observability** (hoặc **Logs**) trên Cloudflare.
 
 ## Bước 1: Tạo bot Telegram
@@ -1660,7 +1661,7 @@ Biến `READ_KEY` của bản cũ không còn dùng, có thể xoá.
 ## Bước 5: Bật lịch chạy
 
 Worker → **Settings** → **Trigger Events** (hoặc **Triggers**) → **Add** → **Cron Triggers** →
-nhập `*/30 * * * *` (30 phút/lần, khuyên dùng) hoặc `0 * * * *` (mỗi giờ) → **Add**. Mỗi lần chạy
+nhập `0 */2 * * *` (2 tiếng/lần), `0 * * * *` (mỗi giờ) hoặc `*/30 * * * *` (30 phút/lần) → **Add**. Mỗi lần chạy
 tiếp nối danh sách đơn của lần trước nên đặt lịch nào cũng tra lần lượt hết.
 
 ## Bước 6: Cài webhook trên từng store Merchize

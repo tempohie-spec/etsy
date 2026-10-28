@@ -540,6 +540,16 @@ function gioVN(ms) {
 
 // Lan chay tiep theo tu bieu thuc cron dang "*/N * * * *" hoac "0 * * * *". Khong doan duoc thi ''.
 function lanChayTiep(cron, luc) {
+  // Lich theo gio: "M */N * * *" (vd "0 */2 * * *" = moi 2 tieng, gio UTC chia het cho N, phut M).
+  const g = str(cron).match(/^(\d+) \*\/(\d+) \* \* \*$/);
+  if (g) {
+    const t = new Date(luc);
+    t.setUTCSeconds(0, 0);
+    t.setUTCMinutes(Number(g[1]));
+    let ms = t.getTime();
+    while (ms <= luc || new Date(ms).getUTCHours() % Number(g[2])) ms += 3600000;
+    return gioVN(ms);
+  }
   const m = str(cron).match(/^\*\/(\d+) \* \* \* \*$/);
   const phut = m ? Number(m[1]) : /^0 \* \* \* \*$/.test(str(cron)) ? 60 : 0;
   if (!phut) return '';
