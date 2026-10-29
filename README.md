@@ -819,6 +819,16 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Nhãn hiện nhanh hơn: đồng bộ Sheet 10s, ngay khi mở trang/quay lại tab, gửi ngay khi Publish (v9.59)
+
+Nguyên nhân nhãn chậm dù Sheet đã có dữ liệu: chu kỳ đọc Sheet 60s, trang mới chờ ~2s mới đọc, khoá đồng bộ 20s bị kẹt khi chuyển trang giữa lúc đang đồng bộ, lệnh gửi khi Publish bị hoãn 1,5s (và mất nếu chuyển trang), và vẽ lại nhãn trễ 500ms.
+
+- Đọc Sheet mỗi **10s** (chỉ khi tab đang hiển thị), khoá chống đồng bộ trùng rút còn 8s, có chủ khoá và tự nhả khi rời trang.
+- Đọc Sheet **ngay** khi mở trang, khi quay lại tab (`visibilitychange`) hoặc lấy lại tiêu điểm cửa sổ.
+- Nút **Publish** gửi sự kiện "đã đăng" lên Sheet **ngay lập tức** (đo thực tế ~0,2s).
+- Vẽ lại nhãn sau 100ms khi lưới thay đổi; nếu có yêu cầu đồng bộ lúc đang đồng bộ thì tự chạy lại ngay sau đó.
+- Giới hạn: Google Apps Script không đẩy dữ liệu về máy khác được, nên nhãn từ máy khác hiện tối đa sau ~10s (hoặc ngay khi mở/quay lại tab, sau 1 lượt gọi Sheet ~1–3s). Nhãn do chính máy này ghi hiện tức thì.
+
 ### Sửa lỗi: thẻ trùng listing không có nhãn (v9.58)
 
 Triệu chứng: một số listing (vd đơn 4493811737) **không hiện nhãn "đã đăng ở shop nào" trên thumbnail** dù trang listing của chính nó vẫn
