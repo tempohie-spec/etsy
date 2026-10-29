@@ -1,0 +1,26 @@
+name: Build bg-remover exe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "bg-remover/**"
+      - ".github/workflows/build-bg-remover-exe.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: bg-remover
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt pyinstaller
+      - run: pyinstaller --onefile --windowed --name BackgroundRemover app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BackgroundRemover-windows
+          path: bg-remover/dist/BackgroundRemover.exe
