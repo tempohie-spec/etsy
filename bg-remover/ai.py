@@ -3,6 +3,8 @@
 Mo hinh U2-Net duoc tai ve mot lan vao ~/.bg-remover/models. AI chi dung de quyet dinh cac
 khoang nen kin nam ben trong thiet ke co phai la nen hay khong; vien van do thuat toan mau xu ly.
 """
+import shutil
+import ssl
 import urllib.request
 from pathlib import Path
 
@@ -34,16 +36,43 @@ def available():
         return False
 
 
+def _contexts():
+    """Thu bo chung chi cua he thong truoc, neu that bai thi dung bo chung chi di kem (certifi)."""
+    yield ssl.create_default_context()
+    try:
+        import certifi
+    except ImportError:
+        return
+    yield ssl.create_default_context(cafile=certifi.where())
+
+
+def _download(url, dest):
+    error = None
+    for ctx in _contexts():
+        try:
+            with urllib.request.urlopen(url, context=ctx, timeout=60) as r, open(dest, "wb") as f:
+                shutil.copyfileobj(r, f)
+            return
+        except OSError as e:  # gom ca loi mang va loi chung chi SSL
+            error = e
+    raise error
+
+
 def model_path(name=MODEL):
     path = MODEL_DIR / (name + ".onnx")
     if not path.exists():
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".part")
+        url = RELEASE + name + ".onnx"
         try:
-            urllib.request.urlretrieve(RELEASE + name + ".onnx", tmp)
+            _download(url, tmp)
         except OSError as e:
             tmp.unlink(missing_ok=True)
-            raise AIUnavailable(f"Khong tai duoc mo hinh AI ({e}). Kiem tra ket noi mang roi thu lai.")
+            raise AIUnavailable(
+                f"Khong tai duoc mo hinh AI ({e}).\n\n"
+                f"Co the tai thu cong: mo link sau bang trinh duyet\n{url}\n"
+                f"roi chep file vao thu muc\n{MODEL_DIR}\nva thu lai."
+            )
         tmp.rename(path)
     return path
 

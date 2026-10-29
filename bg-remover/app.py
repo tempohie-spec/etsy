@@ -349,11 +349,12 @@ class App(tk.Tk):
         self._ai_done, self._ai_busy = None, False
         if err:
             self.use_ai.set(False)
-            messagebox.showerror("Loi AI", str(err))
         else:
             self.ai_masks[path] = mask
         if self.files and path == self.path:
             self.refresh()
+        if err:
+            messagebox.showerror("Loi AI", str(err))
 
     # --- Luu ---
     def save_one(self):
