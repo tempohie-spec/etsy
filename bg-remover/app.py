@@ -4,6 +4,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+import numpy as np
 from PIL import Image, ImageTk
 
 import ai
@@ -14,6 +15,9 @@ ZOOM_STEP = 1.2
 MAX_ZOOM = 64.0
 GRAB = 14       # px quanh thanh chia de keo
 CLICK_MAX = 4   # di chuyen toi da (px) de tinh la bam chu khong phai keo
+PREVIEW_SIDE = 900   # canh dai (px) cua ban thu nho dung de xem nhanh khi keo thanh truot
+QUICK_DELAY = 30     # ms tu luc doi tuy chon den luc ve ban xem nhanh
+FULL_DELAY = 350     # ms yen lang truoc khi tinh lai day du
 
 
 class CompareCanvas(tk.Canvas):
@@ -142,6 +146,10 @@ class App(tk.Tk):
         self.geometry("1100x760")
         self.files, self.index = [], 0
         self.src = self.remover = self.result = None
+        self.fast = None          # Remover cua ban thu nho, dung de xem nhanh
+        self.fast_masks = {}      # duong dan -> mask AI thu nho
+        self.result_is_preview = False
+        self._quick_job = None
         self.flips = {}       # duong dan -> cac diem nguoi dung bam de doi xoa/giu vung nen
         self.ai_masks = {}    # duong dan -> mask AI
         self._ai_busy = False
@@ -222,6 +230,13 @@ class App(tk.Tk):
         self.index = i % len(self.files)
         self.src = Image.open(self.path).convert("RGBA")
         self.remover = Remover(self.src)
+        longest = max(self.src.size)
+        if longest > PREVIEW_SIDE * 1.3:
+            k = PREVIEW_SIDE / longest
+            small = self.src.resize((max(1, round(self.src.width * k)), max(1, round(self.src.height * k))), Image.LANCZOS)
+            self.fast = Remover(small)
+        else:
+            self.fast = None
         if auto_bridge:
             # Net manh dung nhu day den dai khoang 1/1000 canh dai cua anh
             self.bridge.set(min(4, max(1, round(max(self.src.size) / 1000))))
@@ -232,13 +247,44 @@ class App(tk.Tk):
             self.load(self.index + d)
 
     def schedule(self):
-        # Gop nhieu lan keo thanh truot thanh mot lan xu ly
-        if self._job:
-            self.after_cancel(self._job)
-        self._job = self.after(120, self.refresh)
+        """Ve nhanh bang ban thu nho ngay, roi tinh day du khi nguoi dung dung tay."""
+        for job in (self._job, self._quick_job):
+            if job:
+                self.after_cancel(job)
+        self._quick_job = None
+        if self.fast is not None:
+            self._quick_job = self.after(QUICK_DELAY, self.quick)
+            self._job = self.after(FULL_DELAY, self.refresh)
+        else:
+            self._job = self.after(120, self.refresh)
+
+    def quick(self):
+        self._quick_job = None
+        if self.fast is None or self.remover is None:
+            return
+        k = self.fast.w / self.remover.w
+        o = self.options()
+        if o.bridge:
+            o.bridge = max(1, round(o.bridge * k))
+        flips = [(int(x * k), int(y * k)) for x, y in self.flips.get(self.path, [])]
+        mask = None
+        if self.use_ai.get() and self.path in self.ai_masks:
+            if self.path not in self.fast_masks:
+                full = Image.fromarray(self.ai_masks[self.path], "F")
+                self.fast_masks[self.path] = np.asarray(full.resize(self.fast.size, Image.BILINEAR), dtype=np.float32)
+            mask = self.fast_masks[self.path]
+        small = self.fast.render(o, flips, mask)
+        self.result = small.resize(self.src.size, Image.BILINEAR)
+        self.result_is_preview = True
+        self.view.set_images(self.src, self.result)
+        self.status.config(text=f"{self.index + 1}/{len(self.files)}: {self.path.name}  |  Xem nhanh (ban thu nho), dung tay de tinh day du...")
 
     def refresh(self, reset=False):
-        self._job = None
+        for job in (self._job, self._quick_job):
+            if job:
+                self.after_cancel(job)
+        self._job = self._quick_job = None
+        self.result_is_preview = False
         if self.remover is None:
             return
         mask = None
@@ -313,6 +359,8 @@ class App(tk.Tk):
     def save_one(self):
         if self.result is None:
             return
+        if self.result_is_preview:
+            self.refresh()  # dang hien ban xem nhanh, can tinh lai day du truoc khi luu
         dst = filedialog.asksaveasfilename(
             defaultextension=".png", initialfile=self.path.stem + SUFFIX + ".png", filetypes=[("PNG", "*.png")],
         )

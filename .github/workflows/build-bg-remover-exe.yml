@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: bg-remover
@@ -24,3 +26,16 @@ jobs:
         with:
           name: BackgroundRemover-windows
           path: bg-remover/dist/BackgroundRemover.exe
+      # Link tai truc tiep co dinh, luon tro toi ban build moi nhat:
+      # https://github.com/<owner>/<repo>/releases/download/bg-remover-latest/BackgroundRemover.exe
+      - name: Publish latest exe as a release
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete bg-remover-latest --cleanup-tag --yes || true
+          gh release create bg-remover-latest dist/BackgroundRemover.exe \
+            --title "Background Remover (latest build)" \
+            --notes "Auto build from commit ${{ github.sha }}" \
+            --target "${{ github.sha }}" --latest=false

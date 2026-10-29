@@ -10,6 +10,8 @@ python remove_bg.py thu_muc/ ra/ --connected --bridge 2   # ca lo
 ```
 
 ## Giao dien
+Khi keo thanh truot, ung dung ve nhanh bang ban thu nho roi tinh day du khi dung tay (anh luu ra luon o do phan giai goc).
+
 Keo thanh trang de so sanh truoc/sau, lan chuot de zoom, keo anh de di chuyen, bam doi de ve vua khung, nut `<` `>` de chuyen giua cac anh da chon.
 
 **Bam vao mot khoang nen de doi giua xoa va giu vung do** (vd khoang trang giua cac nhan vat). Nut "Hoan tac vung vua bam" de quay lai. Cac lan bam duoc ap dung ca khi xu ly ca lo.
