@@ -102,11 +102,14 @@ class Remover:
     def region_at(self, o, x, y, radius=3):
         """Nhan cua vung nen gan diem (x, y) nhat (0 neu khong co)."""
         labels = self._regions_for(o)[0]
+        if labels[y, x]:
+            return int(labels[y, x])
         patch = labels[max(y - radius, 0): y + radius + 1, max(x - radius, 0): x + radius + 1]
         found = patch[patch > 0]
         return int(np.bincount(found).argmax()) if found.size else 0
 
-    def _decide(self, o, flips, ai):
+    def decide(self, o, flips=(), ai=None):
+        """Quyết định xóa/giữ từng vùng nền. Trả về (labels, remove) với remove[nhãn] = True nếu xóa."""
         bg = self.background(o.bg)
         labels, areas, border = self._regions_for(o)
         remove = border.copy()
@@ -120,7 +123,9 @@ class Remover:
         parity = {}
         for x, y in flips:
             lab = self.region_at(o, x, y)
-            if lab:
+            # Nền ngoài không đổi được bằng điểm bấm: đổi tùy chọn có thể làm một khoảng kín nhập vào nền ngoài,
+            # khi đó điểm bấm cũ sẽ vô tình giữ lại cả nền
+            if lab and not border[lab]:
                 parity[lab] = parity.get(lab, 0) ^ 1
         for lab, odd in parity.items():
             if odd:
@@ -141,7 +146,7 @@ class Remover:
 
         # gone: xoa han. ring: vien can tinh alpha. Phan con lai giu nguyen.
         if o.connected:
-            labels, remove = self._decide(o, flips, ai)
+            labels, remove = self.decide(o, flips, ai)
             gone = remove[labels]
             zone = ndimage.binary_dilation(gone, iterations=GROW + (CLOSE if o.close_gaps else 0))
             ring = zone & ~gone

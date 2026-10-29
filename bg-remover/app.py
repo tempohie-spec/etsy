@@ -9,6 +9,7 @@ from PIL import Image, ImageTk
 
 import ai
 from compare import fit_view, render_view
+from learn import MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, suggest_points
 from remove_bg import EXTS, SUFFIX, Options, Remover
 from settings import Store
 
@@ -163,7 +164,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Công cụ tách nền ảnh thiết kế")
-        self.geometry("1200x860")
+        self.geometry("1200x900")
         self.files, self.index = [], 0
         self.src = self.remover = self.result = None
         self.fast = None          # Remover của bản thu nhỏ, dùng để xem nhanh
@@ -178,6 +179,9 @@ class App(tk.Tk):
         self._committed = None
         self._restoring = False
         self.store = Store()
+        self.learner = Learner()
+        self._suggested = set()   # ảnh đã được đề xuất vùng nền, để không đề xuất lại sau khi người dùng khôi phục
+        self._learn_warned = False
         self.profile = None       # tên cấu hình đang áp dụng
 
         self.bg = tk.StringVar(value="auto")
@@ -191,6 +195,7 @@ class App(tk.Tk):
         self.smooth = tk.DoubleVar(value=0.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
+        self.auto_suggest = tk.BooleanVar(value=True)
 
         bar = ttk.Frame(self, padding=(8, 8, 8, 0))
         bar.pack(fill="x")
@@ -235,6 +240,17 @@ class App(tk.Tk):
         box = ttk.Combobox(row4, textvariable=self.view_bg, state="readonly", width=18, values=list(PREVIEW_BGS))
         box.pack(side="left")
         box.bind("<<ComboboxSelected>>", lambda e: self.view.set_background(PREVIEW_BGS[self.view_bg.get()]))
+
+        row5 = ttk.Frame(self, padding=(8, 6, 8, 0))
+        row5.pack(fill="x")
+        ttk.Label(row5, text="Học từ lựa chọn của bạn:").pack(side="left")
+        ttk.Button(row5, text="Học từ ảnh này", command=self.learn_now).pack(side="left", padx=4)
+        ttk.Button(row5, text="Đề xuất vùng nền", command=self.suggest_now).pack(side="left", padx=2)
+        ttk.Checkbutton(row5, text="Tự đề xuất khi mở ảnh", variable=self.auto_suggest).pack(side="left", padx=8)
+        ttk.Button(row5, text="Xóa dữ liệu đã học", command=self.forget).pack(side="left", padx=2)
+        self.learn_label = ttk.Label(row5)
+        self.learn_label.pack(side="left", padx=10)
+        self.update_learn_label()
 
         self.view = CompareCanvas(self)
         self.view.on_click = self.on_click
@@ -435,6 +451,7 @@ class App(tk.Tk):
         if paths:
             self.files = [Path(p) for p in paths]
             self.flips.clear()
+            self._suggested.clear()
             self._undo.clear()
             self._redo.clear()
             self.load(0, auto_bridge=self.profile is None, new_session=True)
@@ -455,6 +472,9 @@ class App(tk.Tk):
             self.bridge.set(min(4, max(1, round(longest / 1000))))
         if new_session:
             self._committed = self.state()
+        if self.auto_suggest.get() and self.learner.ready and self.path not in self._suggested and not self.flips.get(self.path):
+            self.status.config(text="Đang đề xuất vùng nền...")
+            self.apply_suggestions()
         self.refresh(reset=True)
 
     def step(self, d):
@@ -520,11 +540,102 @@ class App(tk.Tk):
             return
         if not self.connected.get():
             self.connected.set(True)  # chọn vùng chỉ có nghĩa khi xét vùng nền nối với mép ảnh
-        if not self.remover.region_at(self.options(), x, y):
+        o = self.options()
+        lab = self.remover.region_at(o, x, y)
+        if not lab:
             self.status.config(text="Điểm này không phải khoảng nền (hãy bấm vào khoảng trắng hoặc đen cần xóa/giữ).")
+            return
+        if self.remover._regions_for(o)[2][lab]:
+            self.status.config(text="Đây là nền ngoài nối với mép ảnh nên không đổi được bằng cách bấm. "
+                                    "Hãy chỉnh \"Bịt khe hở nét vẽ\" hoặc \"Độ nhạy\" nếu nền bị rò hay còn sót.")
             return
         self.flips.setdefault(self.path, []).append((x, y))
         self.refresh()
+
+    # --- Học từ lựa chọn của người dùng ---
+    def update_learn_label(self):
+        n, images, removed = self.learner.stats
+        if not n:
+            text = "Chưa học gì. Bấm chọn các khoảng nền cần xóa/giữ rồi bấm \"Học từ ảnh này\"."
+        else:
+            text = f"Đã học {n} vùng ({removed} xóa, {n - removed} giữ) từ {images} ảnh"
+            if not self.learner.ready:
+                text += " | cần thêm dữ liệu mới bắt đầu đề xuất"
+            elif self.learner.accuracy() is not None:
+                text += f" | độ chính xác ước tính {self.learner.accuracy() * 100:.0f}%"
+        self.learn_label.config(text=text)
+
+    def busy(self, on):
+        self.config(cursor="watch" if on else "")
+        self.update_idletasks()
+
+    def learn_now(self):
+        if self.remover is None:
+            messagebox.showinfo("Học từ ảnh này", "Hãy chọn ảnh trước.")
+            return
+        if not self.connected.get():
+            messagebox.showinfo("Học từ ảnh này", "Hãy bật \"Chỉ xóa nền nối với mép ảnh\": việc học áp dụng cho các khoảng nền kín.")
+            return
+        if not self._learn_warned:
+            if not messagebox.askyesno(
+                "Học từ ảnh này",
+                "Ứng dụng sẽ lấy kết quả hiện tại làm đáp án: khoảng nền kín nào đang bị xóa là \"nên xóa\", "
+                "các khoảng còn lại là \"nên giữ\".\n\nChỉ nên học khi kết quả của ảnh này đã đúng. Tiếp tục?",
+            ):
+                return
+            self._learn_warned = True
+        self.flush()
+        self.busy(True)
+        try:
+            o = self.options()
+            ids, X = region_features(self.remover, o)
+            if not len(ids):
+                messagebox.showinfo("Học từ ảnh này", "Ảnh này không có khoảng nền kín đủ lớn để học.")
+                return
+            mask = self.ai_masks.get(self.path) if self.use_ai.get() else None
+            _, remove = self.remover.decide(o, self.flips.get(self.path, []), mask)
+            y = remove[ids].astype(int)
+            self.learner.add(f"{self.path.resolve()}|{self.src.width}x{self.src.height}", X, y)
+            self.update_learn_label()
+        finally:
+            self.busy(False)
+        self.status.config(text=f"Đã học từ ảnh này: {len(ids)} vùng ({int(y.sum())} xóa, {int((1 - y).sum())} giữ).")
+
+    def apply_suggestions(self):
+        """Đề xuất xóa các khoảng nền kín mà mô hình cho là nền; trả về số vùng đề xuất."""
+        o = self.options()
+        o.connected = True
+        self.busy(True)
+        try:
+            points = suggest_points(self.remover, o, self.flips.get(self.path, []), self.learner)
+        finally:
+            self.busy(False)
+        self._suggested.add(self.path)
+        if points:
+            self.flips.setdefault(self.path, []).extend(points)
+            self.connected.set(True)
+        return len(points)
+
+    def suggest_now(self):
+        if self.remover is None:
+            messagebox.showinfo("Đề xuất vùng nền", "Hãy chọn ảnh trước.")
+            return
+        if not self.learner.ready:
+            n, _, removed = self.learner.stats
+            messagebox.showinfo(
+                "Chưa đủ dữ liệu",
+                f"Cần ít nhất {MIN_SAMPLES} vùng đã học, trong đó mỗi loại (xóa và giữ) có ít nhất {MIN_PER_CLASS} vùng. "
+                f"Hiện có {n} vùng ({removed} xóa).\n\nHãy bấm chọn vùng trên vài ảnh rồi bấm \"Học từ ảnh này\".",
+            )
+            return
+        k = self.apply_suggestions()
+        self.refresh()
+        self.status.config(text=f"Đã đề xuất xóa {k} khoảng nền kín. Bấm vào vùng để đổi lại, Ctrl+Z để hủy đề xuất.")
+
+    def forget(self):
+        if self.learner.stats[0] and messagebox.askyesno("Xóa dữ liệu đã học", "Xóa toàn bộ dữ liệu đã học? Không thể hoàn tác."):
+            self.learner.clear()
+            self.update_learn_label()
 
     # --- AI ---
     def toggle_ai(self):
@@ -600,7 +711,13 @@ class App(tk.Tk):
                     except Exception as e:  # noqa: BLE001
                         messagebox.showerror("Lỗi AI", str(e))
                         return
-            Remover(img).render(self.options(), self.flips.get(f, []), mask).save(Path(out) / (f.stem + SUFFIX + ".png"), "PNG")
+            rem, opts, flips = Remover(img), self.options(), list(self.flips.get(f, []))
+            if self.auto_suggest.get() and self.learner.ready and f not in self._suggested and not flips:
+                o2 = self.options()
+                o2.connected = True
+                flips = suggest_points(rem, o2, flips, self.learner)
+                opts.connected = opts.connected or bool(flips)
+            rem.render(opts, flips, mask).save(Path(out) / (f.stem + SUFFIX + ".png"), "PNG")
         self.status.config(text=f"Đã xử lý {len(self.files)} ảnh -> {out}")
         messagebox.showinfo("Xong", f"Đã xử lý {len(self.files)} ảnh")
 

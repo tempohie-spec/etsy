@@ -20,6 +20,18 @@ Bản Windows dựng sẵn: https://github.com/tempohie-spec/etsy/releases/downl
 - **Cấu hình có tên:** lưu các tùy chọn hiện tại thành một cấu hình, chọn lại bất cứ lúc nào, và đặt một cấu hình làm mặc định để tự áp dụng mỗi khi mở ứng dụng. Lưu tại `~/.bg-remover/settings.json` (Windows: `C:\Users\<tên bạn>\.bg-remover\settings.json`).
 - **Nền xem trước:** ô caro, đen, trắng, xanh lá, xanh dương, đỏ, xám đậm, xám nhạt. Chỉ để xem, ảnh lưu ra vẫn trong suốt.
 
+## Học từ lựa chọn của bạn
+Ứng dụng có thể học cách phân biệt khoảng nền kín (khoảng trắng giữa các nhân vật, vòng trong chữ ký) với ruột trắng của thiết kế (găng tay, viền lông) từ chính các lần bạn bấm chọn vùng.
+
+1. Mở ảnh, bấm vào các khoảng nền cần xóa cho đến khi kết quả đúng ý (bật "Chỉ xóa nền nối với mép ảnh").
+2. Bấm **"Học từ ảnh này"**. Kết quả hiện tại được lấy làm đáp án: khoảng nền kín nào đang bị xóa là "nên xóa", các khoảng còn lại là "nên giữ". Vì vậy chỉ học khi ảnh đã đúng, và nhớ bấm hết các khoảng cần xóa trước.
+3. Lặp lại với vài ảnh. Cần ít nhất 20 vùng, mỗi loại ít nhất 3 vùng thì mới bắt đầu đề xuất. Càng nhiều ảnh càng tốt; từ 3 ảnh trở lên ứng dụng hiện độ chính xác ước tính (kiểm tra chéo giữa các ảnh).
+4. Sau đó bấm **"Đề xuất vùng nền"**, hoặc bật "Tự đề xuất khi mở ảnh" (cũng áp dụng khi xử lý cả lô cho ảnh chưa mở). Vùng được đề xuất xóa như thể bạn đã bấm: bấm lại để đổi, `Ctrl+Z` để hủy.
+
+Mô hình là một rừng ngẫu nhiên nhỏ chạy ngay trên máy (không cần GPU, không gửi dữ liệu đi đâu), học từ đặc trưng của từng vùng: kích thước, hình dạng, màu nét bao quanh, vị trí so với tâm thiết kế... Dữ liệu lưu ở `~/.bg-remover/learned.json`; nút "Xóa dữ liệu đã học" để bắt đầu lại. Học lại cùng một ảnh sẽ thay thế dữ liệu cũ của ảnh đó.
+
+Lưu ý: bấm vào nền ngoài (nối với mép ảnh) không đổi được; nếu nền bị rò hoặc còn sót, hãy chỉnh "Bịt khe hở nét vẽ" hoặc "Độ nhạy".
+
 ## Tùy chọn
 | Tùy chọn | Dòng lệnh | Tác dụng |
 |---|---|---|
