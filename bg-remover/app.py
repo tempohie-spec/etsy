@@ -1,8 +1,8 @@
-"""Ung dung may tinh tach nen anh thiet ke 2D (nen trang hoac den). Chay: python app.py"""
+"""Ứng dụng máy tính tách nền ảnh thiết kế 2D (nền trắng hoặc đen). Chạy: python app.py"""
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import numpy as np
 from PIL import Image, ImageTk
@@ -10,19 +10,32 @@ from PIL import Image, ImageTk
 import ai
 from compare import fit_view, render_view
 from remove_bg import EXTS, SUFFIX, Options, Remover
+from settings import Store
 
 ZOOM_STEP = 1.2
 MAX_ZOOM = 64.0
-GRAB = 14       # px quanh thanh chia de keo
-CLICK_MAX = 4   # di chuyen toi da (px) de tinh la bam chu khong phai keo
-PREVIEW_SIDE = 900   # canh dai (px) cua ban thu nho dung de xem nhanh khi keo thanh truot
-QUICK_DELAY = 30     # ms tu luc doi tuy chon den luc ve ban xem nhanh
-FULL_DELAY = 350     # ms yen lang truoc khi tinh lai day du
+GRAB = 14            # px quanh thanh chia để kéo
+CLICK_MAX = 4        # di chuyển tối đa (px) để tính là bấm chứ không phải kéo
+PREVIEW_SIDE = 900   # cạnh dài (px) của bản thu nhỏ dùng để xem nhanh khi kéo thanh trượt
+QUICK_DELAY = 30     # ms từ lúc đổi tùy chọn đến lúc vẽ bản xem nhanh
+FULL_DELAY = 350     # ms yên lặng trước khi tính lại đầy đủ
+HISTORY_MAX = 100
+
+PREVIEW_BGS = {
+    "Ô caro (trong suốt)": None,
+    "Đen": (0, 0, 0),
+    "Trắng": (255, 255, 255),
+    "Xanh lá": (0, 170, 70),
+    "Xanh dương": (30, 80, 220),
+    "Đỏ": (220, 30, 30),
+    "Xám đậm": (64, 64, 64),
+    "Xám nhạt": (200, 200, 200),
+}
 
 
 class CompareCanvas(tk.Canvas):
-    """Xem truoc/sau: keo thanh chia, lan chuot de zoom, keo ben ngoai thanh de di chuyen anh,
-    bam (khong keo) vao anh de goi on_click(x, y) theo toa do anh goc."""
+    """Xem trước/sau: kéo thanh chia, lăn chuột để zoom, kéo bên ngoài thanh để di chuyển ảnh,
+    bấm (không kéo) vào ảnh để gọi on_click(x, y) theo tọa độ ảnh gốc."""
 
     def __init__(self, master, **kw):
         super().__init__(master, bg="#2b2b2b", highlightthickness=0, **kw)
@@ -31,6 +44,7 @@ class CompareCanvas(tk.Canvas):
         self.fit_scale = 1.0
         self.frac = 0.5
         self.mode = None
+        self.bg = None          # None: ô caro, hoặc màu (r, g, b)
         self.on_click = None
         self._tk = None
         self._last = self._press = (0, 0)
@@ -46,6 +60,10 @@ class CompareCanvas(tk.Canvas):
     @property
     def size(self):
         return max(self.winfo_width(), 2), max(self.winfo_height(), 2)
+
+    def set_background(self, color):
+        self.bg = color
+        self.redraw()
 
     def set_images(self, before, after, keep_view=True):
         new = self.before is None or before.size != self.before.size or not keep_view
@@ -121,15 +139,17 @@ class CompareCanvas(tk.Canvas):
         if self.before is None:
             return
         w, h = self.size
-        img = render_view(self.before, self.after_img, (w, h), self.scale, self.ox, self.oy, self.div_x())
+        img = render_view(self.before, self.after_img, (w, h), self.scale, self.ox, self.oy, self.div_x(), self.bg)
         self._tk = ImageTk.PhotoImage(img)
         self.delete("all")
         self.create_image(0, 0, image=self._tk, anchor="nw")
         x = self.div_x()
+        # Viền tối quanh thanh trắng để vẫn thấy rõ khi nền xem trước màu trắng
+        self.create_line(x, 0, x, h, fill="#222222", width=4)
         self.create_line(x, 0, x, h, fill="white", width=2)
-        self.create_oval(x - 16, h / 2 - 16, x + 16, h / 2 + 16, fill="white", outline="#999")
+        self.create_oval(x - 16, h / 2 - 16, x + 16, h / 2 + 16, fill="white", outline="#666")
         self.create_text(x, h / 2, text="<>", fill="#333", font=("Arial", 10, "bold"))
-        self.label(8, 8, "Truoc", "nw")
+        self.label(8, 8, "Trước", "nw")
         self.label(w - 8, 8, "Sau", "ne")
 
     def label(self, x, y, text, anchor):
@@ -142,19 +162,23 @@ class CompareCanvas(tk.Canvas):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Tach nen anh thiet ke")
-        self.geometry("1100x760")
+        self.title("Công cụ tách nền ảnh thiết kế")
+        self.geometry("1200x820")
         self.files, self.index = [], 0
         self.src = self.remover = self.result = None
-        self.fast = None          # Remover cua ban thu nho, dung de xem nhanh
-        self.fast_masks = {}      # duong dan -> mask AI thu nho
+        self.fast = None          # Remover của bản thu nhỏ, dùng để xem nhanh
+        self.fast_masks = {}      # đường dẫn -> mask AI thu nhỏ
         self.result_is_preview = False
-        self._quick_job = None
-        self.flips = {}       # duong dan -> cac diem nguoi dung bam de doi xoa/giu vung nen
-        self.ai_masks = {}    # duong dan -> mask AI
+        self.flips = {}           # đường dẫn -> các điểm người dùng bấm để đổi xóa/giữ vùng nền
+        self.ai_masks = {}        # đường dẫn -> mask AI
         self._ai_busy = False
         self._ai_done = None
-        self._job = None
+        self._job = self._quick_job = None
+        self._undo, self._redo = [], []
+        self._committed = None
+        self._restoring = False
+        self.store = Store()
+        self.profile = None       # tên cấu hình đang áp dụng
 
         self.bg = tk.StringVar(value="auto")
         self.tol = tk.DoubleVar(value=0.06)
@@ -164,40 +188,73 @@ class App(tk.Tk):
         self.use_ai = tk.BooleanVar(value=False)
         self.bridge = tk.IntVar(value=2)
         self.pocket = tk.DoubleVar(value=0.0)
+        self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
+        self.profile_var = tk.StringVar()
 
         bar = ttk.Frame(self, padding=(8, 8, 8, 0))
         bar.pack(fill="x")
-        ttk.Button(bar, text="Chon anh", command=self.pick).pack(side="left")
-        ttk.Button(bar, text="Luu anh nay", command=self.save_one).pack(side="left", padx=4)
-        ttk.Button(bar, text="Xu ly ca lo", command=self.save_all).pack(side="left")
+        ttk.Button(bar, text="Chọn ảnh", command=self.pick).pack(side="left")
+        ttk.Button(bar, text="Lưu ảnh này", command=self.save_one).pack(side="left", padx=4)
+        ttk.Button(bar, text="Xử lý cả lô", command=self.save_all).pack(side="left")
         ttk.Button(bar, text="<", width=3, command=lambda: self.step(-1)).pack(side="left", padx=(12, 0))
         ttk.Button(bar, text=">", width=3, command=lambda: self.step(1)).pack(side="left")
-        ttk.Button(bar, text="Hoan tac vung vua bam", command=self.undo).pack(side="left", padx=(12, 0))
+        ttk.Button(bar, text="Hoàn tác (Ctrl+Z)", command=self.undo).pack(side="left", padx=(12, 0))
+        ttk.Button(bar, text="Làm lại (Ctrl+Y)", command=self.redo).pack(side="left", padx=4)
+        ttk.Button(bar, text="Khôi phục ảnh gốc", command=self.restore_original).pack(side="left", padx=(12, 0))
 
         row2 = ttk.Frame(self, padding=(8, 6, 8, 0))
         row2.pack(fill="x")
-        for label, v in (("Tu dong", "auto"), ("Nen trang", "white"), ("Nen den", "black")):
+        for label, v in (("Tự động", "auto"), ("Nền trắng", "white"), ("Nền đen", "black")):
             ttk.Radiobutton(row2, text=label, value=v, variable=self.bg, command=self.schedule).pack(side="left", padx=4)
-        ttk.Checkbutton(row2, text="Chi xoa nen noi voi mep anh", variable=self.connected, command=self.schedule).pack(side="left", padx=(12, 4))
-        ttk.Checkbutton(row2, text="Bit khe ho net ve", variable=self.close_gaps, command=self.schedule).pack(side="left", padx=4)
-        ttk.Checkbutton(row2, text="Dung AI (thu nghiem)", variable=self.use_ai, command=self.toggle_ai).pack(side="left", padx=4)
+        ttk.Checkbutton(row2, text="Chỉ xóa nền nối với mép ảnh", variable=self.connected, command=self.schedule).pack(side="left", padx=(12, 4))
+        ttk.Checkbutton(row2, text="Bịt khe hở nét vẽ", variable=self.close_gaps, command=self.schedule).pack(side="left", padx=4)
+        ttk.Checkbutton(row2, text="Dùng AI (thử nghiệm, có thể xóa nhầm)", variable=self.use_ai, command=self.toggle_ai).pack(side="left", padx=4)
 
         row3 = ttk.Frame(self, padding=(8, 6, 8, 0))
         row3.pack(fill="x")
-        self.slider(row3, "Do nhay", self.tol, 0, 0.4, "{:.2f}")
-        self.slider(row3, "Do dac", self.opq, 0.3, 1.0, "{:.2f}")
-        self.slider(row3, "Xuyen net manh (px)", self.bridge, 0, 4, "{:d}", integer=True)
-        self.slider(row3, "Tu xoa vung kin lon hon (%)", self.pocket, 0, 3, "{:.2f}")
+        self.slider(row3, "Độ nhạy", self.tol, 0, 0.4, "{:.2f}")
+        self.slider(row3, "Độ đặc", self.opq, 0.3, 1.0, "{:.2f}")
+        self.slider(row3, "Xuyên nét mảnh (px)", self.bridge, 0, 4, "{:d}", integer=True)
+        self.slider(row3, "Tự xóa vùng kín lớn hơn (%)", self.pocket, 0, 3, "{:.2f}")
+
+        row4 = ttk.Frame(self, padding=(8, 6, 8, 0))
+        row4.pack(fill="x")
+        ttk.Label(row4, text="Cấu hình:").pack(side="left")
+        self.profile_box = ttk.Combobox(row4, textvariable=self.profile_var, state="readonly", width=26)
+        self.profile_box.pack(side="left", padx=4)
+        self.profile_box.bind("<<ComboboxSelected>>", self.on_profile_selected)
+        ttk.Button(row4, text="Lưu cấu hình hiện tại...", command=self.save_profile).pack(side="left", padx=2)
+        ttk.Button(row4, text="Đặt làm mặc định", command=self.set_default_profile).pack(side="left", padx=2)
+        ttk.Button(row4, text="Xóa cấu hình", command=self.delete_profile).pack(side="left", padx=2)
+        ttk.Label(row4, text="Nền xem trước:").pack(side="left", padx=(24, 4))
+        box = ttk.Combobox(row4, textvariable=self.view_bg, state="readonly", width=18, values=list(PREVIEW_BGS))
+        box.pack(side="left")
+        box.bind("<<ComboboxSelected>>", lambda e: self.view.set_background(PREVIEW_BGS[self.view_bg.get()]))
 
         self.view = CompareCanvas(self)
         self.view.on_click = self.on_click
         self.view.pack(fill="both", expand=True, padx=8, pady=8)
         self.status = ttk.Label(
-            self, padding=(8, 0, 8, 8), wraplength=1060,
-            text="Chon anh de bat dau. Keo thanh trang de so sanh, lan chuot de zoom, keo anh de di chuyen, "
-                 "bam doi de ve vua khung. Bam vao mot khoang nen de doi giua xoa va giu vung do.",
+            self, padding=(8, 0, 8, 8), wraplength=1160,
+            text="Chọn ảnh để bắt đầu. Kéo thanh trắng để so sánh, lăn chuột để zoom, kéo ảnh để di chuyển, "
+                 "bấm đúp để về vừa khung. Bấm vào một khoảng nền để đổi giữa xóa và giữ vùng đó.",
         )
         self.status.pack(fill="x")
+
+        self.bind_all("<Control-z>", self.undo)
+        self.bind_all("<Control-Z>", self.undo)
+        self.bind_all("<Control-y>", self.redo)
+        self.bind_all("<Control-Y>", self.redo)
+        self.refresh_profiles()
+        if self.store.default:
+            self.apply_profile(self.store.default)
+            self.refresh_profiles()
+
+    def destroy(self):
+        for job in (self._job, self._quick_job):
+            if job:
+                self.after_cancel(job)
+        super().destroy()
 
     def slider(self, parent, text, var, lo, hi, fmt, integer=False):
         ttk.Label(parent, text=text).pack(side="left", padx=(8, 2))
@@ -206,11 +263,20 @@ class App(tk.Tk):
         def changed(v):
             if integer:
                 var.set(int(round(float(v))))
-            value.config(text=fmt.format(var.get()))
             self.schedule()
 
-        ttk.Scale(parent, from_=lo, to=hi, variable=var, command=changed).pack(side="left")
+        scale = ttk.Scale(parent, from_=lo, to=hi, variable=var, command=changed)
+        scale.pack(side="left")
         value.pack(side="left")
+        # Nhãn số đi theo giá trị, kể cả khi đổi từ nơi khác (hoàn tác, áp dụng cấu hình)
+        var.trace_add("write", lambda *_: value.config(text=self._safe_fmt(fmt, var)))
+
+    @staticmethod
+    def _safe_fmt(fmt, var):
+        try:
+            return fmt.format(var.get())
+        except (tk.TclError, ValueError):
+            return ""
 
     @property
     def path(self):
@@ -220,13 +286,154 @@ class App(tk.Tk):
         return Options(self.bg.get(), self.tol.get(), self.opq.get(), self.connected.get(),
                        self.close_gaps.get(), int(self.bridge.get()), self.pocket.get())
 
+    # --- Cấu hình có tên ---
+    def settings(self):
+        return {"bg": self.bg.get(), "tolerance": round(self.tol.get(), 4), "opaque": round(self.opq.get(), 4),
+                "connected": self.connected.get(), "close_gaps": self.close_gaps.get(), "use_ai": self.use_ai.get(),
+                "bridge": int(self.bridge.get()), "min_pocket": round(self.pocket.get(), 4)}
+
+    def apply_settings(self, d):
+        for key, var, cast in (("bg", self.bg, str), ("tolerance", self.tol, float), ("opaque", self.opq, float),
+                               ("connected", self.connected, bool), ("close_gaps", self.close_gaps, bool),
+                               ("use_ai", self.use_ai, bool), ("bridge", self.bridge, int),
+                               ("min_pocket", self.pocket, float)):
+            if key in d:
+                try:
+                    var.set(cast(d[key]))
+                except (TypeError, ValueError, tk.TclError):
+                    pass
+        if self.bg.get() not in ("auto", "white", "black"):
+            self.bg.set("auto")
+        if self.use_ai.get() and not ai.available():
+            self.use_ai.set(False)
+
+    def profile_label(self, name):
+        return name + (" (mặc định)" if name == self.store.default else "")
+
+    def refresh_profiles(self):
+        self.profile_box.config(values=[self.profile_label(n) for n in self.store.names])
+        self.profile_var.set(self.profile_label(self.profile) if self.profile in self.store.profiles else "")
+
+    def selected_profile(self):
+        label = self.profile_var.get()
+        return next((n for n in self.store.names if self.profile_label(n) == label), None)
+
+    def apply_profile(self, name):
+        data = dict(self.store.profiles[name])
+        bg_name = data.pop("view_bg", None)
+        self.apply_settings(data)
+        if bg_name in PREVIEW_BGS:
+            self.view_bg.set(bg_name)
+            self.view.set_background(PREVIEW_BGS[bg_name])
+        self.profile = name
+        self.schedule()
+
+    def on_profile_selected(self, _event=None):
+        name = self.selected_profile()
+        if name:
+            self.apply_profile(name)
+
+    def save_profile(self):
+        name = simpledialog.askstring("Lưu cấu hình", "Đặt tên cho cấu hình:", initialvalue=self.profile or "", parent=self)
+        name = (name or "").strip()
+        if not name:
+            return
+        if name in self.store.profiles and not messagebox.askyesno("Ghi đè cấu hình", f"Đã có cấu hình \"{name}\". Ghi đè lên cấu hình này?"):
+            return
+        self.store.put(name, dict(self.settings(), view_bg=self.view_bg.get()))
+        self.profile = name
+        self.refresh_profiles()
+        self.status.config(text=f"Đã lưu cấu hình \"{name}\".")
+
+    def set_default_profile(self):
+        name = self.selected_profile()
+        if not name:
+            messagebox.showinfo("Đặt làm mặc định", "Hãy chọn một cấu hình trong danh sách (hoặc lưu cấu hình hiện tại) trước.")
+            return
+        self.store.set_default(name)
+        self.refresh_profiles()
+        self.status.config(text=f"Cấu hình \"{name}\" sẽ được áp dụng mỗi khi mở ứng dụng.")
+
+    def delete_profile(self):
+        name = self.selected_profile()
+        if not name:
+            return
+        if messagebox.askyesno("Xóa cấu hình", f"Xóa cấu hình \"{name}\"?"):
+            self.store.delete(name)
+            self.profile = None
+            self.refresh_profiles()
+
+    # --- Lịch sử thao tác (Ctrl+Z) ---
+    def state(self):
+        return {"settings": self.settings(), "flips": {str(k): list(v) for k, v in self.flips.items() if v}}
+
+    def commit_history(self):
+        cur = self.state()
+        if self._restoring or self._committed is None:
+            self._committed = cur
+        elif cur != self._committed:
+            self._undo.append(self._committed)
+            del self._undo[:-HISTORY_MAX]
+            self._redo.clear()
+            self._committed = cur
+
+    def restore(self, st):
+        self._restoring = True
+        try:
+            self.apply_settings(st["settings"])
+            by_name = {str(p): p for p in self.files}
+            self.flips = {by_name[k]: [tuple(p) for p in v] for k, v in st["flips"].items() if k in by_name}
+            self.refresh()
+        finally:
+            self._restoring = False
+
+    def flush(self):
+        """Tính ngay thao tác đang chờ để nó được ghi vào lịch sử trước khi hoàn tác."""
+        if self._job or self._quick_job:
+            self.refresh()
+
+    def undo(self, _event=None):
+        if self.remover is not None:
+            self.flush()
+            if self._undo:
+                self._redo.append(self.state())
+                self.restore(self._undo.pop())
+        return "break"
+
+    def redo(self, _event=None):
+        if self.remover is not None:
+            self.flush()
+            if self._redo:
+                self._undo.append(self.state())
+                self.restore(self._redo.pop())
+        return "break"
+
+    def restore_original(self):
+        if not self.files:
+            return
+        n = len(self.flips.get(self.path, []))
+        if not n:
+            messagebox.showinfo("Khôi phục ảnh gốc", "Ảnh này chưa có vùng nào được bấm chọn thủ công.")
+            return
+        if messagebox.askyesno(
+            "Khôi phục ảnh gốc",
+            f"Bạn có chắc muốn khôi phục ảnh gốc?\n\n{n} vùng đã bấm chọn trên ảnh này sẽ bị xóa, "
+            "kết quả quay về như khi chỉ dùng tự động. Có thể hoàn tác bằng Ctrl+Z.",
+        ):
+            self.flips.pop(self.path, None)
+            self.refresh()
+
+    # --- Ảnh ---
     def pick(self):
-        paths = filedialog.askopenfilenames(filetypes=[("Anh", " ".join("*" + e for e in sorted(EXTS)))])
+        paths = filedialog.askopenfilenames(filetypes=[("Ảnh", " ".join("*" + e for e in sorted(EXTS)))])
         if paths:
             self.files = [Path(p) for p in paths]
-            self.load(0, auto_bridge=True)
+            self.flips.clear()
+            self._undo.clear()
+            self._redo.clear()
+            self.load(0, auto_bridge=self.profile is None, new_session=True)
 
-    def load(self, i, auto_bridge=False):
+    def load(self, i, auto_bridge=False, new_session=False):
         self.index = i % len(self.files)
         self.src = Image.open(self.path).convert("RGBA")
         self.remover = Remover(self.src)
@@ -238,8 +445,10 @@ class App(tk.Tk):
         else:
             self.fast = None
         if auto_bridge:
-            # Net manh dung nhu day den dai khoang 1/1000 canh dai cua anh
-            self.bridge.set(min(4, max(1, round(max(self.src.size) / 1000))))
+            # Nét mảnh như dây đèn dày khoảng 1/1000 cạnh dài của ảnh
+            self.bridge.set(min(4, max(1, round(longest / 1000))))
+        if new_session:
+            self._committed = self.state()
         self.refresh(reset=True)
 
     def step(self, d):
@@ -247,7 +456,7 @@ class App(tk.Tk):
             self.load(self.index + d)
 
     def schedule(self):
-        """Ve nhanh bang ban thu nho ngay, roi tinh day du khi nguoi dung dung tay."""
+        """Vẽ nhanh bằng bản thu nhỏ ngay, rồi tính đầy đủ khi người dùng dừng tay."""
         for job in (self._job, self._quick_job):
             if job:
                 self.after_cancel(job)
@@ -277,7 +486,7 @@ class App(tk.Tk):
         self.result = small.resize(self.src.size, Image.BILINEAR)
         self.result_is_preview = True
         self.view.set_images(self.src, self.result)
-        self.status.config(text=f"{self.index + 1}/{len(self.files)}: {self.path.name}  |  Xem nhanh (ban thu nho), dung tay de tinh day du...")
+        self.status.config(text=f"{self.index + 1}/{len(self.files)}: {self.path.name}  |  Xem nhanh (bản thu nhỏ), dừng tay để tính đầy đủ...")
 
     def refresh(self, reset=False):
         for job in (self._job, self._quick_job):
@@ -294,32 +503,28 @@ class App(tk.Tk):
                 self.start_ai()
         self.result = self.remover.render(self.options(), self.flips.get(self.path, []), mask)
         self.view.set_images(self.src, self.result, keep_view=not reset)
+        self.commit_history()
         n = len(self.flips.get(self.path, []))
-        busy = "  |  Dang chay AI..." if self._ai_busy else ""
-        self.status.config(text=f"{self.index + 1}/{len(self.files)}: {self.path.name}  |  vung da bam: {n}{busy}")
+        busy = "  |  Đang chạy AI..." if self._ai_busy else ""
+        self.status.config(text=f"{self.index + 1}/{len(self.files)}: {self.path.name}  |  vùng đã bấm: {n}{busy}")
 
     def on_click(self, x, y):
         if self.remover is None:
             return
         if not self.connected.get():
-            self.connected.set(True)  # chon vung chi co nghia khi xet vung nen noi voi mep anh
+            self.connected.set(True)  # chọn vùng chỉ có nghĩa khi xét vùng nền nối với mép ảnh
         if not self.remover.region_at(self.options(), x, y):
-            self.status.config(text="Diem nay khong phai khoang nen (hay bam vao khoang trang hoac den can xoa/giu).")
+            self.status.config(text="Điểm này không phải khoảng nền (hãy bấm vào khoảng trắng hoặc đen cần xóa/giữ).")
             return
         self.flips.setdefault(self.path, []).append((x, y))
         self.refresh()
-
-    def undo(self):
-        if self.files and self.flips.get(self.path):
-            self.flips[self.path].pop()
-            self.refresh()
 
     # --- AI ---
     def toggle_ai(self):
         if self.use_ai.get():
             if not ai.available():
                 self.use_ai.set(False)
-                messagebox.showinfo("Chua co AI", "Can cai them thu vien onnxruntime:\n\npip install onnxruntime")
+                messagebox.showinfo("Chưa có AI", "Cần cài thêm thư viện onnxruntime:\n\npip install onnxruntime")
                 return
             if not self.connected.get():
                 self.connected.set(True)
@@ -330,12 +535,12 @@ class App(tk.Tk):
             return
         self._ai_busy = True
         path, img = self.path, self.src
-        self.status.config(text="Dang chay AI (lan dau se tai mo hinh khoang 170 MB, vui long cho)...")
+        self.status.config(text="Đang chạy AI (lần đầu sẽ tải mô hình khoảng 170 MB, vui lòng chờ)...")
 
         def work():
             try:
                 self._ai_done = (path, ai.foreground_mask(img), None)
-            except Exception as e:  # noqa: BLE001 - hien thi nguyen nhan cho nguoi dung
+            except Exception as e:  # noqa: BLE001 - hiển thị nguyên nhân cho người dùng
                 self._ai_done = (path, None, e)
 
         threading.Thread(target=work, daemon=True).start()
@@ -354,29 +559,29 @@ class App(tk.Tk):
         if self.files and path == self.path:
             self.refresh()
         if err:
-            messagebox.showerror("Loi AI", str(err))
+            messagebox.showerror("Lỗi AI", str(err))
 
-    # --- Luu ---
+    # --- Lưu ---
     def save_one(self):
         if self.result is None:
             return
         if self.result_is_preview:
-            self.refresh()  # dang hien ban xem nhanh, can tinh lai day du truoc khi luu
+            self.refresh()  # đang hiện bản xem nhanh, cần tính lại đầy đủ trước khi lưu
         dst = filedialog.asksaveasfilename(
             defaultextension=".png", initialfile=self.path.stem + SUFFIX + ".png", filetypes=[("PNG", "*.png")],
         )
         if dst:
             self.result.save(dst, "PNG")
-            self.status.config(text=f"Da luu {dst}")
+            self.status.config(text=f"Đã lưu {dst}")
 
     def save_all(self):
         if not self.files:
             return
-        out = filedialog.askdirectory(title="Chon thu muc luu")
+        out = filedialog.askdirectory(title="Chọn thư mục lưu")
         if not out:
             return
         for i, f in enumerate(self.files, 1):
-            self.status.config(text=f"Dang xu ly {i}/{len(self.files)}: {f.name}")
+            self.status.config(text=f"Đang xử lý {i}/{len(self.files)}: {f.name}")
             self.update()
             img = Image.open(f).convert("RGBA")
             mask = None
@@ -386,11 +591,11 @@ class App(tk.Tk):
                     try:
                         mask = ai.foreground_mask(img)
                     except Exception as e:  # noqa: BLE001
-                        messagebox.showerror("Loi AI", str(e))
+                        messagebox.showerror("Lỗi AI", str(e))
                         return
             Remover(img).render(self.options(), self.flips.get(f, []), mask).save(Path(out) / (f.stem + SUFFIX + ".png"), "PNG")
-        self.status.config(text=f"Da xu ly {len(self.files)} anh -> {out}")
-        messagebox.showinfo("Xong", f"Da xu ly {len(self.files)} anh")
+        self.status.config(text=f"Đã xử lý {len(self.files)} ảnh -> {out}")
+        messagebox.showinfo("Xong", f"Đã xử lý {len(self.files)} ảnh")
 
 
 if __name__ == "__main__":

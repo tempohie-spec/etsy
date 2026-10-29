@@ -1,4 +1,4 @@
-"""Ve khung xem so sanh truoc/sau (khong phu thuoc tkinter de de kiem thu)."""
+"""Vẽ khung xem so sánh trước/sau (không phụ thuộc tkinter để dễ kiểm thử)."""
 import numpy as np
 from PIL import Image
 
@@ -17,15 +17,22 @@ def checker(size, cell=12):
 
 
 def fit_view(img_size, canvas_size):
-    """Tra ve (scale, ox, oy) de anh vua khung va nam giua."""
+    """Trả về (scale, ox, oy) để ảnh vừa khung và nằm giữa."""
     (iw, ih), (cw, ch) = img_size, canvas_size
     scale = min(cw / iw, ch / ih)
     return scale, (cw - iw * scale) / 2, (ch - ih * scale) / 2
 
 
-def _layer(img, size, scale, ox, oy):
+def _base(size, bg):
+    """Nền để đặt ảnh lên: ô caro nếu bg là None, ngược lại là màu đặc (r, g, b)."""
+    if bg is None:
+        return checker(size).copy()
+    return Image.new("RGBA", size, tuple(bg) + (255,))
+
+
+def _layer(img, size, scale, ox, oy, bg):
     cw, ch = size
-    out = checker(size).copy()
+    out = _base(size, bg)
     iw, ih = img.size
     x0, y0 = max(0, int(np.ceil(ox))), max(0, int(np.ceil(oy)))
     x1, y1 = min(cw, int(np.floor(ox + iw * scale))), min(ch, int(np.floor(oy + ih * scale)))
@@ -38,9 +45,12 @@ def _layer(img, size, scale, ox, oy):
     return out
 
 
-def render_view(before, after, size, scale, ox, oy, div):
-    """Anh truoc o ben trai thanh chia `div`, anh sau o ben phai. Ca hai la RGBA."""
-    right = _layer(after, size, scale, ox, oy)
-    left = _layer(before, size, scale, ox, oy)
+def render_view(before, after, size, scale, ox, oy, div, bg=None):
+    """Ảnh trước ở bên trái thanh chia `div`, ảnh sau ở bên phải. Cả hai là RGBA.
+
+    bg: None để hiện ô caro, hoặc màu (r, g, b) để xem ảnh đã tách trên nền đó.
+    """
+    right = _layer(after, size, scale, ox, oy, bg)
+    left = _layer(before, size, scale, ox, oy, bg)
     right.paste(left.crop((0, 0, int(div), size[1])), (0, 0))
     return right.convert("RGB")

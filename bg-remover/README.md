@@ -1,34 +1,38 @@
-# Cong cu tach nen anh thiet ke 2D
+# Công cụ tách nền ảnh thiết kế 2D
 
-Tach nen trang hoac den bang thuat toan color to alpha (khong dung AI), giu vien mo sach, ket qua PNG nen trong suot. File luu ra co hau to `_done` (vd `logo.png` thanh `logo_done.png`).
+Tách nền trắng hoặc đen bằng thuật toán color to alpha (không dùng AI), giữ viền mịn, kết quả PNG nền trong suốt. File lưu ra có hậu tố `_done` (vd `logo.png` thành `logo_done.png`).
 
 ```bash
 pip install -r requirements.txt
-python app.py                                   # giao dien may tinh (can tkinter)
-python remove_bg.py anh.png                     # dong lenh, 1 anh
-python remove_bg.py thu_muc/ ra/ --connected --bridge 2   # ca lo
+python app.py                                   # giao diện máy tính (cần tkinter)
+python remove_bg.py anh.png                     # dòng lệnh, 1 ảnh
+python remove_bg.py thu_muc/ ra/ --connected --bridge 2   # cả lô
 ```
 
-## Giao dien
-Khi keo thanh truot, ung dung ve nhanh bang ban thu nho roi tinh day du khi dung tay (anh luu ra luon o do phan giai goc).
+Bản Windows dựng sẵn: https://github.com/tempohie-spec/etsy/releases/download/bg-remover-latest/BackgroundRemover.exe
 
-Keo thanh trang de so sanh truoc/sau, lan chuot de zoom, keo anh de di chuyen, bam doi de ve vua khung, nut `<` `>` de chuyen giua cac anh da chon.
+## Giao diện
+- Kéo thanh trắng để so sánh trước/sau, lăn chuột để zoom, kéo ảnh để di chuyển, bấm đúp để về vừa khung, nút `<` `>` để chuyển giữa các ảnh đã chọn.
+- Khi kéo thanh trượt, ứng dụng vẽ nhanh bằng bản thu nhỏ rồi tính đầy đủ khi dừng tay. Ảnh lưu ra luôn ở độ phân giải gốc.
+- **Bấm vào một khoảng nền** để đổi giữa xóa và giữ vùng đó (vd khoảng trắng giữa các nhân vật). Các lần bấm cũng được áp dụng khi xử lý cả lô.
+- **Hoàn tác / Làm lại:** `Ctrl+Z` / `Ctrl+Y` (hoặc nút trên thanh công cụ) cho mọi thao tác: chỉnh thanh trượt, đổi tùy chọn, bấm chọn vùng.
+- **Khôi phục ảnh gốc:** xóa toàn bộ vùng đã bấm chọn thủ công của ảnh hiện tại (có hỏi xác nhận, hoàn tác được bằng `Ctrl+Z`).
+- **Cấu hình có tên:** lưu các tùy chọn hiện tại thành một cấu hình, chọn lại bất cứ lúc nào, và đặt một cấu hình làm mặc định để tự áp dụng mỗi khi mở ứng dụng. Lưu tại `~/.bg-remover/settings.json` (Windows: `C:\Users\<tên bạn>\.bg-remover\settings.json`).
+- **Nền xem trước:** ô caro, đen, trắng, xanh lá, xanh dương, đỏ, xám đậm, xám nhạt. Chỉ để xem, ảnh lưu ra vẫn trong suốt.
 
-**Bam vao mot khoang nen de doi giua xoa va giu vung do** (vd khoang trang giua cac nhan vat). Nut "Hoan tac vung vua bam" de quay lai. Cac lan bam duoc ap dung ca khi xu ly ca lo.
-
-## Tuy chon
-| Tuy chon | Dong lenh | Tac dung |
+## Tùy chọn
+| Tùy chọn | Dòng lệnh | Tác dụng |
 |---|---|---|
-| Do nhay | `--tolerance` | Tang neu con vet nen |
-| Do dac | `--opaque` | Giam neu thiet ke co mau nhat bi trong suot |
-| Chi xoa nen noi voi mep anh | `--connected` | Giu phan trang/den nam ben trong thiet ke |
-| Xuyen net manh (px) | `--bridge N` | Nen xuyen qua net manh hon 2N px (day den, net chu) de xoa cac khoang nen bi no chia cat. Anh khoang 2000 px: thu 2. Tang cao se an vao chi tiet trang ben trong |
-| Bit khe ho net ve | `--close-gaps` | Tranh nen ro vao trong thiet ke qua khe ho 1 den 2 px trong net ve |
-| Tu xoa vung kin lon hon (%) | `--min-pocket X` | Xoa moi khoang nen kin lon hon X% dien tich anh. Co the xoa nham chi tiet trang lon, nen ket hop voi bam chon vung |
-| Dung AI (thu nghiem) | `--ai` | Dung mo hinh ISNet de doan khoang nen kin. Can `pip install onnxruntime`, lan dau tai mo hinh khoang 170 MB. Xem luu y ben duoi |
+| Độ nhạy | `--tolerance` | Tăng nếu còn vệt nền |
+| Độ đặc | `--opaque` | Giảm nếu thiết kế có màu nhạt bị trong suốt |
+| Chỉ xóa nền nối với mép ảnh | `--connected` | Giữ phần trắng/đen nằm bên trong thiết kế |
+| Xuyên nét mảnh (px) | `--bridge N` | Nền xuyên qua nét mảnh hơn 2N px (dây đèn, nét chữ) để xóa các khoảng nền bị nó chia cắt. Ảnh khoảng 2000 px: thử 2. Tăng cao sẽ ăn vào chi tiết trắng bên trong |
+| Bịt khe hở nét vẽ | `--close-gaps` | Tránh nền rò vào trong thiết kế qua khe hở 1 đến 2 px trong nét vẽ |
+| Tự xóa vùng kín lớn hơn (%) | `--min-pocket X` | Xóa mọi khoảng nền kín lớn hơn X% diện tích ảnh. Có thể xóa nhầm chi tiết trắng lớn, nên kết hợp với bấm chọn vùng |
+| Dùng AI (thử nghiệm) | `--ai` | Dùng mô hình ISNet để đoán khoảng nền kín. Cần `pip install onnxruntime`, lần đầu tải mô hình khoảng 170 MB. Xem lưu ý bên dưới |
 
-Phan vien luon duoc lam sach quang trang/den o canh (khong can bat).
+Phần viền luôn được làm sạch quầng trắng/đen ở cạnh (không cần bật).
 
-## Luu y
-- O che do mac dinh (khong bat "chi xoa nen noi voi mep anh"), phan thiet ke mau trang tren nen trang (hoac den tren nen den) bi tach cung nen.
-- AI chi duoc huan luyen cho anh chup nen khong phan biet duoc ruot trang cua nhan vat (gang tay, vien long) voi khoang nen trang. Voi anh minh hoa dong nhan vat no co the xoa nham, nen mac dinh tat. Cach nen dung: "Xuyen net manh" va bam chon vung.
+## Lưu ý
+- Ở chế độ mặc định (không bật "chỉ xóa nền nối với mép ảnh"), phần thiết kế màu trắng trên nền trắng (hoặc đen trên nền đen) bị tách cùng nền.
+- AI chỉ được huấn luyện cho ảnh chụp nên không phân biệt được ruột trắng của nhân vật (găng tay, viền lông) với khoảng nền trắng. Với ảnh minh họa đông nhân vật nó có thể xóa nhầm. Cách nên dùng: "Xuyên nét mảnh" và bấm chọn vùng.

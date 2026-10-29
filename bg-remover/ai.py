@@ -1,7 +1,7 @@
-"""Nhan dien nen bang AI (tuy chon). Can: pip install onnxruntime
+"""Nhận diện nền bằng AI (tùy chọn). Cần: pip install onnxruntime
 
-Mo hinh U2-Net duoc tai ve mot lan vao ~/.bg-remover/models. AI chi dung de quyet dinh cac
-khoang nen kin nam ben trong thiet ke co phai la nen hay khong; vien van do thuat toan mau xu ly.
+Mô hình được tải về một lần vào ~/.bg-remover/models. AI chỉ dùng để quyết định các
+khoảng nền kín nằm bên trong thiết kế có phải là nền hay không; viền vẫn do thuật toán màu xử lý.
 """
 import shutil
 import ssl
@@ -13,7 +13,7 @@ from PIL import Image
 
 RELEASE = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
 MODEL = "isnet-general-use"
-# ten mo hinh -> (kich thuoc dau vao, do lech chuan chuan hoa)
+# tên mô hình -> (kích thước đầu vào, độ lệch chuẩn dùng để chuẩn hóa)
 MODELS = {
     "isnet-general-use": (1024, (1.0, 1.0, 1.0)),
     "u2net": (320, (0.229, 0.224, 0.225)),
@@ -37,7 +37,7 @@ def available():
 
 
 def _contexts():
-    """Thu bo chung chi cua he thong truoc, neu that bai thi dung bo chung chi di kem (certifi)."""
+    """Thử bộ chứng chỉ của hệ thống trước, nếu thất bại thì dùng bộ chứng chỉ đi kèm (certifi)."""
     yield ssl.create_default_context()
     try:
         import certifi
@@ -53,7 +53,7 @@ def _download(url, dest):
             with urllib.request.urlopen(url, context=ctx, timeout=60) as r, open(dest, "wb") as f:
                 shutil.copyfileobj(r, f)
             return
-        except OSError as e:  # gom ca loi mang va loi chung chi SSL
+        except OSError as e:  # gồm cả lỗi mạng và lỗi chứng chỉ SSL
             error = e
     raise error
 
@@ -69,9 +69,9 @@ def model_path(name=MODEL):
         except OSError as e:
             tmp.unlink(missing_ok=True)
             raise AIUnavailable(
-                f"Khong tai duoc mo hinh AI ({e}).\n\n"
-                f"Co the tai thu cong: mo link sau bang trinh duyet\n{url}\n"
-                f"roi chep file vao thu muc\n{MODEL_DIR}\nva thu lai."
+                f"Không tải được mô hình AI ({e}).\n\n"
+                f"Có thể tải thủ công: mở link sau bằng trình duyệt\n{url}\n"
+                f"rồi chép file vào thư mục\n{MODEL_DIR}\nvà thử lại."
             )
         tmp.rename(path)
     return path
@@ -83,13 +83,13 @@ def _get_session():
         try:
             import onnxruntime as ort
         except ImportError:
-            raise AIUnavailable("Chua cai onnxruntime. Chay: pip install onnxruntime")
+            raise AIUnavailable("Chưa cài onnxruntime. Chạy: pip install onnxruntime")
         _session = ort.InferenceSession(str(model_path()), providers=["CPUExecutionProvider"])
     return _session
 
 
 def foreground_mask(img):
-    """Tra ve mang float32 (H, W) trong 0..1, gia tri cao la thiet ke, thap la nen."""
+    """Trả về mảng float32 (H, W) trong 0..1, giá trị cao là thiết kế, thấp là nền."""
     sess = _get_session()
     size, std = MODELS[MODEL]
     rgb = img.convert("RGB")
