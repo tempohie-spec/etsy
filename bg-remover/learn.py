@@ -106,8 +106,12 @@ def representative_point(labels, label, objs=None):
     return int(xs[k] + sl[1].start), int(ys[k] + sl[0].start)
 
 
-def suggest_points(rem, o, flips, learner, threshold=0.5):
-    """Các điểm (x, y) nằm trong những khoảng nền kín mà mô hình cho là nên xóa (hiện đang được giữ)."""
+def suggest_points(rem, o, flips, learner, threshold=None):
+    """Các điểm (x, y) nằm trong những khoảng nền kín mà mô hình cho là nên xóa (hiện đang được giữ).
+
+    threshold: xác suất tối thiểu để đề xuất xóa; mặc định là ngưỡng người dùng đã chọn (learner.threshold).
+    """
+    threshold = learner.threshold if threshold is None else threshold
     if not learner.ready:
         return []
     labels, remove = rem.decide(o, flips)
@@ -185,7 +189,8 @@ class Learner:
         self.path = Path(path)
         self.images = {}      # khóa ảnh -> {"X": [[...]], "y": [0/1, ...]}
         self._forest = None
-        self._eval = None
+        self._cv = None
+        self.threshold = 0.5  # xác suất tối thiểu để đề xuất xóa: thấp thì đề xuất nhiều hơn nhưng dễ xóa nhầm hơn
         self.load()
 
     def load(self):
@@ -193,14 +198,15 @@ class Learner:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             ok = data.get("features") == FEATURES and isinstance(data.get("images"), dict)
             self.images = data["images"] if ok else {}  # đổi bộ đặc trưng thì dữ liệu cũ không còn dùng được
-        except (OSError, ValueError, AttributeError):
+            self.threshold = min(max(float(data.get("threshold", 0.5)), 0.05), 0.95)
+        except (OSError, ValueError, AttributeError, TypeError):
             self.images = {}
-        self._forest = self._eval = None
+        self._forest = self._cv = None
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"features": FEATURES, "images": self.images}, ensure_ascii=False), encoding="utf-8")
+        tmp.write_text(json.dumps({"features": FEATURES, "images": self.images, "threshold": self.threshold}, ensure_ascii=False), encoding="utf-8")
         tmp.replace(self.path)
 
     def add(self, key, X, y):
@@ -210,11 +216,11 @@ class Learner:
         while sum(len(v["y"]) for v in self.images.values()) > MAX_SAMPLES and len(self.images) > 1:
             self.images.pop(next(iter(self.images)))  # bỏ ảnh học cũ nhất
         self.save()
-        self._forest = self._eval = None
+        self._forest = self._cv = None
 
     def clear(self):
         self.images = {}
-        self._forest = self._eval = None
+        self._forest = self._cv = None
         self.save()
 
     def _data(self, keys=None):
@@ -234,22 +240,27 @@ class Learner:
         n, _, pos = self.stats
         return n >= MIN_SAMPLES and pos >= MIN_PER_CLASS and n - pos >= MIN_PER_CLASS
 
-    def predict(self, X):
+    def set_threshold(self, value):
+        self.threshold = min(max(float(value), 0.05), 0.95)
+        self.save()
+
+    def prepare(self):
+        """Dựng mô hình ngay (gọi trước khi dùng predict từ nhiều luồng cùng lúc)."""
         if self._forest is None:
             X0, y0 = self._data()
             self._forest = Forest().fit(X0, y0)
-        return self._forest.predict_proba(np.asarray(X, float))
+        return self._forest
 
-    def evaluate(self):
-        """Kiểm tra chéo theo ảnh (huấn luyện trên các ảnh khác, thử trên ảnh còn lại).
+    def predict(self, X):
+        return self.prepare().predict_proba(np.asarray(X, float))
 
-        Trả về {"tp", "fn", "fp", "tn"}: tp = vùng cần xóa mà mô hình tìm đúng, fn = vùng cần xóa bị bỏ sót,
-        fp = vùng cần giữ bị xóa nhầm, tn = vùng cần giữ được giữ đúng. None nếu chưa đủ ảnh (cần 3 ảnh trở lên).
-        """
-        if self._eval is None and len(self.images) >= 3 and self.ready:
+    def _cross_validate(self):
+        """Xác suất dự đoán của từng mẫu khi mô hình được huấn luyện trên các ảnh KHÁC ảnh chứa mẫu đó.
+        Tính một lần rồi dùng lại cho mọi ngưỡng. None nếu chưa đủ ảnh (cần 3 ảnh trở lên)."""
+        if self._cv is None and len(self.images) >= 3 and self.ready:
             keys = list(self.images)
             folds = min(5, len(keys))
-            tp = fn = fp = tn = 0
+            probs, truth = [], []
             for f in range(folds):
                 test = keys[f::folds]
                 Xt, yt = self._data(test)
@@ -261,11 +272,21 @@ class Learner:
                     Xr, yr = Xr[keep], yr[keep]
                     if yr.sum() == 0 or yr.sum() == len(yr):
                         continue
-                pred = Forest(trees=20, seed=f).fit(Xr, yr).predict_proba(Xt) >= 0.5
-                truth = yt > 0.5
-                tp += int((pred & truth).sum())
-                fn += int((~pred & truth).sum())
-                fp += int((pred & ~truth).sum())
-                tn += int((~pred & ~truth).sum())
-            self._eval = {"tp": tp, "fn": fn, "fp": fp, "tn": tn} if tp + fn + fp + tn else None
-        return self._eval
+                probs.append(Forest(trees=20, seed=f).fit(Xr, yr).predict_proba(Xt))
+                truth.append(yt > 0.5)
+            self._cv = (np.concatenate(probs), np.concatenate(truth)) if probs else None
+        return self._cv
+
+    def evaluate(self, threshold=None):
+        """Kiểm tra chéo theo ảnh tại một ngưỡng (mặc định ngưỡng đang chọn).
+
+        Trả về {"tp", "fn", "fp", "tn"}: tp = vùng cần xóa mà mô hình tìm đúng, fn = vùng cần xóa bị bỏ sót,
+        fp = vùng cần giữ bị xóa nhầm, tn = vùng cần giữ được giữ đúng. None nếu chưa đủ ảnh (cần 3 ảnh trở lên).
+        """
+        cv = self._cross_validate()
+        if cv is None:
+            return None
+        prob, truth = cv
+        pred = prob >= (self.threshold if threshold is None else threshold)
+        return {"tp": int((pred & truth).sum()), "fn": int((~pred & truth).sum()),
+                "fp": int((pred & ~truth).sum()), "tn": int((~pred & ~truth).sum())}

@@ -2,13 +2,14 @@
 import os
 import threading
 import tkinter as tk
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import numpy as np
 from PIL import Image, ImageTk
 
-import ai
 from compare import fit_view, render_view
 from learn import MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, suggest_points
 from remove_bg import EXTS, SUFFIX, Options, Remover, auto_bridge
@@ -22,6 +23,8 @@ PREVIEW_SIDE = 800   # cạnh dài (px) của bản thu nhỏ dùng để xem nh
 POLL_MS = 15         # chu kỳ kiểm tra kết quả xem nhanh từ luồng nền
 FULL_DELAY = 350     # ms yên lặng trước khi tính lại đầy đủ
 HISTORY_MAX = 100
+CACHE_SIZE = 4       # số ảnh vừa mở được giữ sẵn trong bộ nhớ để chuyển lại gần như tức thì
+BATCH_WORKERS = max(1, min(4, (os.cpu_count() or 2) - 1))   # luồng xử lý cả lô, chừa một nhân cho giao diện
 
 PREVIEW_BGS = {
     "Ô caro (trong suốt)": None,
@@ -77,8 +80,8 @@ class PreviewWorker(threading.Thread):
                 fn, self._request, self._working = self._request, None, True
             try:
                 out = fn()
-            except Exception:  # noqa: BLE001 - lỗi ở bản xem nhanh không được làm sập ứng dụng
-                out = None
+            except Exception as e:  # noqa: BLE001 - báo lỗi về giao diện thay vì làm sập luồng
+                out = ("error", e)
             with self._cv:
                 self._result, self._working = out, False
 
@@ -224,19 +227,20 @@ class App(tk.Tk):
         self.files, self.index = [], 0
         self.src = self.remover = self.result = None
         self.fast = None          # Remover của bản thu nhỏ, chỉ luồng xem nhanh được dùng
-        self.fast_masks = {}      # đường dẫn -> mask AI thu nhỏ
-        self.result_is_preview = False
-        # Dữ liệu riêng của từng ảnh: vùng đã bấm, cấu hình các thanh trượt, lịch sử hoàn tác, mask AI
+        self.result_is_preview = False   # đang hiện bản xem nhanh, hoặc kết quả đầy đủ chưa tính xong
+        # Dữ liệu riêng của từng ảnh: vùng đã bấm, cấu hình các thanh trượt, lịch sử hoàn tác
         self.flips = {}           # đường dẫn -> các điểm người dùng bấm để đổi xóa/giữ vùng nền
         self.doc_settings = {}    # đường dẫn -> cấu hình các thanh trượt của ảnh đó
         self.hists = {}           # đường dẫn -> {"undo": [], "redo": [], "committed": trạng thái}
-        self.ai_masks = {}
-        self._ai_busy = False
-        self._ai_done = None
-        self._job = self._quick_poll = None
-        self._gen = 0             # tăng mỗi lần tính đầy đủ hoặc đổi ảnh để bỏ các bản xem nhanh cũ
+        self._cache = OrderedDict()   # đường dẫn -> (ảnh, Remover, Remover thu nhỏ) của các ảnh vừa mở
+        self._job = self._quick_poll = self._full_poll = None
+        self._gen = 0             # tăng mỗi lần đổi tùy chọn, tính đầy đủ hoặc đổi ảnh để bỏ các kết quả cũ
+        self._full_shown_gen = -1
         self._restoring = False
-        self.worker = PreviewWorker()
+        self._batch = None        # trạng thái xử lý cả lô đang chạy
+        self._threshold_save = None
+        self.worker = PreviewWorker()        # tính bản xem nhanh
+        self.full_worker = PreviewWorker()   # tính kết quả đầy đủ
         self.store = Store()
         self.learner = Learner()
         self._suggested = set()   # ảnh đã được đề xuất vùng nền, để không đề xuất lại sau khi người dùng khôi phục
@@ -249,17 +253,18 @@ class App(tk.Tk):
         self.connected = tk.BooleanVar(value=True)
         self.close_gaps = tk.BooleanVar(value=False)
         self.bridge_on = tk.BooleanVar(value=True)
-        self.use_ai = tk.BooleanVar(value=False)
         self.smooth = tk.DoubleVar(value=0.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
         self.auto_suggest = tk.BooleanVar(value=True)
+        self.threshold = tk.DoubleVar(value=self.learner.threshold)
 
         bar = ttk.Frame(self, padding=(8, 8, 8, 0))
         bar.pack(fill="x")
         ttk.Button(bar, text="Chọn ảnh", command=self.pick).pack(side="left")
         ttk.Button(bar, text="Lưu ảnh này", command=self.save_one).pack(side="left", padx=4)
-        ttk.Button(bar, text="Xử lý cả lô", command=self.save_all).pack(side="left")
+        self.batch_btn = ttk.Button(bar, text="Xử lý cả lô", command=self.save_all)
+        self.batch_btn.pack(side="left")
         ttk.Button(bar, text="Đóng ảnh này", command=self.close_current).pack(side="left", padx=(12, 0))
         ttk.Button(bar, text="Hoàn tác (Ctrl+Z)", command=self.undo).pack(side="left", padx=(12, 0))
         ttk.Button(bar, text="Làm lại (Ctrl+Y)", command=self.redo).pack(side="left", padx=4)
@@ -272,7 +277,6 @@ class App(tk.Tk):
         ttk.Checkbutton(row2, text="Chỉ xóa nền nối với mép ảnh", variable=self.connected, command=self.schedule).pack(side="left", padx=(12, 4))
         ttk.Checkbutton(row2, text="Xuyên nét mảnh (dây đèn, nét chữ)", variable=self.bridge_on, command=self.schedule).pack(side="left", padx=4)
         ttk.Checkbutton(row2, text="Bịt khe hở nét vẽ", variable=self.close_gaps, command=self.schedule).pack(side="left", padx=4)
-        ttk.Checkbutton(row2, text="Dùng AI (thử nghiệm, có thể xóa nhầm)", variable=self.use_ai, command=self.toggle_ai).pack(side="left", padx=4)
 
         row3 = ttk.Frame(self, padding=(8, 6, 8, 0))
         row3.pack(fill="x")
@@ -301,6 +305,8 @@ class App(tk.Tk):
         ttk.Button(row5, text="Học từ ảnh này", command=self.learn_now).pack(side="left", padx=4)
         ttk.Button(row5, text="Đề xuất vùng nền", command=self.suggest_now).pack(side="left", padx=2)
         ttk.Checkbutton(row5, text="Tự đề xuất khi mở ảnh", variable=self.auto_suggest).pack(side="left", padx=8)
+        self.numeric_slider(row5, "Ngưỡng đề xuất", self.threshold, 0.05, 0.95, 0.05, on_change=self.on_threshold)
+        ttk.Label(row5, text="(thấp: đề xuất nhiều hơn, dễ xóa nhầm hơn)", foreground="#666").pack(side="left", padx=(4, 12))
         ttk.Button(row5, text="Xóa dữ liệu đã học", command=self.forget).pack(side="left", padx=2)
         self.learn_label = ttk.Label(self, wraplength=1160, padding=(8, 4, 8, 0))
         self.learn_label.pack(fill="x")
@@ -337,13 +343,19 @@ class App(tk.Tk):
             self.refresh_profiles()
 
     def destroy(self):
-        for job in (self._job, self._quick_poll):
+        for job in (self._job, self._quick_poll, self._full_poll, self._threshold_save):
             if job:
                 self.after_cancel(job)
+        if self._batch is not None:
+            self._batch["stop"].set()
+            self._batch["ex"].shutdown(wait=False, cancel_futures=True)
+        if self._threshold_save:
+            self.learner.save()
         self.worker.close()
+        self.full_worker.close()
         super().destroy()
 
-    def numeric_slider(self, parent, text, var, lo, hi, step, integer=False):
+    def numeric_slider(self, parent, text, var, lo, hi, step, integer=False, on_change=None):
         """Thanh trượt kèm ô nhập số: kéo thanh (làm tròn theo bước) hoặc gõ số rồi nhấn Enter."""
         decimals = 0 if integer else max(0, -int(np.floor(np.log10(step) + 1e-9)))
         fmt = "{:.%df}" % decimals
@@ -356,9 +368,11 @@ class App(tk.Tk):
         txt = tk.StringVar(value=fmt.format(var.get()))
         ttk.Label(parent, text=text).pack(side="left", padx=(8, 2))
 
+        changed = on_change or self.schedule
+
         def on_scale(v):
             var.set(quantize(v))
-            self.schedule()
+            changed()
 
         ttk.Scale(parent, from_=lo, to=hi, variable=var, command=on_scale).pack(side="left")
 
@@ -370,7 +384,7 @@ class App(tk.Tk):
                 return
             if v != var.get():
                 var.set(v)
-                self.schedule()
+                changed()
             txt.set(fmt.format(v))
 
         spin = ttk.Spinbox(parent, from_=lo, to=hi, increment=step, textvariable=txt, width=6,
@@ -427,14 +441,14 @@ class App(tk.Tk):
     # --- Cấu hình có tên ---
     def settings(self):
         return {"bg": self.bg.get(), "tolerance": round(self.tol.get(), 4), "opaque": round(self.opq.get(), 4),
-                "connected": self.connected.get(), "close_gaps": self.close_gaps.get(), "use_ai": self.use_ai.get(),
+                "connected": self.connected.get(), "close_gaps": self.close_gaps.get(),
                 "bridge_on": self.bridge_on.get(),
                 "smooth": round(self.smooth.get(), 3)}
 
     def apply_settings(self, d):
         for key, var, cast in (("bg", self.bg, str), ("tolerance", self.tol, float), ("opaque", self.opq, float),
                                ("connected", self.connected, bool), ("close_gaps", self.close_gaps, bool),
-                               ("use_ai", self.use_ai, bool), ("smooth", self.smooth, float),
+                               ("smooth", self.smooth, float),
                                ("bridge_on", self.bridge_on, bool)):
             if key in d:
                 try:
@@ -445,8 +459,6 @@ class App(tk.Tk):
             self.bridge_on.set(bool(d["bridge"]))  # cấu hình cũ lưu độ dày px thay cho bật/tắt
         if self.bg.get() not in ("auto", "white", "black"):
             self.bg.set("auto")
-        if self.use_ai.get() and not ai.available():
-            self.use_ai.set(False)
 
     def profile_label(self, name):
         return name + (" (mặc định)" if name == self.store.default else "")
@@ -592,15 +604,22 @@ class App(tk.Tk):
         self.index = i % len(self.files)
         path = self.path
         self.sync_list()
-        self.src = Image.open(path).convert("RGBA")
-        self.remover = Remover(self.src)
-        longest = max(self.src.size)
-        if longest > PREVIEW_SIDE * 1.3:
-            k = PREVIEW_SIDE / longest
-            small = self.src.resize((max(1, round(self.src.width * k)), max(1, round(self.src.height * k))), Image.LANCZOS)
-            self.fast = Remover(small)
+        if path in self._cache:
+            self._cache.move_to_end(path)
+            self.src, self.remover, self.fast = self._cache[path]
         else:
-            self.fast = None
+            self.src = Image.open(path).convert("RGBA")
+            self.remover = Remover(self.src)
+            longest = max(self.src.size)
+            if longest > PREVIEW_SIDE * 1.3:
+                k = PREVIEW_SIDE / longest
+                small = self.src.resize((max(1, round(self.src.width * k)), max(1, round(self.src.height * k))), Image.LANCZOS)
+                self.fast = Remover(small)
+            else:
+                self.fast = None
+            self._cache[path] = (self.src, self.remover, self.fast)
+            while len(self._cache) > CACHE_SIZE:
+                self._cache.popitem(last=False)
         if path in self.doc_settings:
             self.apply_settings(self.doc_settings[path])      # ảnh đã mở trước đó: khôi phục cấu hình riêng của nó
         else:
@@ -611,7 +630,10 @@ class App(tk.Tk):
         if self.auto_suggest.get() and self.learner.ready and path not in self._suggested and not self.flips.get(path):
             self.status.config(text="Đang đề xuất vùng nền...")
             self.apply_suggestions()
-        self.refresh(reset=True)
+        self.view.set_images(self.src, self.src, keep_view=False)   # hiện ngay ảnh gốc trong lúc tính
+        self.refresh()
+        if self.fast is not None:
+            self.submit_quick()   # bản xem nhanh thường xong trước, kết quả đầy đủ thay vào sau
 
     def close_current(self):
         if not self.files:
@@ -623,7 +645,7 @@ class App(tk.Tk):
         if self._job:
             self.after_cancel(self._job)
             self._job = None
-        for store in (self.flips, self.ai_masks, self.fast_masks, self.doc_settings, self.hists):
+        for store in (self.flips, self.doc_settings, self.hists, self._cache):
             store.pop(path, None)
         self._suggested.discard(path)
         del self.files[self.index]
@@ -637,10 +659,15 @@ class App(tk.Tk):
             self.view.clear()
             self.status.config(text="Đã đóng hết ảnh. Bấm \"Chọn ảnh\" để mở ảnh khác.")
 
+    def status_text(self, extra=""):
+        n = len(self.flips.get(self.path, []))
+        return f"{self.index + 1}/{len(self.files)}: {self.path.name}  |  vùng đã bấm: {n}{extra}"
+
     def schedule(self):
         """Vẽ nhanh bản thu nhỏ (tính ở luồng nền) ngay, rồi tính đầy đủ khi người dùng dừng tay."""
         if self._job:
             self.after_cancel(self._job)
+        self._gen += 1   # tùy chọn đã đổi: bỏ mọi kết quả đang tính theo tùy chọn cũ
         if self.fast is not None and self.remover is not None:
             self.submit_quick()
             self._job = self.after(FULL_DELAY, self.refresh)
@@ -654,14 +681,8 @@ class App(tk.Tk):
         if o.bridge:
             o.bridge = max(1, round(o.bridge * k))
         flips = [(int(x * k), int(y * k)) for x, y in self.flips.get(self.path, [])]
-        mask = None
-        if self.use_ai.get() and self.path in self.ai_masks:
-            if self.path not in self.fast_masks:
-                full = Image.fromarray(self.ai_masks[self.path], "F")
-                self.fast_masks[self.path] = np.asarray(full.resize(self.fast.size, Image.BILINEAR), dtype=np.float32)
-            mask = self.fast_masks[self.path]
         fast, gen = self.fast, self._gen
-        self.worker.submit(lambda: (gen, fast.render(o, flips, mask)))
+        self.worker.submit(lambda: (gen, fast.render(o, flips)))
         if self._quick_poll is None:
             self._quick_poll = self.after(POLL_MS, self.poll_quick)
 
@@ -669,34 +690,64 @@ class App(tk.Tk):
         self._quick_poll = None
         busy = self.worker.busy      # đọc trạng thái trước khi lấy kết quả để không bỏ sót bản vừa xong
         res = self.worker.take()
-        if res is not None and res[0] == self._gen and self.remover is not None:
+        if res is not None and res[0] == "error":
+            res = None   # lỗi ở bản xem nhanh: bỏ qua, kết quả đầy đủ vẫn được tính
+        # Bỏ bản xem nhanh nếu đã cũ, hoặc nếu kết quả đầy đủ của cùng lượt đã hiện rồi
+        if res is not None and res[0] == self._gen != self._full_shown_gen and self.remover is not None:
             self.result = res[1]
             self.result_is_preview = True
             self.view.set_images(self.src, self.result)
-            self.status.config(text=f"{self.index + 1}/{len(self.files)}: {self.path.name}  |  Xem nhanh (bản thu nhỏ), dừng tay để tính đầy đủ...")
+            self.status.config(text=self.status_text("  |  Xem nhanh (bản thu nhỏ), dừng tay để tính đầy đủ..."))
         if busy:
             self._quick_poll = self.after(POLL_MS, self.poll_quick)
 
-    def refresh(self, reset=False):
+    def refresh(self):
+        """Ghi nhận thao tác vào lịch sử rồi tính kết quả đầy đủ ở luồng nền (giao diện vẫn dùng được)."""
         if self._job:
             self.after_cancel(self._job)
         self._job = None
         self._gen += 1
-        self.result_is_preview = False
         if self.remover is None:
             return
-        mask = None
-        if self.use_ai.get():
-            mask = self.ai_masks.get(self.path)
-            if mask is None:
-                self.start_ai()
-        self.result = self.remover.render(self.options(), self.flips.get(self.path, []), mask)
-        self.view.set_images(self.src, self.result, keep_view=not reset)
+        self.result_is_preview = True    # cho đến khi kết quả đầy đủ về
         self.commit_history()
         self.doc_settings[self.path] = self.settings()
-        n = len(self.flips.get(self.path, []))
-        busy = "  |  Đang chạy AI..." if self._ai_busy else ""
-        self.status.config(text=f"{self.index + 1}/{len(self.files)}: {self.path.name}  |  vùng đã bấm: {n}{busy}")
+        o, flips, rem, gen = self.options(), list(self.flips.get(self.path, [])), self.remover, self._gen
+        self.full_worker.submit(lambda: (gen, rem.render(o, flips)))
+        if self._full_poll is None:
+            self._full_poll = self.after(POLL_MS, self.poll_full)
+        self.status.config(text=self.status_text("  |  Đang tính..."))
+
+    def poll_full(self):
+        self._full_poll = None
+        busy = self.full_worker.busy
+        res = self.full_worker.take()
+        if res is not None and res[0] == "error":
+            self.result_is_preview = False
+            self.status.config(text=f"Lỗi khi tính kết quả: {res[1]}")
+            res = None
+        if res is not None and res[0] == self._gen and self.remover is not None:
+            self.result = res[1]
+            self.result_is_preview = False
+            self._full_shown_gen = res[0]
+            self.view.set_images(self.src, self.result)
+            self.status.config(text=self.status_text())
+        if busy:
+            self._full_poll = self.after(POLL_MS, self.poll_full)
+
+    def full_result(self):
+        """Kết quả đầy đủ của ảnh hiện tại; nếu chưa tính xong thì tính ngay (dùng khi lưu)."""
+        if self.remover is None:
+            return None
+        if self.result_is_preview or self._job:
+            self.flush()   # ghi nhận thao tác đang chờ vào lịch sử
+            self._gen += 1
+            self.result = self.remover.render(self.options(), self.flips.get(self.path, []))
+            self.result_is_preview = False
+            self._full_shown_gen = self._gen
+            self.view.set_images(self.src, self.result)
+            self.status.config(text=self.status_text())
+        return self.result
 
     def on_click(self, x, y):
         if self.remover is None:
@@ -730,7 +781,7 @@ class App(tk.Tk):
                     text += " Cần ít nhất 3 ảnh để ước tính độ chính xác."
                 else:
                     need, keep = e["tp"] + e["fn"], e["fp"] + e["tn"]
-                    text += (f" Ước tính khi gặp ảnh mới (kiểm tra chéo giữa các ảnh): tìm đúng {e['tp']}/{need} vùng cần xóa "
+                    text += (f" Ước tính khi gặp ảnh mới, ở ngưỡng {self.learner.threshold:.2f} (kiểm tra chéo giữa các ảnh): tìm đúng {e['tp']}/{need} vùng cần xóa "
                              f"({100 * e['tp'] / max(need, 1):.0f}%), xóa nhầm {e['fp']}/{keep} vùng cần giữ "
                              f"({100 * e['fp'] / max(keep, 1):.0f}%).")
         self.learn_label.config(text=text)
@@ -762,8 +813,7 @@ class App(tk.Tk):
             if not len(ids):
                 messagebox.showinfo("Học từ ảnh này", "Ảnh này không có khoảng nền kín đủ lớn để học.")
                 return
-            mask = self.ai_masks.get(self.path) if self.use_ai.get() else None
-            _, remove = self.remover.decide(o, self.flips.get(self.path, []), mask)
+            _, remove = self.remover.decide(o, self.flips.get(self.path, []))
             y = remove[ids].astype(int)
             self.learner.add(f"{self.path.resolve()}|{self.src.width}x{self.src.height}", X, y)
             self.update_learn_label()
@@ -802,97 +852,146 @@ class App(tk.Tk):
         self.refresh()
         self.status.config(text=f"Đã đề xuất xóa {k} khoảng nền kín. Bấm vào vùng để đổi lại, Ctrl+Z để hủy đề xuất.")
 
+    def on_threshold(self):
+        self.learner.threshold = self.threshold.get()
+        self.update_learn_label()
+        # Ghi file sau khi người dùng dừng kéo, không ghi ở mỗi lần di chuột
+        if self._threshold_save:
+            self.after_cancel(self._threshold_save)
+        self._threshold_save = self.after(600, self._save_threshold)
+
+    def _save_threshold(self):
+        self._threshold_save = None
+        self.learner.save()
+
     def forget(self):
         if self.learner.stats[0] and messagebox.askyesno("Xóa dữ liệu đã học", "Xóa toàn bộ dữ liệu đã học? Không thể hoàn tác."):
             self.learner.clear()
             self.update_learn_label()
 
-    # --- AI ---
-    def toggle_ai(self):
-        if self.use_ai.get():
-            if not ai.available():
-                self.use_ai.set(False)
-                messagebox.showinfo("Chưa có AI", "Cần cài thêm thư viện onnxruntime:\n\npip install onnxruntime")
-                return
-            if not self.connected.get():
-                self.connected.set(True)
-        self.schedule()
-
-    def start_ai(self):
-        if self._ai_busy or self.src is None:
-            return
-        self._ai_busy = True
-        path, img = self.path, self.src
-        self.status.config(text="Đang chạy AI (lần đầu sẽ tải mô hình khoảng 170 MB, vui lòng chờ)...")
-
-        def work():
-            try:
-                self._ai_done = (path, ai.foreground_mask(img), None)
-            except Exception as e:  # noqa: BLE001 - hiển thị nguyên nhân cho người dùng
-                self._ai_done = (path, None, e)
-
-        threading.Thread(target=work, daemon=True).start()
-        self.after(300, self.poll_ai)
-
-    def poll_ai(self):
-        if self._ai_done is None:
-            self.after(300, self.poll_ai)
-            return
-        path, mask, err = self._ai_done
-        self._ai_done, self._ai_busy = None, False
-        if err:
-            self.use_ai.set(False)
-        else:
-            self.ai_masks[path] = mask
-        if self.files and path == self.path:
-            self.refresh()
-        if err:
-            messagebox.showerror("Lỗi AI", str(err))
-
     # --- Lưu ---
     def save_one(self):
-        if self.result is None:
+        result = self.full_result()
+        if result is None:
             return
-        if self.result_is_preview:
-            self.refresh()  # đang hiện bản xem nhanh, cần tính lại đầy đủ trước khi lưu
         dst = filedialog.asksaveasfilename(
             defaultextension=".png", initialfile=self.path.stem + SUFFIX + ".png", filetypes=[("PNG", "*.png")],
         )
         if dst:
-            self.result.save(dst, "PNG")
+            result.save(dst, "PNG")
             self.status.config(text=f"Đã lưu {dst}")
 
     def save_all(self):
         if not self.files:
+            return
+        if self._batch is not None:
+            messagebox.showinfo("Xử lý cả lô", "Đang xử lý cả lô. Hãy chờ xong hoặc bấm \"Dừng\".")
             return
         self.flush()
         self.doc_settings[self.path] = self.settings()
         out = filedialog.askdirectory(title="Chọn thư mục lưu")
         if not out:
             return
-        for i, f in enumerate(self.files, 1):
-            self.status.config(text=f"Đang xử lý {i}/{len(self.files)}: {f.name}")
-            self.update()
-            d = self.doc_settings.get(f) or self.settings()   # mỗi ảnh dùng cấu hình riêng của nó
+        jobs = [(f, Path(out) / (f.stem + SUFFIX + ".png")) for f in self.files]
+        existing = [dst for _, dst in jobs if dst.exists()]
+        if existing:
+            answer = messagebox.askyesnocancel(
+                "File đã có",
+                f"Thư mục đã có {len(existing)} file kết quả trùng tên (ví dụ {existing[0].name}).\n\n"
+                "Có: ghi đè các file đó\nKhông: bỏ qua các ảnh đó\nHủy: không xử lý",
+            )
+            if answer is None:
+                return
+            if answer is False:
+                jobs = [(f, dst) for f, dst in jobs if not dst.exists()]
+        skipped = len(self.files) - len(jobs)
+        if not jobs:
+            messagebox.showinfo("Xử lý cả lô", "Không còn ảnh nào cần xử lý.")
+            return
+        suggest = self.auto_suggest.get() and self.learner.ready
+        if suggest:
+            self.learner.prepare()   # dựng mô hình trước khi các luồng dùng chung
+        tasks = [(f, dst, dict(self.doc_settings.get(f) or self.settings()), list(self.flips.get(f, [])),
+                  suggest and f not in self._suggested and not self.flips.get(f)) for f, dst in jobs]
+        stop = threading.Event()
+        ex = ThreadPoolExecutor(BATCH_WORKERS)
+
+        dlg = tk.Toplevel(self)
+        dlg.title("Xử lý cả lô")
+        dlg.transient(self)
+        dlg.resizable(False, False)
+        label = ttk.Label(dlg, text=f"Đang xử lý 0/{len(tasks)} ảnh...", padding=(16, 12, 16, 4))
+        label.pack(fill="x")
+        bar = ttk.Progressbar(dlg, length=360, maximum=len(tasks))
+        bar.pack(padx=16, pady=4)
+        stop_btn = ttk.Button(dlg, text="Dừng", command=self.stop_batch)
+        stop_btn.pack(pady=(4, 12))
+        dlg.protocol("WM_DELETE_WINDOW", self.stop_batch)
+
+        self._batch = {"ex": ex, "stop": stop, "futures": [ex.submit(self._batch_one, t, stop) for t in tasks],
+                       "skipped": skipped, "out": out, "dlg": dlg, "label": label, "bar": bar, "stop_btn": stop_btn}
+        self.batch_btn.state(["disabled"])
+        self.after(150, self.poll_batch)
+
+    def _batch_one(self, task, stop):
+        """Xử lý một ảnh trong luồng nền (không được đụng tới giao diện). Trả về (ảnh, lỗi hoặc None)."""
+        f, dst, d, flips, suggest = task
+        if stop.is_set():
+            return f, "stopped"
+        try:
             img = Image.open(f).convert("RGBA")
-            mask = None
-            if d.get("use_ai"):
-                mask = self.ai_masks.get(f)
-                if mask is None:
-                    try:
-                        mask = ai.foreground_mask(img)
-                    except Exception as e:  # noqa: BLE001
-                        messagebox.showerror("Lỗi AI", str(e))
-                        return
-            rem, opts, flips = Remover(img), self.options_from(d, img.size), list(self.flips.get(f, []))
-            if self.auto_suggest.get() and self.learner.ready and f not in self._suggested and not flips:
+            rem = Remover(img)
+            opts = self.options_from(d, img.size)
+            if suggest:
                 o2 = self.options_from(d, img.size)
                 o2.connected = True
                 flips = suggest_points(rem, o2, flips, self.learner)
                 opts.connected = opts.connected or bool(flips)
-            rem.render(opts, flips, mask).save(Path(out) / (f.stem + SUFFIX + ".png"), "PNG")
-        self.status.config(text=f"Đã xử lý {len(self.files)} ảnh -> {out}")
-        messagebox.showinfo("Xong", f"Đã xử lý {len(self.files)} ảnh")
+            if stop.is_set():
+                return f, "stopped"
+            tmp = dst.with_name(dst.stem + ".tmp.png")
+            rem.render(opts, flips).save(tmp, "PNG")
+            os.replace(tmp, dst)   # ghi xong mới thay file, không để lại file hỏng khi dừng giữa chừng
+            return f, None
+        except Exception as e:  # noqa: BLE001 - báo lỗi từng ảnh thay vì dừng cả lô
+            return f, str(e)
+
+    def stop_batch(self):
+        b = self._batch
+        if b is None or b["stop"].is_set():
+            return
+        b["stop"].set()
+        for fu in b["futures"]:
+            fu.cancel()
+        b["stop_btn"].state(["disabled"])
+        b["label"].config(text="Đang dừng, chờ các ảnh đang xử lý dở xong...")
+
+    def poll_batch(self):
+        b = self._batch
+        done = sum(fu.done() for fu in b["futures"])
+        total = len(b["futures"])
+        b["bar"]["value"] = done
+        if not b["stop"].is_set():
+            b["label"].config(text=f"Đang xử lý {done}/{total} ảnh ({BATCH_WORKERS} ảnh cùng lúc)...")
+        if done < total:
+            self.after(150, self.poll_batch)
+            return
+        results = [fu.result() for fu in b["futures"] if not fu.cancelled()]
+        ok = sum(err is None for _, err in results)
+        errors = [(f, err) for f, err in results if err not in (None, "stopped")]
+        b["ex"].shutdown(wait=False)
+        b["dlg"].destroy()
+        self._batch = None
+        self.batch_btn.state(["!disabled"])
+        lines = [f"Đã lưu {ok} ảnh vào {b['out']}."]
+        if b["skipped"]:
+            lines.append(f"Bỏ qua {b['skipped']} ảnh đã có kết quả.")
+        if total - ok - len(errors):
+            lines.append(f"Đã dừng, {total - ok - len(errors)} ảnh chưa xử lý.")
+        if errors:
+            lines.append(f"Lỗi {len(errors)} ảnh:\n" + "\n".join(f"- {f.name}: {e}" for f, e in errors[:10]))
+        self.status.config(text=lines[0])
+        (messagebox.showwarning if errors else messagebox.showinfo)("Xử lý cả lô", "\n".join(lines))
 
 
 if __name__ == "__main__":

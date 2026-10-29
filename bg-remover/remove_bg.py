@@ -69,15 +69,19 @@ class Remover:
 
     def distance(self, bg):
         """Do khac mau nen cua tung pixel, 0 = dung mau nen, 1 = khac nhat."""
-        if bg not in self._dist:
+        # Doc/ghi bo dem qua bien cuc bo: luong giao dien va luong tinh nen co the goi cung luc
+        cached = self._dist.get(bg)
+        if cached is None:
             raw = (255 - self.rgb.min(axis=-1)) if bg == "white" else self.rgb.max(axis=-1)
-            self._dist = {bg: raw.astype(np.float32) / 255.0}
-        return self._dist[bg]
+            cached = raw.astype(np.float32) / 255.0
+            self._dist = {bg: cached}
+        return cached
 
     def regions(self, bg, threshold, close, bridge=0):
         """Chia cac pixel gan mau nen thanh cac vung lien thong. Tra ve (labels, areas, cham_mep)."""
         key = (bg, round(threshold, 4), close, bridge)
-        if key not in self._regions:
+        cached = self._regions.get(key)
+        if cached is None:
             mask = self.distance(bg) <= threshold
             if close:
                 # Mo hinh thai: cac khe nen hep hon 2*close px bi bo, nen khong ro vao trong thiet ke
@@ -96,8 +100,9 @@ class Remover:
             edge = np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]])
             border[np.unique(edge)] = True
             border[0] = False
-            self._regions = {key: (labels, areas, border)}
-        return self._regions[key]
+            cached = (labels, areas, border)
+            self._regions = {key: cached}
+        return cached
 
     def _regions_for(self, o):
         return self.regions(self.background(o.bg), max(o.tolerance, CONNECT_MIN), CLOSE if o.close_gaps else 0, o.bridge)
@@ -111,15 +116,10 @@ class Remover:
         found = patch[patch > 0]
         return int(np.bincount(found).argmax()) if found.size else 0
 
-    def decide(self, o, flips=(), ai=None):
+    def decide(self, o, flips=()):
         """Quyết định xóa/giữ từng vùng nền. Trả về (labels, remove) với remove[nhãn] = True nếu xóa."""
-        labels, areas, border = self._regions_for(o)
+        labels, _, border = self._regions_for(o)
         remove = border.copy()
-        pocket = ~border
-        pocket[0] = False
-        if ai is not None:
-            total = np.bincount(labels.ravel(), weights=ai.ravel(), minlength=len(areas))
-            remove |= pocket & (total / np.maximum(areas, 1) < 0.5)
         parity = {}
         for x, y in flips:
             lab = self.region_at(o, x, y)
@@ -133,11 +133,10 @@ class Remover:
         remove[0] = False
         return labels, remove
 
-    def render(self, o, flips=(), ai=None):
+    def render(self, o, flips=()):
         """Tra ve anh RGBA nen trong suot.
 
         flips: cac diem (x, y) tren anh ma nguoi dung bam de doi xoa/giu vung nen do.
-        ai: mask 0..1 (H, W) tu ai.foreground_mask, dung de quyet dinh cac khoang nen kin.
         """
         bg = self.background(o.bg)
         dist = self.distance(bg)
@@ -146,7 +145,7 @@ class Remover:
 
         # gone: xoa han. ring: vien can tinh alpha. Phan con lai giu nguyen.
         if o.connected:
-            labels, remove = self.decide(o, flips, ai)
+            labels, remove = self.decide(o, flips)
             gone = remove[labels]
             zone = ndimage.binary_dilation(gone, iterations=GROW + (CLOSE if o.close_gaps else 0))
             # Chi pixel net ve (nhan 0) moi can tinh lai do trong suot; khoang nen duoc giu nam sat vung bi xoa
@@ -240,14 +239,10 @@ _OFFSETS = _offsets(EDGE_REACH)
 
 
 def remove_background(img, bg="auto", tolerance=0.06, opaque=0.8, connected=False,
-                      close_gaps=False, ai=False, smooth=0.0, bridge=False):
+                      close_gaps=False, smooth=0.0, bridge=False):
     """Ham tien dung cho dong lenh: xu ly mot anh, tra ve RGBA."""
-    mask = None
-    if ai:
-        import ai as ai_module
-        mask = ai_module.foreground_mask(img)
     o = Options(bg, tolerance, opaque, connected, close_gaps, smooth, auto_bridge(img.size) if bridge else 0)
-    return Remover(img).render(o, ai=mask)
+    return Remover(img).render(o)
 
 
 def process(src, dst, **kw):
@@ -265,10 +260,9 @@ def main(argv=None):
     p.add_argument("--close-gaps", action="store_true", help="Bit khe ho nho trong net ve, tranh nen ro vao trong (can --connected)")
     p.add_argument("--bridge", action="store_true", help="Xuyen net manh: nen xuyen qua day den, net chu (do day tu dong theo kich thuoc anh)")
     p.add_argument("--smooth", type=float, default=0.0, help="Lam min vien (px), thu 1 den 2")
-    p.add_argument("--ai", action="store_true", help="Dung AI de nhan dien khoang nen kin (can --connected, can onnxruntime)")
     a = p.parse_args(argv)
-    kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.ai or a.bridge,
-              close_gaps=a.close_gaps, ai=a.ai, smooth=a.smooth, bridge=a.bridge)
+    kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.bridge,
+              close_gaps=a.close_gaps, smooth=a.smooth, bridge=a.bridge)
 
     src = Path(a.input)
     if src.is_dir():
