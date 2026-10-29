@@ -21,6 +21,7 @@ RING = 5             # px: độ rộng dải viền quanh vùng để đo màu 
 MIN_SAMPLES = 20
 MIN_PER_CLASS = 3
 MAX_SAMPLES = 30000
+EVAL_TRAIN_MAX = 4000   # số mẫu tối đa dùng để huấn luyện khi kiểm tra chéo
 
 
 def region_features(rem, o):
@@ -184,7 +185,7 @@ class Learner:
         self.path = Path(path)
         self.images = {}      # khóa ảnh -> {"X": [[...]], "y": [0/1, ...]}
         self._forest = None
-        self._accuracy = None
+        self._eval = None
         self.load()
 
     def load(self):
@@ -194,7 +195,7 @@ class Learner:
             self.images = data["images"] if ok else {}  # đổi bộ đặc trưng thì dữ liệu cũ không còn dùng được
         except (OSError, ValueError, AttributeError):
             self.images = {}
-        self._forest = self._accuracy = None
+        self._forest = self._eval = None
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,11 +210,11 @@ class Learner:
         while sum(len(v["y"]) for v in self.images.values()) > MAX_SAMPLES and len(self.images) > 1:
             self.images.pop(next(iter(self.images)))  # bỏ ảnh học cũ nhất
         self.save()
-        self._forest = self._accuracy = None
+        self._forest = self._eval = None
 
     def clear(self):
         self.images = {}
-        self._forest = self._accuracy = None
+        self._forest = self._eval = None
         self.save()
 
     def _data(self, keys=None):
@@ -239,21 +240,32 @@ class Learner:
             self._forest = Forest().fit(X0, y0)
         return self._forest.predict_proba(np.asarray(X, float))
 
-    def accuracy(self):
-        """Độ chính xác ước tính, kiểm tra chéo theo ảnh (huấn luyện trên ảnh khác, thử trên ảnh còn lại).
-        Trả về None nếu chưa đủ ảnh."""
-        if self._accuracy is None and len(self.images) >= 3 and self.ready:
+    def evaluate(self):
+        """Kiểm tra chéo theo ảnh (huấn luyện trên các ảnh khác, thử trên ảnh còn lại).
+
+        Trả về {"tp", "fn", "fp", "tn"}: tp = vùng cần xóa mà mô hình tìm đúng, fn = vùng cần xóa bị bỏ sót,
+        fp = vùng cần giữ bị xóa nhầm, tn = vùng cần giữ được giữ đúng. None nếu chưa đủ ảnh (cần 3 ảnh trở lên).
+        """
+        if self._eval is None and len(self.images) >= 3 and self.ready:
             keys = list(self.images)
             folds = min(5, len(keys))
-            correct = total = 0
+            tp = fn = fp = tn = 0
             for f in range(folds):
                 test = keys[f::folds]
                 Xt, yt = self._data(test)
                 Xr, yr = self._data([k for k in keys if k not in test])
                 if not len(yt) or yr.sum() == 0 or yr.sum() == len(yr):
                     continue
+                if len(yr) > EVAL_TRAIN_MAX:  # dữ liệu rất lớn: ước tính trên một phần để không chậm
+                    keep = np.random.default_rng(f).choice(len(yr), EVAL_TRAIN_MAX, replace=False)
+                    Xr, yr = Xr[keep], yr[keep]
+                    if yr.sum() == 0 or yr.sum() == len(yr):
+                        continue
                 pred = Forest(trees=20, seed=f).fit(Xr, yr).predict_proba(Xt) >= 0.5
-                correct += int((pred == (yt > 0.5)).sum())
-                total += len(yt)
-            self._accuracy = correct / total if total else None
-        return self._accuracy
+                truth = yt > 0.5
+                tp += int((pred & truth).sum())
+                fn += int((~pred & truth).sum())
+                fp += int((pred & ~truth).sum())
+                tn += int((~pred & ~truth).sum())
+            self._eval = {"tp": tp, "fn": fn, "fp": fp, "tn": tn} if tp + fn + fp + tn else None
+        return self._eval

@@ -2,7 +2,7 @@
 
 Dung:
     python remove_bg.py input.png [output.png] [--bg auto|white|black] [--tolerance 0.06]
-    python remove_bg.py thu_muc_anh/ thu_muc_ra/ --connected --close-gaps --ai
+    python remove_bg.py thu_muc_anh/ thu_muc_ra/ --connected --close-gaps
 """
 import argparse
 import sys
@@ -29,8 +29,6 @@ class Options:
     opaque: float = 0.8         # tu muc nay tro len coi la dac hoan toan
     connected: bool = False     # chi xoa nen noi voi mep anh (giu phan trang/den ben trong)
     close_gaps: bool = False    # bit khe ho nho trong net ve de nen khong ro vao trong
-    bridge: int = 0             # px: nen duoc xuyen qua cac net manh hon 2*bridge px (day den, net chu...)
-    min_pocket: float = 0.0     # % dien tich anh; tu xoa vung nen kin lon hon muc nay (0 = tat)
     smooth: float = 0.0         # px; lam min vien bang quang mem phia ngoai mep (0 = tat)
 
 
@@ -70,23 +68,16 @@ class Remover:
             self._dist = {bg: raw.astype(np.float32) / 255.0}
         return self._dist[bg]
 
-    def regions(self, bg, threshold, close, bridge=0):
+    def regions(self, bg, threshold, close):
         """Chia cac pixel gan mau nen thanh cac vung lien thong. Tra ve (labels, areas, cham_mep)."""
-        key = (bg, round(threshold, 4), close, bridge)
+        key = (bg, round(threshold, 4), close)
         if key not in self._regions:
             mask = self.distance(bg) <= threshold
             if close:
                 # Mo hinh thai: cac khe nen hep hon 2*close px bi bo, nen khong ro vao trong thiet ke
                 mask = ndimage.binary_erosion(mask, iterations=close, border_value=1)
                 mask = ndimage.binary_dilation(mask, iterations=close)
-            if bridge:
-                # Dong hinh thai chi de xet lien thong: nen o hai ben mot net manh duoc coi la mot vung,
-                # nhung chinh net manh van khong thuoc vung nen nen duoc giu lai.
-                joined = ndimage.binary_closing(mask, iterations=bridge, border_value=1)
-                labels, n = ndimage.label(joined)
-                labels *= mask
-            else:
-                labels, n = ndimage.label(mask)
+            labels, n = ndimage.label(mask)
             areas = np.bincount(labels.ravel(), minlength=n + 1)
             border = np.zeros(n + 1, bool)
             edge = np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]])
@@ -96,8 +87,7 @@ class Remover:
         return self._regions[key]
 
     def _regions_for(self, o):
-        return self.regions(self.background(o.bg), max(o.tolerance, CONNECT_MIN),
-                            CLOSE if o.close_gaps else 0, o.bridge)
+        return self.regions(self.background(o.bg), max(o.tolerance, CONNECT_MIN), CLOSE if o.close_gaps else 0)
 
     def region_at(self, o, x, y, radius=3):
         """Nhan cua vung nen gan diem (x, y) nhat (0 neu khong co)."""
@@ -115,8 +105,6 @@ class Remover:
         remove = border.copy()
         pocket = ~border
         pocket[0] = False
-        if o.min_pocket > 0:
-            remove |= pocket & (areas >= o.min_pocket / 100.0 * self.h * self.w)
         if ai is not None:
             total = np.bincount(labels.ravel(), weights=ai.ravel(), minlength=len(areas))
             remove |= pocket & (total / np.maximum(areas, 1) < 0.5)
@@ -238,13 +226,13 @@ _OFFSETS = _offsets(EDGE_REACH)
 
 
 def remove_background(img, bg="auto", tolerance=0.06, opaque=0.8, connected=False,
-                      close_gaps=False, min_pocket=0.0, ai=False, bridge=0, smooth=0.0):
+                      close_gaps=False, ai=False, smooth=0.0):
     """Ham tien dung cho dong lenh: xu ly mot anh, tra ve RGBA."""
     mask = None
     if ai:
         import ai as ai_module
         mask = ai_module.foreground_mask(img)
-    o = Options(bg, tolerance, opaque, connected, close_gaps, bridge, min_pocket, smooth)
+    o = Options(bg, tolerance, opaque, connected, close_gaps, smooth)
     return Remover(img).render(o, ai=mask)
 
 
@@ -261,13 +249,11 @@ def main(argv=None):
     p.add_argument("--opaque", type=float, default=0.8, help="Muc khac nen de coi la dac hoan toan (giam neu thiet ke co mau nhat bi trong suot)")
     p.add_argument("--connected", action="store_true", help="Chi xoa nen noi voi mep anh, giu phan trang/den ben trong thiet ke")
     p.add_argument("--close-gaps", action="store_true", help="Bit khe ho nho trong net ve, tranh nen ro vao trong (can --connected)")
-    p.add_argument("--bridge", type=int, default=0, help="Cho nen xuyen qua net manh hon 2*N px (day den, net chu); thu 2 (can --connected)")
     p.add_argument("--smooth", type=float, default=0.0, help="Lam min vien (px), thu 1 den 2")
-    p.add_argument("--min-pocket", type=float, default=0.0, help="Tu xoa vung nen kin lon hon X phan tram dien tich anh (can --connected)")
     p.add_argument("--ai", action="store_true", help="Dung AI de nhan dien khoang nen kin (can --connected, can onnxruntime)")
     a = p.parse_args(argv)
-    kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.ai or a.min_pocket > 0 or a.bridge > 0,
-              close_gaps=a.close_gaps, min_pocket=a.min_pocket, ai=a.ai, bridge=a.bridge, smooth=a.smooth)
+    kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.ai,
+              close_gaps=a.close_gaps, ai=a.ai, smooth=a.smooth)
 
     src = Path(a.input)
     if src.is_dir():

@@ -248,8 +248,6 @@ class App(tk.Tk):
         self.connected = tk.BooleanVar(value=True)
         self.close_gaps = tk.BooleanVar(value=False)
         self.use_ai = tk.BooleanVar(value=False)
-        self.bridge = tk.IntVar(value=2)
-        self.pocket = tk.DoubleVar(value=0.0)
         self.smooth = tk.DoubleVar(value=0.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
@@ -260,9 +258,7 @@ class App(tk.Tk):
         ttk.Button(bar, text="Chọn ảnh", command=self.pick).pack(side="left")
         ttk.Button(bar, text="Lưu ảnh này", command=self.save_one).pack(side="left", padx=4)
         ttk.Button(bar, text="Xử lý cả lô", command=self.save_all).pack(side="left")
-        ttk.Button(bar, text="<", width=3, command=lambda: self.step(-1)).pack(side="left", padx=(12, 0))
-        ttk.Button(bar, text=">", width=3, command=lambda: self.step(1)).pack(side="left")
-        ttk.Button(bar, text="Đóng ảnh này", command=self.close_current).pack(side="left", padx=(4, 0))
+        ttk.Button(bar, text="Đóng ảnh này", command=self.close_current).pack(side="left", padx=(12, 0))
         ttk.Button(bar, text="Hoàn tác (Ctrl+Z)", command=self.undo).pack(side="left", padx=(12, 0))
         ttk.Button(bar, text="Làm lại (Ctrl+Y)", command=self.redo).pack(side="left", padx=4)
         ttk.Button(bar, text="Khôi phục ảnh gốc", command=self.restore_original).pack(side="left", padx=(12, 0))
@@ -280,12 +276,7 @@ class App(tk.Tk):
         self.numeric_slider(row3, "Độ nhạy", self.tol, 0, 0.4, 0.01)
         self.numeric_slider(row3, "Độ đặc", self.opq, 0.3, 1.0, 0.01)
         self.numeric_slider(row3, "Làm mịn viền (px)", self.smooth, 0, 2, 0.1)
-
-        row3b = ttk.Frame(self, padding=(8, 6, 8, 0))
-        row3b.pack(fill="x")
-        self.numeric_slider(row3b, "Xuyên nét mảnh (px)", self.bridge, 0, 4, 1, integer=True)
-        self.numeric_slider(row3b, "Tự xóa vùng kín lớn hơn (%)", self.pocket, 0, 3, 0.05)
-        ttk.Label(row3b, text="(kéo thanh hoặc gõ số rồi nhấn Enter)", foreground="#666").pack(side="left", padx=12)
+        ttk.Label(row3, text="(kéo thanh hoặc gõ số rồi nhấn Enter)", foreground="#666").pack(side="left", padx=12)
 
         row4 = ttk.Frame(self, padding=(8, 6, 8, 0))
         row4.pack(fill="x")
@@ -308,13 +299,24 @@ class App(tk.Tk):
         ttk.Button(row5, text="Đề xuất vùng nền", command=self.suggest_now).pack(side="left", padx=2)
         ttk.Checkbutton(row5, text="Tự đề xuất khi mở ảnh", variable=self.auto_suggest).pack(side="left", padx=8)
         ttk.Button(row5, text="Xóa dữ liệu đã học", command=self.forget).pack(side="left", padx=2)
-        self.learn_label = ttk.Label(row5)
-        self.learn_label.pack(side="left", padx=10)
+        self.learn_label = ttk.Label(self, wraplength=1160, padding=(8, 4, 8, 0))
+        self.learn_label.pack(fill="x")
         self.update_learn_label()
 
-        self.view = CompareCanvas(self)
+        main = ttk.Frame(self)
+        main.pack(fill="both", expand=True, padx=8, pady=8)
+        side = ttk.Frame(main)
+        side.pack(side="left", fill="y")
+        ttk.Label(side, text="Ảnh đang mở (bấm để chọn):").pack(anchor="w")
+        self.listbox = tk.Listbox(side, width=28, exportselection=False, activestyle="none")
+        scroll = ttk.Scrollbar(side, orient="vertical", command=self.listbox.yview)
+        self.listbox.configure(yscrollcommand=scroll.set)
+        self.listbox.pack(side="left", fill="y")
+        scroll.pack(side="left", fill="y")
+        self.listbox.bind("<<ListboxSelect>>", self.on_list_select)
+        self.view = CompareCanvas(main)
         self.view.on_click = self.on_click
-        self.view.pack(fill="both", expand=True, padx=8, pady=8)
+        self.view.pack(side="left", fill="both", expand=True, padx=(8, 0))
         self.status = ttk.Label(
             self, padding=(8, 0, 8, 8), wraplength=1160,
             text="Chọn ảnh để bắt đầu (có thể chọn nhiều ảnh, mỗi ảnh giữ riêng chỉnh sửa của nó). Kéo thanh trắng để so sánh, "
@@ -387,26 +389,46 @@ class App(tk.Tk):
     def path(self):
         return self.files[self.index]
 
+    # --- Danh sách ảnh đang mở ---
+    def list_labels(self):
+        """Tên từng ảnh; nếu trùng tên thì thêm tên thư mục cha để phân biệt."""
+        names = [p.name for p in self.files]
+        return [f"{p.name}  ({p.parent.name})" if names.count(p.name) > 1 else p.name for p in self.files]
+
+    def refresh_list(self):
+        self.listbox.delete(0, "end")
+        for label in self.list_labels():
+            self.listbox.insert("end", label)
+        self.sync_list()
+
+    def sync_list(self):
+        self.listbox.selection_clear(0, "end")
+        if self.files:
+            self.listbox.selection_set(self.index)
+            self.listbox.see(self.index)
+
+    def on_list_select(self, _event=None):
+        sel = self.listbox.curselection()
+        if sel and self.files and sel[0] != self.index:
+            self.load(sel[0])
+
     def options(self):
         return self.options_from(self.settings())
 
     @staticmethod
     def options_from(d):
-        return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"],
-                       d["bridge"], d["min_pocket"], d.get("smooth", 0.0))
+        return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"], d.get("smooth", 0.0))
 
     # --- Cấu hình có tên ---
     def settings(self):
         return {"bg": self.bg.get(), "tolerance": round(self.tol.get(), 4), "opaque": round(self.opq.get(), 4),
                 "connected": self.connected.get(), "close_gaps": self.close_gaps.get(), "use_ai": self.use_ai.get(),
-                "bridge": int(self.bridge.get()), "min_pocket": round(self.pocket.get(), 4),
                 "smooth": round(self.smooth.get(), 3)}
 
     def apply_settings(self, d):
         for key, var, cast in (("bg", self.bg, str), ("tolerance", self.tol, float), ("opaque", self.opq, float),
                                ("connected", self.connected, bool), ("close_gaps", self.close_gaps, bool),
-                               ("use_ai", self.use_ai, bool), ("bridge", self.bridge, int),
-                               ("min_pocket", self.pocket, float), ("smooth", self.smooth, float)):
+                               ("use_ai", self.use_ai, bool), ("smooth", self.smooth, float)):
             if key in d:
                 try:
                     var.set(cast(d[key]))
@@ -546,15 +568,17 @@ class App(tk.Tk):
         fresh = [p for p in dict.fromkeys(paths) if p not in self.files]
         self.files.extend(fresh)
         target = paths[0] if not fresh else fresh[0]
-        self.load(self.files.index(target), auto_bridge=self.profile is None)
+        self.refresh_list()
+        self.load(self.files.index(target))
 
-    def load(self, i, auto_bridge=False):
+    def load(self, i):
         # Rời ảnh đang mở: ghi nhận thao tác đang chờ và cấu hình các thanh trượt của nó
         if self.src is not None and self.files:
             self.flush()
             self.doc_settings[self.path] = self.settings()
         self.index = i % len(self.files)
         path = self.path
+        self.sync_list()
         self.src = Image.open(path).convert("RGBA")
         self.remover = Remover(self.src)
         longest = max(self.src.size)
@@ -567,9 +591,6 @@ class App(tk.Tk):
         if path in self.doc_settings:
             self.apply_settings(self.doc_settings[path])      # ảnh đã mở trước đó: khôi phục cấu hình riêng của nó
         else:
-            if auto_bridge:
-                # Nét mảnh như dây đèn dày khoảng 1/1000 cạnh dài của ảnh
-                self.bridge.set(min(4, max(1, round(longest / 1000))))
             self.doc_settings[path] = self.settings()          # ảnh mới kế thừa cấu hình hiện tại
         h = self.hist()
         if h["committed"] is None:
@@ -578,10 +599,6 @@ class App(tk.Tk):
             self.status.config(text="Đang đề xuất vùng nền...")
             self.apply_suggestions()
         self.refresh(reset=True)
-
-    def step(self, d):
-        if self.files:
-            self.load(self.index + d)
 
     def close_current(self):
         if not self.files:
@@ -599,6 +616,7 @@ class App(tk.Tk):
         del self.files[self.index]
         self.src = None
         self._gen += 1
+        self.refresh_list()
         if self.files:
             self.load(min(self.index, len(self.files) - 1))
         else:
@@ -619,8 +637,6 @@ class App(tk.Tk):
     def submit_quick(self):
         k = self.fast.w / self.remover.w
         o = self.options()
-        if o.bridge:
-            o.bridge = max(1, round(o.bridge * k))
         o.smooth *= k
         flips = [(int(x * k), int(y * k)) for x, y in self.flips.get(self.path, [])]
         mask = None
@@ -690,11 +706,18 @@ class App(tk.Tk):
         if not n:
             text = "Chưa học gì (bấm chọn vùng rồi bấm \"Học từ ảnh này\")."
         else:
-            text = f"Đã học {n} vùng ({removed} xóa, {n - removed} giữ) từ {images} ảnh"
+            text = f"Đã học {n} vùng ({removed} xóa, {n - removed} giữ) từ {images} ảnh."
             if not self.learner.ready:
-                text += " | cần thêm dữ liệu mới bắt đầu đề xuất"
-            elif self.learner.accuracy() is not None:
-                text += f" | độ chính xác ước tính {self.learner.accuracy() * 100:.0f}%"
+                text += " Cần thêm dữ liệu mới bắt đầu đề xuất."
+            else:
+                e = self.learner.evaluate()
+                if e is None:
+                    text += " Cần ít nhất 3 ảnh để ước tính độ chính xác."
+                else:
+                    need, keep = e["tp"] + e["fn"], e["fp"] + e["tn"]
+                    text += (f" Ước tính khi gặp ảnh mới (kiểm tra chéo giữa các ảnh): tìm đúng {e['tp']}/{need} vùng cần xóa "
+                             f"({100 * e['tp'] / max(need, 1):.0f}%), xóa nhầm {e['fp']}/{keep} vùng cần giữ "
+                             f"({100 * e['fp'] / max(keep, 1):.0f}%).")
         self.learn_label.config(text=text)
 
     def busy(self, on):

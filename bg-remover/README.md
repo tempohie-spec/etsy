@@ -6,16 +6,16 @@ Tách nền trắng hoặc đen bằng thuật toán color to alpha (không dùn
 pip install -r requirements.txt
 python app.py                                   # giao diện máy tính (cần tkinter)
 python remove_bg.py anh.png                     # dòng lệnh, 1 ảnh
-python remove_bg.py thu_muc/ ra/ --connected --bridge 2   # cả lô
+python remove_bg.py thu_muc/ ra/ --connected        # cả lô
 ```
 
 Bản Windows dựng sẵn: https://github.com/tempohie-spec/etsy/releases/download/bg-remover-latest/BackgroundRemover.exe
 
 ## Giao diện
-- Kéo thanh trắng để so sánh trước/sau, lăn chuột để zoom, kéo ảnh để di chuyển, bấm đúp để về vừa khung, nút `<` `>` để chuyển giữa các ảnh đã chọn.
+- Kéo thanh trắng để so sánh trước/sau, lăn chuột để zoom, kéo ảnh để di chuyển, bấm đúp để về vừa khung, danh sách ảnh đang mở bên trái: bấm tên ảnh để chọn.
 - Khi kéo thanh trượt, bản xem nhanh (thu nhỏ) được tính ở luồng nền nên giao diện không bị đơ, rồi tính đầy đủ khi dừng tay. Ảnh lưu ra luôn ở độ phân giải gốc.
 - **Bấm vào một khoảng nền** để đổi giữa xóa và giữ vùng đó (vd khoảng trắng giữa các nhân vật). Các lần bấm cũng được áp dụng khi xử lý cả lô.
-- **Nhiều ảnh:** "Chọn ảnh" thêm ảnh vào danh sách và mở ảnh vừa chọn, không làm mất ảnh đang mở. Mỗi ảnh giữ riêng các vùng đã bấm, cấu hình các thanh trượt và lịch sử hoàn tác; ảnh mới kế thừa cấu hình hiện tại. Chuyển ảnh bằng `<` `>`, bỏ ảnh khỏi danh sách bằng "Đóng ảnh này". "Xử lý cả lô" dùng cấu hình riêng của từng ảnh.
+- **Nhiều ảnh:** "Chọn ảnh" thêm ảnh vào danh sách và mở ảnh vừa chọn, không làm mất ảnh đang mở. Mỗi ảnh giữ riêng các vùng đã bấm, cấu hình các thanh trượt và lịch sử hoàn tác; ảnh mới kế thừa cấu hình hiện tại. Bấm tên ảnh trong danh sách bên trái để chuyển ảnh (ảnh trùng tên được thêm tên thư mục), bỏ ảnh khỏi danh sách bằng "Đóng ảnh này". "Xử lý cả lô" dùng cấu hình riêng của từng ảnh.
 - **Nhập số:** mỗi thanh trượt có ô số bên cạnh: kéo thanh (tự làm tròn theo bước) hoặc gõ số rồi nhấn Enter, hoặc dùng mũi tên của ô. Số vượt giới hạn tự được đưa về giới hạn, gõ sai thì giữ nguyên giá trị cũ.
 - **Hoàn tác / Làm lại:** `Ctrl+Z` / `Ctrl+Y` (hoặc nút trên thanh công cụ) cho mọi thao tác: chỉnh thanh trượt, đổi tùy chọn, bấm chọn vùng.
 - **Khôi phục ảnh gốc:** xóa toàn bộ vùng đã bấm chọn thủ công của ảnh hiện tại (có hỏi xác nhận, hoàn tác được bằng `Ctrl+Z`).
@@ -41,13 +41,11 @@ Lưu ý: bấm vào nền ngoài (nối với mép ảnh) không đổi được
 | Độ đặc | `--opaque` | Giảm nếu thiết kế có màu nhạt bị trong suốt |
 | Làm mịn viền (px) | `--smooth N` | Thêm quầng mềm ra phía ngoài mép để mất răng cưa. Không làm nhạt nét mảnh. Nên thử 1, mức 2 bắt đầu nhòe. Ngoài ra có thể giảm Độ nhạy và tăng Độ đặc để viền mềm hơn |
 | Chỉ xóa nền nối với mép ảnh | `--connected` | Giữ phần trắng/đen nằm bên trong thiết kế |
-| Xuyên nét mảnh (px) | `--bridge N` | Nền xuyên qua nét mảnh hơn 2N px (dây đèn, nét chữ) để xóa các khoảng nền bị nó chia cắt. Ảnh khoảng 2000 px: thử 2. Tăng cao sẽ ăn vào chi tiết trắng bên trong |
 | Bịt khe hở nét vẽ | `--close-gaps` | Tránh nền rò vào trong thiết kế qua khe hở 1 đến 2 px trong nét vẽ |
-| Tự xóa vùng kín lớn hơn (%) | `--min-pocket X` | Xóa mọi khoảng nền kín lớn hơn X% diện tích ảnh. Có thể xóa nhầm chi tiết trắng lớn, nên kết hợp với bấm chọn vùng |
 | Dùng AI (thử nghiệm) | `--ai` | Dùng mô hình ISNet để đoán khoảng nền kín. Cần `pip install onnxruntime`, lần đầu tải mô hình khoảng 170 MB. Xem lưu ý bên dưới |
 
 Phần viền luôn được làm sạch quầng trắng/đen ở cạnh (không cần bật).
 
 ## Lưu ý
 - Ở chế độ mặc định (không bật "chỉ xóa nền nối với mép ảnh"), phần thiết kế màu trắng trên nền trắng (hoặc đen trên nền đen) bị tách cùng nền.
-- AI chỉ được huấn luyện cho ảnh chụp nên không phân biệt được ruột trắng của nhân vật (găng tay, viền lông) với khoảng nền trắng. Với ảnh minh họa đông nhân vật nó có thể xóa nhầm. Cách nên dùng: "Xuyên nét mảnh" và bấm chọn vùng.
+- AI chỉ được huấn luyện cho ảnh chụp nên không phân biệt được ruột trắng của nhân vật (găng tay, viền lông) với khoảng nền trắng. Với ảnh minh họa đông nhân vật nó có thể xóa nhầm. Cách nên dùng: bấm chọn vùng và để ứng dụng học từ lựa chọn của bạn.
