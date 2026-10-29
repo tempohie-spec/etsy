@@ -1,4 +1,5 @@
 """Ứng dụng máy tính tách nền ảnh thiết kế 2D (nền trắng hoặc đen). Chạy: python app.py"""
+import os
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -10,7 +11,7 @@ from PIL import Image, ImageTk
 import ai
 from compare import fit_view, render_view
 from learn import MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, suggest_points
-from remove_bg import EXTS, SUFFIX, Options, Remover
+from remove_bg import EXTS, SUFFIX, Options, Remover, auto_bridge
 from settings import Store
 
 ZOOM_STEP = 1.2
@@ -247,6 +248,7 @@ class App(tk.Tk):
         self.opq = tk.DoubleVar(value=0.8)
         self.connected = tk.BooleanVar(value=True)
         self.close_gaps = tk.BooleanVar(value=False)
+        self.bridge_on = tk.BooleanVar(value=True)
         self.use_ai = tk.BooleanVar(value=False)
         self.smooth = tk.DoubleVar(value=0.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
@@ -268,6 +270,7 @@ class App(tk.Tk):
         for label, v in (("Tự động", "auto"), ("Nền trắng", "white"), ("Nền đen", "black")):
             ttk.Radiobutton(row2, text=label, value=v, variable=self.bg, command=self.schedule).pack(side="left", padx=4)
         ttk.Checkbutton(row2, text="Chỉ xóa nền nối với mép ảnh", variable=self.connected, command=self.schedule).pack(side="left", padx=(12, 4))
+        ttk.Checkbutton(row2, text="Xuyên nét mảnh (dây đèn, nét chữ)", variable=self.bridge_on, command=self.schedule).pack(side="left", padx=4)
         ttk.Checkbutton(row2, text="Bịt khe hở nét vẽ", variable=self.close_gaps, command=self.schedule).pack(side="left", padx=4)
         ttk.Checkbutton(row2, text="Dùng AI (thử nghiệm, có thể xóa nhầm)", variable=self.use_ai, command=self.toggle_ai).pack(side="left", padx=4)
 
@@ -413,27 +416,33 @@ class App(tk.Tk):
             self.load(sel[0])
 
     def options(self):
-        return self.options_from(self.settings())
+        return self.options_from(self.settings(), self.src.size if self.src is not None else None)
 
     @staticmethod
-    def options_from(d):
-        return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"], d.get("smooth", 0.0))
+    def options_from(d, size=None):
+        """Tùy chọn xử lý từ một cấu hình; `size` là kích thước ảnh để tính độ dày xuyên nét mảnh."""
+        bridge = auto_bridge(size) if size and d.get("bridge_on", True) else 0
+        return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"], d.get("smooth", 0.0), bridge)
 
     # --- Cấu hình có tên ---
     def settings(self):
         return {"bg": self.bg.get(), "tolerance": round(self.tol.get(), 4), "opaque": round(self.opq.get(), 4),
                 "connected": self.connected.get(), "close_gaps": self.close_gaps.get(), "use_ai": self.use_ai.get(),
+                "bridge_on": self.bridge_on.get(),
                 "smooth": round(self.smooth.get(), 3)}
 
     def apply_settings(self, d):
         for key, var, cast in (("bg", self.bg, str), ("tolerance", self.tol, float), ("opaque", self.opq, float),
                                ("connected", self.connected, bool), ("close_gaps", self.close_gaps, bool),
-                               ("use_ai", self.use_ai, bool), ("smooth", self.smooth, float)):
+                               ("use_ai", self.use_ai, bool), ("smooth", self.smooth, float),
+                               ("bridge_on", self.bridge_on, bool)):
             if key in d:
                 try:
                     var.set(cast(d[key]))
                 except (TypeError, ValueError, tk.TclError):
                     pass
+        if "bridge_on" not in d and "bridge" in d:
+            self.bridge_on.set(bool(d["bridge"]))  # cấu hình cũ lưu độ dày px thay cho bật/tắt
         if self.bg.get() not in ("auto", "white", "black"):
             self.bg.set("auto")
         if self.use_ai.get() and not ai.available():
@@ -565,6 +574,10 @@ class App(tk.Tk):
         paths = [Path(p) for p in filedialog.askopenfilenames(filetypes=[("Ảnh", " ".join("*" + e for e in sorted(EXTS)))])]
         if not paths:
             return
+        # So sánh theo đường dẫn chuẩn hóa: trên Windows cùng một file có thể khác chữ hoa/thường
+        same = lambda p: os.path.normcase(os.path.abspath(p))
+        opened = {same(f): f for f in self.files}
+        paths = [opened.get(same(p), p) for p in paths]
         fresh = [p for p in dict.fromkeys(paths) if p not in self.files]
         self.files.extend(fresh)
         target = paths[0] if not fresh else fresh[0]
@@ -638,6 +651,8 @@ class App(tk.Tk):
         k = self.fast.w / self.remover.w
         o = self.options()
         o.smooth *= k
+        if o.bridge:
+            o.bridge = max(1, round(o.bridge * k))
         flips = [(int(x * k), int(y * k)) for x, y in self.flips.get(self.path, [])]
         mask = None
         if self.use_ai.get() and self.path in self.ai_masks:
@@ -869,9 +884,9 @@ class App(tk.Tk):
                     except Exception as e:  # noqa: BLE001
                         messagebox.showerror("Lỗi AI", str(e))
                         return
-            rem, opts, flips = Remover(img), self.options_from(d), list(self.flips.get(f, []))
+            rem, opts, flips = Remover(img), self.options_from(d, img.size), list(self.flips.get(f, []))
             if self.auto_suggest.get() and self.learner.ready and f not in self._suggested and not flips:
-                o2 = self.options_from(d)
+                o2 = self.options_from(d, img.size)
                 o2.connected = True
                 flips = suggest_points(rem, o2, flips, self.learner)
                 opts.connected = opts.connected or bool(flips)
