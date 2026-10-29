@@ -163,7 +163,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Công cụ tách nền ảnh thiết kế")
-        self.geometry("1200x820")
+        self.geometry("1200x860")
         self.files, self.index = [], 0
         self.src = self.remover = self.result = None
         self.fast = None          # Remover của bản thu nhỏ, dùng để xem nhanh
@@ -188,6 +188,7 @@ class App(tk.Tk):
         self.use_ai = tk.BooleanVar(value=False)
         self.bridge = tk.IntVar(value=2)
         self.pocket = tk.DoubleVar(value=0.0)
+        self.smooth = tk.DoubleVar(value=0.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
 
@@ -214,8 +215,12 @@ class App(tk.Tk):
         row3.pack(fill="x")
         self.slider(row3, "Độ nhạy", self.tol, 0, 0.4, "{:.2f}")
         self.slider(row3, "Độ đặc", self.opq, 0.3, 1.0, "{:.2f}")
-        self.slider(row3, "Xuyên nét mảnh (px)", self.bridge, 0, 4, "{:d}", integer=True)
-        self.slider(row3, "Tự xóa vùng kín lớn hơn (%)", self.pocket, 0, 3, "{:.2f}")
+        self.slider(row3, "Làm mịn viền (px)", self.smooth, 0, 2, "{:.1f}")
+
+        row3b = ttk.Frame(self, padding=(8, 6, 8, 0))
+        row3b.pack(fill="x")
+        self.slider(row3b, "Xuyên nét mảnh (px)", self.bridge, 0, 4, "{:d}", integer=True)
+        self.slider(row3b, "Tự xóa vùng kín lớn hơn (%)", self.pocket, 0, 3, "{:.2f}")
 
         row4 = ttk.Frame(self, padding=(8, 6, 8, 0))
         row4.pack(fill="x")
@@ -284,19 +289,20 @@ class App(tk.Tk):
 
     def options(self):
         return Options(self.bg.get(), self.tol.get(), self.opq.get(), self.connected.get(),
-                       self.close_gaps.get(), int(self.bridge.get()), self.pocket.get())
+                       self.close_gaps.get(), int(self.bridge.get()), self.pocket.get(), self.smooth.get())
 
     # --- Cấu hình có tên ---
     def settings(self):
         return {"bg": self.bg.get(), "tolerance": round(self.tol.get(), 4), "opaque": round(self.opq.get(), 4),
                 "connected": self.connected.get(), "close_gaps": self.close_gaps.get(), "use_ai": self.use_ai.get(),
-                "bridge": int(self.bridge.get()), "min_pocket": round(self.pocket.get(), 4)}
+                "bridge": int(self.bridge.get()), "min_pocket": round(self.pocket.get(), 4),
+                "smooth": round(self.smooth.get(), 3)}
 
     def apply_settings(self, d):
         for key, var, cast in (("bg", self.bg, str), ("tolerance", self.tol, float), ("opaque", self.opq, float),
                                ("connected", self.connected, bool), ("close_gaps", self.close_gaps, bool),
                                ("use_ai", self.use_ai, bool), ("bridge", self.bridge, int),
-                               ("min_pocket", self.pocket, float)):
+                               ("min_pocket", self.pocket, float), ("smooth", self.smooth, float)):
             if key in d:
                 try:
                     var.set(cast(d[key]))
@@ -475,6 +481,7 @@ class App(tk.Tk):
         o = self.options()
         if o.bridge:
             o.bridge = max(1, round(o.bridge * k))
+        o.smooth *= k
         flips = [(int(x * k), int(y * k)) for x, y in self.flips.get(self.path, [])]
         mask = None
         if self.use_ai.get() and self.path in self.ai_masks:

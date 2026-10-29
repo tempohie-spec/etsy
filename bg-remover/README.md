@@ -25,6 +25,7 @@ Bản Windows dựng sẵn: https://github.com/tempohie-spec/etsy/releases/downl
 |---|---|---|
 | Độ nhạy | `--tolerance` | Tăng nếu còn vệt nền |
 | Độ đặc | `--opaque` | Giảm nếu thiết kế có màu nhạt bị trong suốt |
+| Làm mịn viền (px) | `--smooth N` | Thêm quầng mềm ra phía ngoài mép để mất răng cưa. Không làm nhạt nét mảnh. Nên thử 1, mức 2 bắt đầu nhòe. Ngoài ra có thể giảm Độ nhạy và tăng Độ đặc để viền mềm hơn |
 | Chỉ xóa nền nối với mép ảnh | `--connected` | Giữ phần trắng/đen nằm bên trong thiết kế |
 | Xuyên nét mảnh (px) | `--bridge N` | Nền xuyên qua nét mảnh hơn 2N px (dây đèn, nét chữ) để xóa các khoảng nền bị nó chia cắt. Ảnh khoảng 2000 px: thử 2. Tăng cao sẽ ăn vào chi tiết trắng bên trong |
 | Bịt khe hở nét vẽ | `--close-gaps` | Tránh nền rò vào trong thiết kế qua khe hở 1 đến 2 px trong nét vẽ |

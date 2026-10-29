@@ -31,6 +31,7 @@ class Options:
     close_gaps: bool = False    # bit khe ho nho trong net ve de nen khong ro vao trong
     bridge: int = 0             # px: nen duoc xuyen qua cac net manh hon 2*bridge px (day den, net chu...)
     min_pocket: float = 0.0     # % dien tich anh; tu xoa vung nen kin lon hon muc nay (0 = tat)
+    smooth: float = 0.0         # px; lam min vien bang quang mem phia ngoai mep (0 = tat)
 
 
 def detect_background(rgb_u8):
@@ -161,7 +162,35 @@ class Remover:
         out[gone] = 0
         out[ring, :3] = (fg * 255 + 0.5).astype(np.uint8)
         out[ring, 3] = (alpha * self.a_in[ring] + 0.5).astype(np.uint8)
+        if o.smooth > 0:
+            self._feather(out, o.smooth)
         return Image.fromarray(out, "RGBA")
+
+    @staticmethod
+    def _feather(out, sigma):
+        """Lam min rang cua bang quang mem o phia ngoai mep. Chi them do dac, khong bao gio lam
+        nhat net hien co nen net manh (chu ky, day den) khong bi mong di."""
+        alpha = out[..., 3].astype(np.float32) / 255.0
+        soft = np.maximum(ndimage.gaussian_filter(alpha, sigma, truncate=3.0), alpha)
+        radius = int(np.ceil(2 * sigma)) + 1
+        solid = np.pad(alpha >= 0.98, radius)
+        ys, xs = np.nonzero((soft > alpha + 0.004) & (alpha == 0))
+        # Pixel moi them can mau: lay mau cua pixel dac gan nhat de quang khong bi vien trang/den
+        colors = np.zeros((len(ys), 3), np.uint8)
+        todo = np.arange(len(ys))
+        for dy, dx in _offsets(radius):
+            if not todo.size:
+                break
+            hit = solid[ys[todo] + dy + radius, xs[todo] + dx + radius]
+            if hit.any():
+                sel = todo[hit]
+                colors[sel] = out[ys[sel] + dy, xs[sel] + dx, :3]
+                todo = todo[~hit]
+        found = np.ones(len(ys), bool)
+        found[todo] = False
+        soft[ys[~found], xs[~found]] = 0.0
+        out[ys[found], xs[found], :3] = colors[found]
+        out[..., 3] = (soft * 255 + 0.5).astype(np.uint8)
 
     def _clean_edges(self, fg, alpha, ring, gone):
         """Khu quang trang/den o vien: pixel ban trong suot lay mau cua pixel dac gan nhat."""
@@ -186,21 +215,31 @@ class Remover:
         return fg
 
 
-_OFFSETS = sorted(
-    ((dy, dx) for dy in range(-EDGE_REACH, EDGE_REACH + 1) for dx in range(-EDGE_REACH, EDGE_REACH + 1)
-     if 0 < dy * dy + dx * dx <= EDGE_REACH * EDGE_REACH),
-    key=lambda p: p[0] * p[0] + p[1] * p[1],
-)
+_offset_cache = {}
+
+
+def _offsets(radius):
+    """Cac do lech (dy, dx) trong ban kinh `radius`, sap tu gan den xa."""
+    if radius not in _offset_cache:
+        _offset_cache[radius] = sorted(
+            ((dy, dx) for dy in range(-radius, radius + 1) for dx in range(-radius, radius + 1)
+             if 0 < dy * dy + dx * dx <= radius * radius),
+            key=lambda p: p[0] * p[0] + p[1] * p[1],
+        )
+    return _offset_cache[radius]
+
+
+_OFFSETS = _offsets(EDGE_REACH)
 
 
 def remove_background(img, bg="auto", tolerance=0.06, opaque=0.8, connected=False,
-                      close_gaps=False, min_pocket=0.0, ai=False, bridge=0):
+                      close_gaps=False, min_pocket=0.0, ai=False, bridge=0, smooth=0.0):
     """Ham tien dung cho dong lenh: xu ly mot anh, tra ve RGBA."""
     mask = None
     if ai:
         import ai as ai_module
         mask = ai_module.foreground_mask(img)
-    o = Options(bg, tolerance, opaque, connected, close_gaps, bridge, min_pocket)
+    o = Options(bg, tolerance, opaque, connected, close_gaps, bridge, min_pocket, smooth)
     return Remover(img).render(o, ai=mask)
 
 
@@ -218,11 +257,12 @@ def main(argv=None):
     p.add_argument("--connected", action="store_true", help="Chi xoa nen noi voi mep anh, giu phan trang/den ben trong thiet ke")
     p.add_argument("--close-gaps", action="store_true", help="Bit khe ho nho trong net ve, tranh nen ro vao trong (can --connected)")
     p.add_argument("--bridge", type=int, default=0, help="Cho nen xuyen qua net manh hon 2*N px (day den, net chu); thu 2 (can --connected)")
+    p.add_argument("--smooth", type=float, default=0.0, help="Lam min vien (px), thu 1 den 2")
     p.add_argument("--min-pocket", type=float, default=0.0, help="Tu xoa vung nen kin lon hon X phan tram dien tich anh (can --connected)")
     p.add_argument("--ai", action="store_true", help="Dung AI de nhan dien khoang nen kin (can --connected, can onnxruntime)")
     a = p.parse_args(argv)
     kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.ai or a.min_pocket > 0 or a.bridge > 0,
-              close_gaps=a.close_gaps, min_pocket=a.min_pocket, ai=a.ai, bridge=a.bridge)
+              close_gaps=a.close_gaps, min_pocket=a.min_pocket, ai=a.ai, bridge=a.bridge, smooth=a.smooth)
 
     src = Path(a.input)
     if src.is_dir():
