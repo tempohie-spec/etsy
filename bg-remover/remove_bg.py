@@ -2,78 +2,210 @@
 
 Dung:
     python remove_bg.py input.png [output.png] [--bg auto|white|black] [--tolerance 0.06]
-    python remove_bg.py thu_muc_anh/ thu_muc_ra/
+    python remove_bg.py thu_muc_anh/ thu_muc_ra/ --connected --close-gaps --ai
 """
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 
 EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 SUFFIX = "_done"
 
+GROW = 2          # px mo rong quanh vung nen de xu ly vien mo anti-alias
+CLOSE = 2         # px khe ho duoc bit khi bat close_gaps
+EDGE_REACH = 3    # px toi da de lay mau vien tu vung dac gan nhat
+CONNECT_MIN = 0.08
 
-def detect_background(rgb):
+
+@dataclass
+class Options:
+    bg: str = "auto"            # auto | white | black
+    tolerance: float = 0.06     # duoi muc nay coi la nen hoan toan
+    opaque: float = 0.8         # tu muc nay tro len coi la dac hoan toan
+    connected: bool = False     # chi xoa nen noi voi mep anh (giu phan trang/den ben trong)
+    close_gaps: bool = False    # bit khe ho nho trong net ve de nen khong ro vao trong
+    bridge: int = 0             # px: nen duoc xuyen qua cac net manh hon 2*bridge px (day den, net chu...)
+    min_pocket: float = 0.0     # % dien tich anh; tu xoa vung nen kin lon hon muc nay (0 = tat)
+
+
+def detect_background(rgb_u8):
     """Doan nen trang hay den tu cac pixel o vien anh."""
-    border = np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]])
+    border = np.concatenate([rgb_u8[0], rgb_u8[-1], rgb_u8[:, 0], rgb_u8[:, -1]])
     return "white" if border.mean() >= 127.5 else "black"
 
 
-def outside_zone(dist, threshold, grow=2):
-    """Mask True cho pixel nam xa vung nen noi voi mep anh (de giu nguyen).
+class Remover:
+    """Giu anh o dang so thuc va luu dem ket qua phan tich vung nen de keo thanh truot nhanh hon."""
 
-    Vung nen = cac pixel gan mau nen va lien thong voi mep anh. Mo rong `grow` pixel
-    de van xu ly duoc vien mo anti-alias sat nen.
-    """
-    from scipy import ndimage
+    def __init__(self, img):
+        rgba = np.asarray(img.convert("RGBA"))
+        self.rgb = np.ascontiguousarray(rgba[..., :3])      # uint8
+        self.a_in = np.ascontiguousarray(rgba[..., 3])      # uint8
+        self.h, self.w = self.rgb.shape[:2]
+        self._auto = None
+        self._dist = {}
+        self._regions = {}
 
-    labels, n = ndimage.label(dist[..., 0] <= threshold)
-    if n == 0:
-        return np.ones(labels.shape, bool)
-    edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
-    region = np.isin(labels, edge[edge != 0])
-    return ~ndimage.binary_dilation(region, iterations=grow)
+    @property
+    def size(self):
+        return self.w, self.h
+
+    def background(self, bg):
+        if bg != "auto":
+            return bg
+        if self._auto is None:
+            self._auto = detect_background(self.rgb)
+        return self._auto
+
+    def distance(self, bg):
+        """Do khac mau nen cua tung pixel, 0 = dung mau nen, 1 = khac nhat."""
+        if bg not in self._dist:
+            raw = (255 - self.rgb.min(axis=-1)) if bg == "white" else self.rgb.max(axis=-1)
+            self._dist = {bg: raw.astype(np.float32) / 255.0}
+        return self._dist[bg]
+
+    def regions(self, bg, threshold, close, bridge=0):
+        """Chia cac pixel gan mau nen thanh cac vung lien thong. Tra ve (labels, areas, cham_mep)."""
+        key = (bg, round(threshold, 4), close, bridge)
+        if key not in self._regions:
+            mask = self.distance(bg) <= threshold
+            if close:
+                # Mo hinh thai: cac khe nen hep hon 2*close px bi bo, nen khong ro vao trong thiet ke
+                mask = ndimage.binary_erosion(mask, iterations=close, border_value=1)
+                mask = ndimage.binary_dilation(mask, iterations=close)
+            if bridge:
+                # Dong hinh thai chi de xet lien thong: nen o hai ben mot net manh duoc coi la mot vung,
+                # nhung chinh net manh van khong thuoc vung nen nen duoc giu lai.
+                joined = ndimage.binary_closing(mask, iterations=bridge, border_value=1)
+                labels, n = ndimage.label(joined)
+                labels *= mask
+            else:
+                labels, n = ndimage.label(mask)
+            areas = np.bincount(labels.ravel(), minlength=n + 1)
+            border = np.zeros(n + 1, bool)
+            edge = np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]])
+            border[np.unique(edge)] = True
+            border[0] = False
+            self._regions = {key: (labels, areas, border)}
+        return self._regions[key]
+
+    def _regions_for(self, o):
+        return self.regions(self.background(o.bg), max(o.tolerance, CONNECT_MIN),
+                            CLOSE if o.close_gaps else 0, o.bridge)
+
+    def region_at(self, o, x, y, radius=3):
+        """Nhan cua vung nen gan diem (x, y) nhat (0 neu khong co)."""
+        labels = self._regions_for(o)[0]
+        patch = labels[max(y - radius, 0): y + radius + 1, max(x - radius, 0): x + radius + 1]
+        found = patch[patch > 0]
+        return int(np.bincount(found).argmax()) if found.size else 0
+
+    def _decide(self, o, flips, ai):
+        bg = self.background(o.bg)
+        labels, areas, border = self._regions_for(o)
+        remove = border.copy()
+        pocket = ~border
+        pocket[0] = False
+        if o.min_pocket > 0:
+            remove |= pocket & (areas >= o.min_pocket / 100.0 * self.h * self.w)
+        if ai is not None:
+            total = np.bincount(labels.ravel(), weights=ai.ravel(), minlength=len(areas))
+            remove |= pocket & (total / np.maximum(areas, 1) < 0.5)
+        parity = {}
+        for x, y in flips:
+            lab = self.region_at(o, x, y)
+            if lab:
+                parity[lab] = parity.get(lab, 0) ^ 1
+        for lab, odd in parity.items():
+            if odd:
+                remove[lab] = ~remove[lab]
+        remove[0] = False
+        return labels, remove
+
+    def render(self, o, flips=(), ai=None):
+        """Tra ve anh RGBA nen trong suot.
+
+        flips: cac diem (x, y) tren anh ma nguoi dung bam de doi xoa/giu vung nen do.
+        ai: mask 0..1 (H, W) tu ai.foreground_mask, dung de quyet dinh cac khoang nen kin.
+        """
+        bg = self.background(o.bg)
+        dist = self.distance(bg)
+        tol = o.tolerance
+        opaque = max(o.opaque, tol + 0.05)
+
+        # gone: xoa han. ring: vien can tinh alpha. Phan con lai giu nguyen.
+        if o.connected:
+            labels, remove = self._decide(o, flips, ai)
+            gone = remove[labels]
+            zone = ndimage.binary_dilation(gone, iterations=GROW + (CLOSE if o.close_gaps else 0))
+            ring = zone & ~gone
+        else:
+            gone = dist <= tol
+            ring = ~gone & (dist < opaque)
+
+        alpha = np.clip((dist[ring] - tol) / (opaque - tol), 0.0, 1.0)
+        c = self.rgb[ring].astype(np.float32) / 255.0
+        safe = np.maximum(alpha, 1e-6)[:, None]
+        fg = 1.0 - (1.0 - c) / safe if bg == "white" else c / safe
+        fg = np.clip(fg, 0.0, 1.0)
+        fg = self._clean_edges(fg, alpha, ring, gone)
+
+        out = np.empty((self.h, self.w, 4), np.uint8)
+        out[..., :3] = self.rgb
+        out[..., 3] = self.a_in
+        out[gone] = 0
+        out[ring, :3] = (fg * 255 + 0.5).astype(np.uint8)
+        out[ring, 3] = (alpha * self.a_in[ring] + 0.5).astype(np.uint8)
+        return Image.fromarray(out, "RGBA")
+
+    def _clean_edges(self, fg, alpha, ring, gone):
+        """Khu quang trang/den o vien: pixel ban trong suot lay mau cua pixel dac gan nhat."""
+        semi = alpha < 0.98
+        if not semi.any():
+            return fg
+        ys, xs = np.nonzero(ring)
+        sy, sx = ys[semi], xs[semi]
+        solid = ~gone
+        solid[sy, sx] = False
+        r = EDGE_REACH
+        solid = np.pad(solid, r)
+        colors = fg[semi]
+        todo = np.ones(len(sy), bool)
+        for dy, dx in _OFFSETS:
+            hit = np.nonzero(todo & solid[sy + dy + r, sx + dx + r])[0]
+            if hit.size:
+                colors[hit] = self.rgb[sy[hit] + dy, sx[hit] + dx] / 255.0
+                todo[hit] = False
+        fg = fg.copy()
+        fg[semi] = colors
+        return fg
 
 
-def remove_background(img, bg="auto", tolerance=0.06, opaque=0.8, connected=False):
-    """Tra ve anh RGBA nen trong suot. Giu duoc vien mo va net anti-alias.
-
-    connected=True: chi xoa nen noi voi mep anh, giu lai phan trang/den ben trong thiet ke.
-    """
-    rgba = np.asarray(img.convert("RGBA"), dtype=np.float32) / 255.0
-    rgb, a_in = rgba[..., :3], rgba[..., 3:]
-    if bg == "auto":
-        bg = detect_background((rgb * 255).astype(np.uint8))
-
-    if bg == "white":
-        dist = (1.0 - rgb).max(axis=-1, keepdims=True)
-    else:
-        dist = rgb.max(axis=-1, keepdims=True)
-    alpha = dist
-
-    # Duoi tolerance: nen hoan toan (bo nhieu JPEG). Tu opaque tro len: dac hoan toan,
-    # tranh mau vua/nhat bi ban trong suot. Giua hai moc: vien mo anti-alias.
-    alpha = np.clip((alpha - tolerance) / (opaque - tolerance), 0.0, 1.0)
-
-    safe = np.maximum(alpha, 1e-6)
-    fg = 1.0 - (1.0 - rgb) / safe if bg == "white" else rgb / safe
-    fg = np.clip(fg, 0.0, 1.0)
-    fg[alpha[..., 0] == 0] = 0.0
-
-    if connected:
-        keep = outside_zone(dist, max(tolerance, 0.08))
-        alpha[keep] = 1.0
-        fg[keep] = rgb[keep]
-
-    out = np.concatenate([fg, alpha * a_in], axis=-1)
-    return Image.fromarray((out * 255 + 0.5).astype(np.uint8), "RGBA")
+_OFFSETS = sorted(
+    ((dy, dx) for dy in range(-EDGE_REACH, EDGE_REACH + 1) for dx in range(-EDGE_REACH, EDGE_REACH + 1)
+     if 0 < dy * dy + dx * dx <= EDGE_REACH * EDGE_REACH),
+    key=lambda p: p[0] * p[0] + p[1] * p[1],
+)
 
 
-def process(src, dst, bg="auto", tolerance=0.06, opaque=0.8, connected=False):
-    img = Image.open(src)
-    remove_background(img, bg, tolerance, opaque, connected).save(dst, "PNG")
+def remove_background(img, bg="auto", tolerance=0.06, opaque=0.8, connected=False,
+                      close_gaps=False, min_pocket=0.0, ai=False, bridge=0):
+    """Ham tien dung cho dong lenh: xu ly mot anh, tra ve RGBA."""
+    mask = None
+    if ai:
+        import ai as ai_module
+        mask = ai_module.foreground_mask(img)
+    o = Options(bg, tolerance, opaque, connected, close_gaps, bridge, min_pocket)
+    return Remover(img).render(o, ai=mask)
+
+
+def process(src, dst, **kw):
+    remove_background(Image.open(src), **kw).save(dst, "PNG")
 
 
 def main(argv=None):
@@ -82,9 +214,15 @@ def main(argv=None):
     p.add_argument("output", nargs="?", help="Anh PNG hoac thu muc dau ra")
     p.add_argument("--bg", choices=["auto", "white", "black"], default="auto")
     p.add_argument("--tolerance", type=float, default=0.06, help="0 den 0.5, tang neu con vet nen")
-    p.add_argument("--opaque", type=float, default=0.8, help="Muc khac nen de coi la dac hoan toan (1 = chi tach mau thuan, giam neu thiet ke co mau nhat)")
+    p.add_argument("--opaque", type=float, default=0.8, help="Muc khac nen de coi la dac hoan toan (giam neu thiet ke co mau nhat bi trong suot)")
     p.add_argument("--connected", action="store_true", help="Chi xoa nen noi voi mep anh, giu phan trang/den ben trong thiet ke")
+    p.add_argument("--close-gaps", action="store_true", help="Bit khe ho nho trong net ve, tranh nen ro vao trong (can --connected)")
+    p.add_argument("--bridge", type=int, default=0, help="Cho nen xuyen qua net manh hon 2*N px (day den, net chu); thu 2 (can --connected)")
+    p.add_argument("--min-pocket", type=float, default=0.0, help="Tu xoa vung nen kin lon hon X phan tram dien tich anh (can --connected)")
+    p.add_argument("--ai", action="store_true", help="Dung AI de nhan dien khoang nen kin (can --connected, can onnxruntime)")
     a = p.parse_args(argv)
+    kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.ai or a.min_pocket > 0 or a.bridge > 0,
+              close_gaps=a.close_gaps, min_pocket=a.min_pocket, ai=a.ai, bridge=a.bridge)
 
     src = Path(a.input)
     if src.is_dir():
@@ -92,12 +230,12 @@ def main(argv=None):
         out_dir.mkdir(parents=True, exist_ok=True)
         files = sorted(f for f in src.iterdir() if f.suffix.lower() in EXTS)
         for f in files:
-            process(f, out_dir / (f.stem + SUFFIX + ".png"), a.bg, a.tolerance, a.opaque, a.connected)
+            process(f, out_dir / (f.stem + SUFFIX + ".png"), **kw)
             print("OK", f.name)
         print(f"Xong {len(files)} anh -> {out_dir}")
     else:
         dst = Path(a.output) if a.output else src.with_name(src.stem + SUFFIX + ".png")
-        process(src, dst, a.bg, a.tolerance, a.opaque, a.connected)
+        process(src, dst, **kw)
         print("Xong ->", dst)
 
 
