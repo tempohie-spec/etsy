@@ -13,8 +13,10 @@ Bản Windows dựng sẵn: https://github.com/tempohie-spec/etsy/releases/downl
 
 ## Giao diện
 - Kéo thanh trắng để so sánh trước/sau, lăn chuột để zoom, kéo ảnh để di chuyển, bấm đúp để về vừa khung, nút `<` `>` để chuyển giữa các ảnh đã chọn.
-- Khi kéo thanh trượt, ứng dụng vẽ nhanh bằng bản thu nhỏ rồi tính đầy đủ khi dừng tay. Ảnh lưu ra luôn ở độ phân giải gốc.
+- Khi kéo thanh trượt, bản xem nhanh (thu nhỏ) được tính ở luồng nền nên giao diện không bị đơ, rồi tính đầy đủ khi dừng tay. Ảnh lưu ra luôn ở độ phân giải gốc.
 - **Bấm vào một khoảng nền** để đổi giữa xóa và giữ vùng đó (vd khoảng trắng giữa các nhân vật). Các lần bấm cũng được áp dụng khi xử lý cả lô.
+- **Nhiều ảnh:** "Chọn ảnh" thêm ảnh vào danh sách và mở ảnh vừa chọn, không làm mất ảnh đang mở. Mỗi ảnh giữ riêng các vùng đã bấm, cấu hình các thanh trượt và lịch sử hoàn tác; ảnh mới kế thừa cấu hình hiện tại. Chuyển ảnh bằng `<` `>`, bỏ ảnh khỏi danh sách bằng "Đóng ảnh này". "Xử lý cả lô" dùng cấu hình riêng của từng ảnh.
+- **Nhập số:** mỗi thanh trượt có ô số bên cạnh: kéo thanh (tự làm tròn theo bước) hoặc gõ số rồi nhấn Enter, hoặc dùng mũi tên của ô. Số vượt giới hạn tự được đưa về giới hạn, gõ sai thì giữ nguyên giá trị cũ.
 - **Hoàn tác / Làm lại:** `Ctrl+Z` / `Ctrl+Y` (hoặc nút trên thanh công cụ) cho mọi thao tác: chỉnh thanh trượt, đổi tùy chọn, bấm chọn vùng.
 - **Khôi phục ảnh gốc:** xóa toàn bộ vùng đã bấm chọn thủ công của ảnh hiện tại (có hỏi xác nhận, hoàn tác được bằng `Ctrl+Z`).
 - **Cấu hình có tên:** lưu các tùy chọn hiện tại thành một cấu hình, chọn lại bất cứ lúc nào, và đặt một cấu hình làm mặc định để tự áp dụng mỗi khi mở ứng dụng. Lưu tại `~/.bg-remover/settings.json` (Windows: `C:\Users\<tên bạn>\.bg-remover\settings.json`).
