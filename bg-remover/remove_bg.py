@@ -20,6 +20,8 @@ GROW = 2          # px mo rong quanh vung nen de xu ly vien mo anti-alias
 CLOSE = 2         # px khe ho duoc bit khi bat close_gaps
 EDGE_REACH = 3    # px toi da de lay mau vien tu vung dac gan nhat
 CONNECT_MIN = 0.08
+CORNER_LIGHT = 0.35   # pixel khac nen it hon muc nay coi la "sang" khi tim vet trang o goc nhon
+SPECK_AREA = 20       # khoang nen kin nho hon muc nay (px) nam trong khe hep duoc coi la vet sot, khong phai chi tiet
 
 
 @dataclass
@@ -31,6 +33,7 @@ class Options:
     close_gaps: bool = False    # bit khe ho nho trong net ve de nen khong ro vao trong
     smooth: float = 0.0         # px; lam min vien bang quang mem phia ngoai mep (0 = tat)
     bridge: int = 0             # px: nen xuyen qua net manh hon 2*bridge px (day den, net chu); 0 = tat
+    corners: bool = False       # xoa vet trang con sot trong khe hep o goc nhon giua hai net vien
 
 
 def auto_bridge(size):
@@ -151,6 +154,8 @@ class Remover:
             # Chi pixel net ve (nhan 0) moi can tinh lai do trong suot; khoang nen duoc giu nam sat vung bi xoa
             # (cach mot net rat manh) phai giu nguyen, neu khong se thanh lo li ti tren vung trang
             ring = zone & (labels == 0)
+            if o.corners:
+                ring |= self._corner_specks(dist, labels, gone, ring, o)
         else:
             gone = dist <= tol
             ring = ~gone & (dist < opaque)
@@ -171,6 +176,30 @@ class Remover:
         if o.smooth > 0:
             self._feather(out, o.smooth)
         return Image.fromarray(out, "RGBA")
+
+    def _corner_specks(self, dist, labels, gone, ring, o):
+        """Pixel sang nam trong khe hep (goc nhon giua hai net vien) va noi lien voi vung nen da xoa.
+
+        Khe qua hep nen khong duoc tinh la nen, lai nam ngoai dai vien nen con lai vet trang. Chi lay phan
+        hep (bien mat khi mo hinh thai) va noi voi nen da xoa, de khong dung vao phan to sang rong ben trong
+        thiet ke (vi du phan trang cua dai ruy bang, von bi net vien ngan cach voi nen).
+        """
+        r = max(2, round(max(self.h, self.w) / 1000) + 1)
+        light = (dist < CORNER_LIGHT) | gone
+        areas = self._regions_for(o)[1]
+        # Pixel net ve sang, hoac manh nen bi khep lai rat nho; khoang nen kin lon hon (ruot gang tay...) khong dung toi
+        cand = (labels == 0) | (~gone & (areas[labels] <= SPECK_AREA))
+        # Vet sot luon nam sat nen da xoa (o dau khe); chi tiet sang ben trong hinh (diem highlight...) nam xa hon
+        near = ndimage.binary_dilation(gone, iterations=2 * r)
+        thin = light & ~ndimage.binary_opening(light, iterations=r) & cand & ~ring & near
+        if not thin.any():
+            return thin
+        comp, n = ndimage.label(thin, structure=np.ones((3, 3), bool))
+        touch = np.unique(comp[ndimage.binary_dilation(gone | ring) & thin])
+        keep = np.zeros(n + 1, bool)
+        keep[touch] = True
+        keep[0] = False
+        return keep[comp]
 
     @staticmethod
     def _feather(out, sigma):
@@ -239,9 +268,9 @@ _OFFSETS = _offsets(EDGE_REACH)
 
 
 def remove_background(img, bg="auto", tolerance=0.06, opaque=0.8, connected=False,
-                      close_gaps=False, smooth=0.0, bridge=False):
+                      close_gaps=False, smooth=0.0, bridge=False, corners=False):
     """Ham tien dung cho dong lenh: xu ly mot anh, tra ve RGBA."""
-    o = Options(bg, tolerance, opaque, connected, close_gaps, smooth, auto_bridge(img.size) if bridge else 0)
+    o = Options(bg, tolerance, opaque, connected, close_gaps, smooth, auto_bridge(img.size) if bridge else 0, corners)
     return Remover(img).render(o)
 
 
@@ -259,10 +288,11 @@ def main(argv=None):
     p.add_argument("--connected", action="store_true", help="Chi xoa nen noi voi mep anh, giu phan trang/den ben trong thiet ke")
     p.add_argument("--close-gaps", action="store_true", help="Bit khe ho nho trong net ve, tranh nen ro vao trong (can --connected)")
     p.add_argument("--bridge", action="store_true", help="Xuyen net manh: nen xuyen qua day den, net chu (do day tu dong theo kich thuoc anh)")
+    p.add_argument("--corners", action="store_true", help="Xoa vet trang con sot trong khe hep o goc nhon giua hai net vien (can --connected)")
     p.add_argument("--smooth", type=float, default=0.0, help="Lam min vien (px), thu 1 den 2")
     a = p.parse_args(argv)
     kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.bridge,
-              close_gaps=a.close_gaps, smooth=a.smooth, bridge=a.bridge)
+              close_gaps=a.close_gaps, smooth=a.smooth, bridge=a.bridge, corners=a.corners)
 
     src = Path(a.input)
     if src.is_dir():

@@ -44,6 +44,7 @@ Lưu ý: bấm vào nền ngoài (nối với mép ảnh) không đổi được
 | Làm mịn viền (px) | `--smooth N` | Thêm quầng mềm ra phía ngoài mép để mất răng cưa. Không làm nhạt nét mảnh. Nên thử 1, mức 2 bắt đầu nhòe. Ngoài ra có thể giảm Độ nhạy và tăng Độ đặc để viền mềm hơn |
 | Chỉ xóa nền nối với mép ảnh | `--connected` | Giữ phần trắng/đen nằm bên trong thiết kế |
 | Xuyên nét mảnh | `--bridge` | Bật sẵn trong ứng dụng. Nền xuyên qua nét mảnh (dây đèn, nét chữ) để xóa luôn các khoảng nền bị chúng chia cắt, nét mảnh vẫn được giữ. Độ dày tự tính theo kích thước ảnh (khoảng 1 px cho mỗi 1000 px cạnh dài). Tắt đi nếu thiết kế có viền nhân vật mảnh bị xuyên qua làm mất phần trắng bên trong |
+| Xóa vệt trắng ở góc nhọn | `--corners` | Bật sẵn trong ứng dụng. Ở góc nhọn giữa hai nét viền (nơ, nhánh bông tuyết, chỗ nét chữ giao nhau), khe nền quá hẹp nên hay sót vệt trắng. Tùy chọn này làm trong suốt các pixel sáng nằm trong khe hẹp, sát nền đã xóa và nối liền với nó; phần tô sáng rộng bên trong hình và các khoảng nền kín được giữ không bị đụng tới. Nếu vẫn còn vệt nhạt màu (kem, hồng) ở chỗ nhiều nét chụm lại, tăng Độ nhạy lên khoảng 0,10 đến 0,12 |
 | Bịt khe hở nét vẽ | `--close-gaps` | Tránh nền rò vào trong thiết kế qua khe hở 1 đến 2 px trong nét vẽ |
 
 Phần viền luôn được làm sạch quầng trắng/đen ở cạnh (không cần bật).

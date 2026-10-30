@@ -253,6 +253,7 @@ class App(tk.Tk):
         self.connected = tk.BooleanVar(value=True)
         self.close_gaps = tk.BooleanVar(value=False)
         self.bridge_on = tk.BooleanVar(value=True)
+        self.corners_on = tk.BooleanVar(value=True)
         self.smooth = tk.DoubleVar(value=0.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
@@ -276,6 +277,7 @@ class App(tk.Tk):
             ttk.Radiobutton(row2, text=label, value=v, variable=self.bg, command=self.schedule).pack(side="left", padx=4)
         ttk.Checkbutton(row2, text="Chỉ xóa nền nối với mép ảnh", variable=self.connected, command=self.schedule).pack(side="left", padx=(12, 4))
         ttk.Checkbutton(row2, text="Xuyên nét mảnh (dây đèn, nét chữ)", variable=self.bridge_on, command=self.schedule).pack(side="left", padx=4)
+        ttk.Checkbutton(row2, text="Xóa vệt trắng ở góc nhọn", variable=self.corners_on, command=self.schedule).pack(side="left", padx=4)
         ttk.Checkbutton(row2, text="Bịt khe hở nét vẽ", variable=self.close_gaps, command=self.schedule).pack(side="left", padx=4)
 
         row3 = ttk.Frame(self, padding=(8, 6, 8, 0))
@@ -436,20 +438,21 @@ class App(tk.Tk):
     def options_from(d, size=None):
         """Tùy chọn xử lý từ một cấu hình; `size` là kích thước ảnh để tính độ dày xuyên nét mảnh."""
         bridge = auto_bridge(size) if size and d.get("bridge_on", True) else 0
-        return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"], d.get("smooth", 0.0), bridge)
+        return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"], d.get("smooth", 0.0), bridge,
+                       d.get("corners", True))
 
     # --- Cấu hình có tên ---
     def settings(self):
         return {"bg": self.bg.get(), "tolerance": round(self.tol.get(), 4), "opaque": round(self.opq.get(), 4),
                 "connected": self.connected.get(), "close_gaps": self.close_gaps.get(),
-                "bridge_on": self.bridge_on.get(),
+                "bridge_on": self.bridge_on.get(), "corners": self.corners_on.get(),
                 "smooth": round(self.smooth.get(), 3)}
 
     def apply_settings(self, d):
         for key, var, cast in (("bg", self.bg, str), ("tolerance", self.tol, float), ("opaque", self.opq, float),
                                ("connected", self.connected, bool), ("close_gaps", self.close_gaps, bool),
                                ("smooth", self.smooth, float),
-                               ("bridge_on", self.bridge_on, bool)):
+                               ("bridge_on", self.bridge_on, bool), ("corners", self.corners_on, bool)):
             if key in d:
                 try:
                     var.set(cast(d[key]))
