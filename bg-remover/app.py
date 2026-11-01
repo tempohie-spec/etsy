@@ -254,6 +254,7 @@ class App(tk.Tk):
         self.close_gaps = tk.BooleanVar(value=False)
         self.bridge_on = tk.BooleanVar(value=True)
         self.corners_on = tk.BooleanVar(value=True)
+        self.corner_light = tk.DoubleVar(value=0.45)
         self.smooth = tk.DoubleVar(value=0.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
@@ -285,7 +286,7 @@ class App(tk.Tk):
         self.numeric_slider(row3, "Độ nhạy", self.tol, 0, 0.4, 0.01)
         self.numeric_slider(row3, "Độ đặc", self.opq, 0.3, 1.0, 0.01)
         self.numeric_slider(row3, "Làm mịn viền (px)", self.smooth, 0, 2, 0.1)
-        ttk.Label(row3, text="(kéo thanh hoặc gõ số rồi nhấn Enter)", foreground="#666").pack(side="left", padx=12)
+        self.numeric_slider(row3, "Độ nhạy góc nhọn", self.corner_light, 0.2, 0.65, 0.05)
 
         row4 = ttk.Frame(self, padding=(8, 6, 8, 0))
         row4.pack(fill="x")
@@ -439,20 +440,22 @@ class App(tk.Tk):
         """Tùy chọn xử lý từ một cấu hình; `size` là kích thước ảnh để tính độ dày xuyên nét mảnh."""
         bridge = auto_bridge(size) if size and d.get("bridge_on", True) else 0
         return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"], d.get("smooth", 0.0), bridge,
-                       d.get("corners", True))
+                       d.get("corners", True), d.get("corner_light", 0.45))
 
     # --- Cấu hình có tên ---
     def settings(self):
         return {"bg": self.bg.get(), "tolerance": round(self.tol.get(), 4), "opaque": round(self.opq.get(), 4),
                 "connected": self.connected.get(), "close_gaps": self.close_gaps.get(),
                 "bridge_on": self.bridge_on.get(), "corners": self.corners_on.get(),
+                "corner_light": round(self.corner_light.get(), 3),
                 "smooth": round(self.smooth.get(), 3)}
 
     def apply_settings(self, d):
         for key, var, cast in (("bg", self.bg, str), ("tolerance", self.tol, float), ("opaque", self.opq, float),
                                ("connected", self.connected, bool), ("close_gaps", self.close_gaps, bool),
                                ("smooth", self.smooth, float),
-                               ("bridge_on", self.bridge_on, bool), ("corners", self.corners_on, bool)):
+                               ("bridge_on", self.bridge_on, bool), ("corners", self.corners_on, bool),
+                               ("corner_light", self.corner_light, float)):
             if key in d:
                 try:
                     var.set(cast(d[key]))
