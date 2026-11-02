@@ -12,7 +12,8 @@ python remove_bg.py thu_muc/ ra/ --connected --bridge   # cả lô
 Bản Windows dựng sẵn: https://github.com/tempohie-spec/etsy/releases/download/bg-remover-latest/BackgroundRemover.exe
 
 ## Giao diện
-- Kéo thanh trắng để so sánh trước/sau, lăn chuột để zoom, kéo ảnh để di chuyển, bấm đúp để về vừa khung, danh sách ảnh đang mở bên trái: bấm tên ảnh để chọn.
+- **Bố cục:** danh sách ảnh bên trái, ảnh ở giữa, bảng tùy chọn bên phải chia nhóm (Hiển thị, Tách nền, Cấu hình, Học từ lựa chọn của bạn); mỗi tính năng có tên in đậm và mô tả ngắn bên dưới, cuộn bảng bằng con lăn chuột.
+- **Xem ảnh:** lăn chuột để phóng to/thu nhỏ, kéo ảnh để di chuyển, nút **Vừa khung** (hoặc bấm đúp vào ảnh) để về khung ban đầu. **So sánh trước/sau** (mặc định tắt) hiện ảnh gốc bên trái và kết quả bên phải với thanh chia kéo được.
 - Khi kéo thanh trượt, bản xem nhanh (thu nhỏ) được tính ở luồng nền nên giao diện không bị đơ; kết quả đầy đủ cũng tính ở luồng nền khi dừng tay hoặc khi bấm chọn vùng. Ảnh lưu ra luôn ở độ phân giải gốc.
 - **Bấm vào một khoảng nền** để đổi giữa xóa và giữ vùng đó (vd khoảng trắng giữa các nhân vật). Các lần bấm cũng được áp dụng khi xử lý cả lô.
 - **Kéo thả:** thả file ảnh hoặc cả thư mục vào cửa sổ để mở (cần thư viện `tkinterdnd2`, đã có sẵn trong bản `.exe`; thiếu thư viện thì vẫn dùng nút "Chọn ảnh").

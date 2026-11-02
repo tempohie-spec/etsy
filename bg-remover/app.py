@@ -6,6 +6,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import font as tkfont
 
 import numpy as np
 from PIL import Image, ImageTk
@@ -23,6 +24,8 @@ PREVIEW_SIDE = 800   # cạnh dài (px) của bản thu nhỏ dùng để xem nh
 POLL_MS = 15         # chu kỳ kiểm tra kết quả xem nhanh từ luồng nền
 FULL_DELAY = 350     # ms yên lặng trước khi tính lại đầy đủ
 HISTORY_MAX = 100
+PANEL_WIDTH = 340    # bề rộng bảng tùy chọn bên phải
+DESC_WRAP = PANEL_WIDTH - 40
 CACHE_SIZE = 4       # số ảnh vừa mở được giữ sẵn trong bộ nhớ để chuyển lại gần như tức thì
 BATCH_WORKERS = max(1, min(4, (os.cpu_count() or 2) - 1))   # luồng xử lý cả lô, chừa một nhân cho giao diện
 
@@ -86,6 +89,36 @@ class PreviewWorker(threading.Thread):
                 self._result, self._working = out, False
 
 
+class ScrollPanel(ttk.Frame):
+    """Khung cuộn dọc cho bảng tùy chọn; con lăn chuột cuộn khi con trỏ nằm trên bảng."""
+
+    def __init__(self, master, width):
+        super().__init__(master)
+        bg = ttk.Style(self).lookup("TFrame", "background") or None
+        self.canvas = tk.Canvas(self, width=width, highlightthickness=0, bg=bg)
+        bar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.inner = ttk.Frame(self.canvas, padding=(4, 0, 8, 8))
+        win = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self.inner.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(win, width=e.width))
+        self.canvas.configure(yscrollcommand=bar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        bar.pack(side="right", fill="y")
+        # Một bộ xử lý chung: chỉ cuộn khi con trỏ nằm trên bảng (kể cả trên nút, ô chọn bên trong).
+        # Không dùng Enter/Leave vì Tk báo "rời đi" khi con trỏ di vào ô con.
+        self.bind_all("<MouseWheel>", lambda e: self._scroll(e, -1 if e.delta > 0 else 1), add="+")
+        self.bind_all("<Button-4>", lambda e: self._scroll(e, -1), add="+")
+        self.bind_all("<Button-5>", lambda e: self._scroll(e, 1), add="+")
+
+    def _scroll(self, e, units):
+        w = self.winfo_containing(e.x_root, e.y_root)
+        while w is not None:
+            if w is self:
+                self.canvas.yview_scroll(units, "units")
+                return
+            w = w.master
+
+
 class CompareCanvas(tk.Canvas):
     """Xem trước/sau: kéo thanh chia, lăn chuột để zoom, kéo bên ngoài thanh để di chuyển ảnh,
     bấm (không kéo) vào ảnh để gọi on_click(x, y) theo tọa độ ảnh gốc."""
@@ -98,6 +131,7 @@ class CompareCanvas(tk.Canvas):
         self.frac = 0.5
         self.mode = None
         self.bg = None          # None: ô caro, hoặc màu (r, g, b)
+        self.compare = False    # True: hiện ảnh gốc bên trái thanh chia, kết quả bên phải
         self.on_click = None
         self._tk = None
         self._last = self._press = (0, 0)
@@ -147,12 +181,16 @@ class CompareCanvas(tk.Canvas):
         else:
             self.redraw()
 
+    def set_compare(self, on):
+        self.compare = on
+        self.redraw()
+
     def div_x(self):
-        return self.frac * self.size[0]
+        return self.frac * self.size[0] if self.compare else 0   # tắt so sánh: cả khung là kết quả
 
     def press(self, e):
         self._last = self._press = (e.x, e.y)
-        self.mode = "div" if abs(e.x - self.div_x()) <= GRAB else "pan"
+        self.mode = "div" if self.compare and abs(e.x - self.div_x()) <= GRAB else "pan"
         if self.mode == "div":
             self.drag(e)
 
@@ -203,6 +241,8 @@ class CompareCanvas(tk.Canvas):
             self._tk = ImageTk.PhotoImage(img)
         self.delete("all")
         self.create_image(0, 0, image=self._tk, anchor="nw")
+        if not self.compare:
+            return
         x = self.div_x()
         # Viền tối quanh thanh trắng để vẫn thấy rõ khi nền xem trước màu trắng
         self.create_line(x, 0, x, h, fill="#222222", width=4)
@@ -223,7 +263,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Công cụ tách nền ảnh thiết kế")
-        self.geometry("1200x900")
+        self.geometry("1400x900")
         self.files, self.index = [], 0
         self.src = self.remover = self.result = None
         self.fast = None          # Remover của bản thu nhỏ, chỉ luồng xem nhanh được dùng
@@ -260,6 +300,7 @@ class App(tk.Tk):
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
         self.auto_suggest = tk.BooleanVar(value=True)
+        self.compare_on = tk.BooleanVar(value=False)
         self.threshold = tk.DoubleVar(value=self.learner.threshold)
 
         bar = ttk.Frame(self, padding=(8, 8, 8, 0))
@@ -273,52 +314,19 @@ class App(tk.Tk):
         ttk.Button(bar, text="Làm lại (Ctrl+Y)", command=self.redo).pack(side="left", padx=4)
         ttk.Button(bar, text="Khôi phục ảnh gốc", command=self.restore_original).pack(side="left", padx=(12, 0))
 
-        row2 = ttk.Frame(self, padding=(8, 6, 8, 0))
-        row2.pack(fill="x")
-        for label, v in (("Tự động", "auto"), ("Nền trắng", "white"), ("Nền đen", "black")):
-            ttk.Radiobutton(row2, text=label, value=v, variable=self.bg, command=self.schedule).pack(side="left", padx=4)
-        ttk.Checkbutton(row2, text="Chỉ xóa nền nối với mép ảnh", variable=self.connected, command=self.schedule).pack(side="left", padx=(12, 4))
-        ttk.Checkbutton(row2, text="Xuyên nét mảnh (dây đèn, nét chữ)", variable=self.bridge_on, command=self.schedule).pack(side="left", padx=4)
-        ttk.Checkbutton(row2, text="Xóa vệt trắng ở góc nhọn", variable=self.corners_on, command=self.schedule).pack(side="left", padx=4)
-        ttk.Checkbutton(row2, text="Bịt khe hở nét vẽ", variable=self.close_gaps, command=self.schedule).pack(side="left", padx=4)
+        bold = tkfont.nametofont("TkDefaultFont").copy()
+        bold.configure(weight="bold")
+        head = tkfont.nametofont("TkDefaultFont").copy()
+        head.configure(weight="bold", size=head.cget("size") + 2)
+        style = ttk.Style(self)
+        for name in ("Feature.TLabel", "Feature.TCheckbutton", "Feature.TButton", "Feature.TRadiobutton"):
+            style.configure(name, font=bold)
+        style.configure("Section.TLabel", font=head, foreground="#1d4f91")
+        style.configure("Desc.TLabel", foreground="#555555")
 
-        row3 = ttk.Frame(self, padding=(8, 6, 8, 0))
-        row3.pack(fill="x")
-        self.numeric_slider(row3, "Độ nhạy", self.tol, 0, 0.4, 0.01)
-        self.numeric_slider(row3, "Độ đặc", self.opq, 0.3, 1.0, 0.01)
-        self.numeric_slider(row3, "Làm mịn viền (px)", self.smooth, 0, 2, 0.1)
-        self.numeric_slider(row3, "Độ nhạy góc nhọn", self.corner_light, 0.2, 0.65, 0.05)
-
-        row4 = ttk.Frame(self, padding=(8, 6, 8, 0))
-        row4.pack(fill="x")
-        ttk.Label(row4, text="Cấu hình:").pack(side="left")
-        self.profile_box = ttk.Combobox(row4, textvariable=self.profile_var, state="readonly", width=26)
-        self.profile_box.pack(side="left", padx=4)
-        self.profile_box.bind("<<ComboboxSelected>>", self.on_profile_selected)
-        ttk.Button(row4, text="Lưu cấu hình hiện tại...", command=self.save_profile).pack(side="left", padx=2)
-        ttk.Button(row4, text="Đặt làm mặc định", command=self.set_default_profile).pack(side="left", padx=2)
-        ttk.Button(row4, text="Xóa cấu hình", command=self.delete_profile).pack(side="left", padx=2)
-        ttk.Label(row4, text="Nền xem trước:").pack(side="left", padx=(24, 4))
-        box = ttk.Combobox(row4, textvariable=self.view_bg, state="readonly", width=18, values=list(PREVIEW_BGS))
-        box.pack(side="left")
-        box.bind("<<ComboboxSelected>>", lambda e: self.view.set_background(PREVIEW_BGS[self.view_bg.get()]))
-
-        row5 = ttk.Frame(self, padding=(8, 6, 8, 0))
-        row5.pack(fill="x")
-        ttk.Label(row5, text="Học từ lựa chọn của bạn:").pack(side="left")
-        ttk.Button(row5, text="Học từ ảnh này", command=self.learn_now).pack(side="left", padx=4)
-        ttk.Button(row5, text="Đề xuất vùng nền", command=self.suggest_now).pack(side="left", padx=2)
-        ttk.Checkbutton(row5, text="Tự đề xuất khi mở ảnh", variable=self.auto_suggest).pack(side="left", padx=8)
-        self.numeric_slider(row5, "Ngưỡng đề xuất", self.threshold, 0.05, 0.95, 0.05, on_change=self.on_threshold)
-        ttk.Label(row5, text="(thấp: đề xuất nhiều hơn, dễ xóa nhầm hơn)", foreground="#666").pack(side="left", padx=(4, 12))
-        ttk.Button(row5, text="Xóa dữ liệu đã học", command=self.forget).pack(side="left", padx=2)
-        self.learn_label = ttk.Label(self, wraplength=1160, padding=(8, 4, 8, 0))
-        self.learn_label.pack(fill="x")
-        self.update_learn_label()
-
-        main = ttk.Frame(self)
-        main.pack(fill="both", expand=True, padx=8, pady=8)
-        side = ttk.Frame(main)
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, padx=8, pady=8)
+        side = ttk.Frame(body)
         side.pack(side="left", fill="y")
         ttk.Label(side, text="Ảnh đang mở (bấm để chọn):").pack(anchor="w")
         self.listbox = tk.Listbox(side, width=28, exportselection=False, activestyle="none")
@@ -327,13 +335,79 @@ class App(tk.Tk):
         self.listbox.pack(side="left", fill="y")
         scroll.pack(side="left", fill="y")
         self.listbox.bind("<<ListboxSelect>>", self.on_list_select)
-        self.view = CompareCanvas(main)
+        panel = ScrollPanel(body, PANEL_WIDTH)
+        panel.pack(side="right", fill="y", padx=(8, 0))
+        self.view = CompareCanvas(body)
         self.view.on_click = self.on_click
         self.view.pack(side="left", fill="both", expand=True, padx=(8, 0))
+        p = panel.inner
+
+        self.section(p, "Hiển thị")
+        self.check_feature(p, "So sánh trước/sau", self.compare_on,
+                           "Hiện ảnh gốc bên trái, kết quả bên phải; kéo thanh chia để so sánh.",
+                           command=lambda: self.view.set_compare(self.compare_on.get()))
+        ttk.Label(p, text="Nền xem trước", style="Feature.TLabel").pack(anchor="w")
+        box = ttk.Combobox(p, textvariable=self.view_bg, state="readonly", width=24, values=list(PREVIEW_BGS))
+        box.pack(anchor="w", pady=(2, 0))
+        box.bind("<<ComboboxSelected>>", lambda e: self.view.set_background(PREVIEW_BGS[self.view_bg.get()]))
+        self.describe(p, "Màu nền để xem kết quả; ảnh lưu ra vẫn trong suốt.")
+        self.button_feature(p, "Vừa khung", lambda: self.view.reset_view(),
+                            "Trả ảnh về vừa khung sau khi phóng to/thu nhỏ (hoặc bấm đúp vào ảnh).")
+
+        self.section(p, "Tách nền")
+        ttk.Label(p, text="Màu nền ảnh gốc", style="Feature.TLabel").pack(anchor="w")
+        radios = ttk.Frame(p)
+        radios.pack(anchor="w")
+        for label, v in (("Tự động", "auto"), ("Nền trắng", "white"), ("Nền đen", "black")):
+            ttk.Radiobutton(radios, text=label, value=v, variable=self.bg, command=self.schedule).pack(side="left", padx=(0, 8))
+        self.describe(p, "Tự nhận nền trắng hay đen; chọn tay nếu ứng dụng nhận sai.")
+        self.check_feature(p, "Chỉ xóa nền nối với mép ảnh", self.connected,
+                           "Giữ lại phần trắng/đen nằm bên trong thiết kế (găng tay, mắt, viền lông...).")
+        self.check_feature(p, "Xuyên nét mảnh", self.bridge_on,
+                           "Xóa luôn các khoảng nền bị dây đèn, nét chữ chia cắt; độ dày tự tính theo kích thước ảnh.")
+        self.check_feature(p, "Xóa vệt trắng ở góc nhọn", self.corners_on,
+                           "Làm sạch vệt nền còn sót trong khe hẹp giữa hai nét viền.")
+        self.check_feature(p, "Bịt khe hở nét vẽ", self.close_gaps,
+                           "Chặn nền rò vào bên trong qua khe hở nhỏ của nét viền.")
+        self.slider_feature(p, "Độ nhạy", self.tol, 0, 0.4, 0.01,
+                            "Tăng nếu còn vệt nền; quá cao (từ khoảng 0,2) sẽ ăn vào phần trắng bên trong.")
+        self.slider_feature(p, "Độ đặc", self.opq, 0.3, 1.0, 0.01,
+                            "Giảm nếu màu nhạt bị trong suốt; tăng để viền chuyển mềm hơn.")
+        self.slider_feature(p, "Làm mịn viền (px)", self.smooth, 0, 2, 0.1,
+                            "Thêm quầng mềm ở ngoài mép để bớt răng cưa; nên thử 1.")
+        self.slider_feature(p, "Độ nhạy góc nhọn", self.corner_light, 0.2, 0.65, 0.05,
+                            "Cao hơn thì xóa được cả vệt nhạt màu ở góc nhọn; chỉ tác động khe hẹp sát nền.")
+
+        self.section(p, "Cấu hình")
+        ttk.Label(p, text="Cấu hình đã lưu", style="Feature.TLabel").pack(anchor="w")
+        self.profile_box = ttk.Combobox(p, textvariable=self.profile_var, state="readonly", width=30)
+        self.profile_box.pack(anchor="w", pady=(2, 2))
+        self.profile_box.bind("<<ComboboxSelected>>", self.on_profile_selected)
+        self.describe(p, "Chọn để áp dụng một bộ tùy chọn đã lưu cho ảnh đang mở.")
+        self.button_feature(p, "Lưu cấu hình hiện tại...", self.save_profile, "Đặt tên và lưu các tùy chọn đang dùng.")
+        self.button_feature(p, "Đặt làm mặc định", self.set_default_profile,
+                            "Tự áp dụng cấu hình đang chọn mỗi khi mở ứng dụng.")
+        self.button_feature(p, "Xóa cấu hình", self.delete_profile, "Xóa cấu hình đang chọn khỏi danh sách.")
+
+        self.section(p, "Học từ lựa chọn của bạn")
+        self.button_feature(p, "Học từ ảnh này", self.learn_now,
+                            "Lấy các khoảng nền đang xóa/giữ trên ảnh này làm đáp án để ứng dụng học.")
+        self.button_feature(p, "Đề xuất vùng nền", self.suggest_now,
+                            "Tự chọn các khoảng nền kín nên xóa theo những gì đã học.")
+        self.check_feature(p, "Tự đề xuất khi mở ảnh", self.auto_suggest,
+                           "Tự chạy đề xuất cho mỗi ảnh mới mở và khi xử lý cả lô.", command=lambda: None)
+        self.slider_feature(p, "Ngưỡng đề xuất", self.threshold, 0.05, 0.95, 0.05,
+                            "Thấp: đề xuất nhiều vùng hơn nhưng dễ xóa nhầm hơn.", on_change=self.on_threshold)
+        self.button_feature(p, "Xóa dữ liệu đã học", self.forget, "Bỏ toàn bộ dữ liệu đã học để học lại từ đầu.")
+        self.learn_label = ttk.Label(p, style="Desc.TLabel", wraplength=DESC_WRAP, justify="left")
+        self.learn_label.pack(anchor="w", pady=(4, 0))
+        self.update_learn_label()
+
         self.status = ttk.Label(
-            self, padding=(8, 0, 8, 8), wraplength=1160,
-            text="Chọn ảnh hoặc kéo thả ảnh/thư mục vào cửa sổ để bắt đầu (có thể mở nhiều ảnh, mỗi ảnh giữ riêng chỉnh sửa của nó). Kéo thanh trắng để so sánh, "
-                 "lăn chuột để zoom, kéo ảnh để di chuyển, bấm đúp để về vừa khung. Bấm vào một khoảng nền để đổi giữa xóa và giữ vùng đó.",
+            self, padding=(8, 0, 8, 8), wraplength=1360,
+            text="Chọn ảnh hoặc kéo thả ảnh/thư mục vào cửa sổ để bắt đầu (có thể mở nhiều ảnh, mỗi ảnh giữ riêng chỉnh sửa của nó). "
+                 "Lăn chuột để phóng to/thu nhỏ, kéo ảnh để di chuyển, bấm đúp hoặc nút \"Vừa khung\" để về khung ban đầu. "
+                 "Bấm vào một khoảng nền để đổi giữa xóa và giữ vùng đó.",
         )
         self.status.pack(fill="x")
 
@@ -360,7 +434,31 @@ class App(tk.Tk):
         self.full_worker.close()
         super().destroy()
 
-    def numeric_slider(self, parent, text, var, lo, hi, step, integer=False, on_change=None):
+    # --- Dựng các khối tính năng: tên in đậm, mô tả chữ thường bên dưới ---
+    def section(self, parent, title):
+        ttk.Label(parent, text=title, style="Section.TLabel").pack(anchor="w", pady=(12, 2))
+        ttk.Separator(parent).pack(fill="x", pady=(0, 6))
+
+    def describe(self, parent, text, indent=0):
+        ttk.Label(parent, text=text, style="Desc.TLabel", wraplength=DESC_WRAP - indent, justify="left").pack(
+            anchor="w", padx=(indent, 0), pady=(0, 8))
+
+    def check_feature(self, parent, name, var, desc, command=None):
+        ttk.Checkbutton(parent, text=name, variable=var, style="Feature.TCheckbutton",
+                        command=command or self.schedule).pack(anchor="w")
+        self.describe(parent, desc, indent=22)
+
+    def slider_feature(self, parent, name, var, lo, hi, step, desc, **kw):
+        row = ttk.Frame(parent)
+        row.pack(fill="x")
+        self.numeric_slider(row, name, var, lo, hi, step, bold=True, **kw)
+        self.describe(parent, desc)
+
+    def button_feature(self, parent, name, command, desc):
+        ttk.Button(parent, text=name, command=command, style="Feature.TButton").pack(anchor="w")
+        self.describe(parent, desc)
+
+    def numeric_slider(self, parent, text, var, lo, hi, step, integer=False, on_change=None, bold=False):
         """Thanh trượt kèm ô nhập số: kéo thanh (làm tròn theo bước) hoặc gõ số rồi nhấn Enter."""
         decimals = 0 if integer else max(0, -int(np.floor(np.log10(step) + 1e-9)))
         fmt = "{:.%df}" % decimals
@@ -371,7 +469,10 @@ class App(tk.Tk):
             return int(round(v)) if integer else round(v, decimals + 1)
 
         txt = tk.StringVar(value=fmt.format(var.get()))
-        ttk.Label(parent, text=text).pack(side="left", padx=(8, 2))
+        if bold:
+            ttk.Label(parent, text=text, style="Feature.TLabel", width=17).pack(side="left")
+        else:
+            ttk.Label(parent, text=text).pack(side="left", padx=(8, 2))
 
         changed = on_change or self.schedule
 
@@ -482,7 +583,11 @@ class App(tk.Tk):
     def apply_profile(self, name):
         data = dict(self.store.profiles[name])
         bg_name = data.pop("view_bg", None)
+        compare = data.pop("compare", None)
         self.apply_settings(data)
+        if compare is not None:
+            self.compare_on.set(bool(compare))
+            self.view.set_compare(bool(compare))
         if bg_name in PREVIEW_BGS:
             self.view_bg.set(bg_name)
             self.view.set_background(PREVIEW_BGS[bg_name])
@@ -501,7 +606,7 @@ class App(tk.Tk):
             return
         if name in self.store.profiles and not messagebox.askyesno("Ghi đè cấu hình", f"Đã có cấu hình \"{name}\". Ghi đè lên cấu hình này?"):
             return
-        self.store.put(name, dict(self.settings(), view_bg=self.view_bg.get()))
+        self.store.put(name, dict(self.settings(), view_bg=self.view_bg.get(), compare=self.compare_on.get()))
         self.profile = name
         self.refresh_profiles()
         self.status.config(text=f"Đã lưu cấu hình \"{name}\".")
