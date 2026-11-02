@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.51
+// @version      1.52
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.51';
+  const SCRIPT_VERSION = '1.52';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -63,22 +63,8 @@
   };
   const OUTPUT_HEADERS = ['Merchize SKU', 'Trạng thái Merchize', 'Mã đơn Merchize'];
   
-  // Bac gia goc Merchize dang ap dung cho store (tier1 = 0-999 don, tier2 = 1000-2999, tier3 = >3000).
-  const TIER = 'tier1';
-  // Thue nhap khau (Import Duty) tu 26/06/2026: 3.5$ MOI KIEN HANG (moi don) ship tu kho US
-  // cua Merchize toi 50 nuoc/vung lanh tho chau Au duoi day.
-  const THUE_NHAP_KHAU_CHAU_AU = 3.5;
-  const NUOC_THUE_CHAU_AU = new Set(['AL', 'AD', 'AM', 'AT', 'AZ', 'BY', 'BE', 'BA', 'BG', 'HR', 'CY', 'CZ',
-    'DK', 'EE', 'FI', 'FR', 'GE', 'DE', 'GR', 'HU', 'IS', 'IE', 'IT', 'KZ', 'XK', 'LV', 'LI', 'LT', 'LU',
-    'MT', 'MD', 'MC', 'ME', 'NL', 'MK', 'NO', 'PL', 'PT', 'RO', 'SM', 'RS', 'SK', 'SI', 'ES', 'SE', 'CH',
-    'TR', 'UA', 'VA']);
-  // UK (GB) co trong thong bao cua Merchize nhung thuc te khong bi thu (da doi chieu 4 don UK) -> bo ra.
-  // Phu phi in them mat sau (moi san pham co link designBack), tinh theo tung cai.
-  const PHU_PHI_MAT_SAU = 4.5;
-
   // Gui thanh cong: AC ghi ten nha cung cap (Merchize / Teb / ZooTop).
   const STATUS_SENT = 'Merchize';
-  const STATUS_OLD = 'Cũ';
   const STATUS_ERROR_PREFIX = 'Lỗi: ';
 
   // Quy doi loai ao (cot title, viet kieu nao cung duoc: "Comfort-Adult Tee", "Comfort Adult",
@@ -423,12 +409,6 @@
     return [a, b, c].map((x) => str(x).toLowerCase()).join('|');
   }
 
-  function bangTuDuLieu(values) {
-    const H = {};
-    (values[0] || []).forEach((h, i) => { if (str(h)) H[str(h)] = i; });
-    return { H, rows: values.slice(1) };
-  }
-
   // Doc tab "SKU LIST" trong file Teb cua tab (cot title / color / size / SKU, khong phan biet hoa
   // thuong). Tab khong dung Teb thi tra ve bang rong.
   async function docBangPhu(tebTarget) {
@@ -501,76 +481,6 @@
     }
     if (khop.length > 1) return { loi: `màu "${color}" khớp nhiều màu trong catalog ${maSp}` };
     return { loi: `${maSp} không có màu "${color}" size "${size}"` };
-  }
-
-  // ============ UOC TINH BASE COST (gia goc + phi ship) TU CATALOG ============
-  const NUOC_EU = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE',
-    'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
-
-  // Phi ship lay tu file catalog Excel cua Merchize (tab US) - khop voi cost that. KHONG dung
-  // shipping_prices cua API vi API tra ve 0 cho zone US/EU (da doi chieu voi don that).
-  // [first item, additional item] theo zone US / EU / ROW.
-  const PHI_SHIP = {
-    '1717US': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
-    '3001US': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
-    '301YUS': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
-    '3321US': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
-    '9018US': { US: [5.4, 1.99], EU: [10.19, 5], ROW: [10.19, 5] },
-    '1800US': { US: [7.59, 2.99], EU: [14.99, 10], ROW: [14.99, 10] },
-    '1850US': { US: [8, 2.99], EU: [14.99, 10], ROW: [14.99, 10] }
-  };
-
-  // Tra ve dang [zone, country, first, additional] giong 1 dong shipping_prices.
-  function phiShipTheoBang(sku, code) {
-    const bang = PHI_SHIP[str(sku).slice(0, 6)];
-    if (!bang) return null;
-    const zone = code === 'US' ? 'US' : NUOC_EU.has(code) ? 'EU' : 'ROW';
-    return bang[zone] ? [zone, 'bảng', bang[zone][0], bang[zone][1]] : null;
-  }
-
-  // ship: [[to_zone, to_country, first_item, additional_item], ...]. Uu tien dong ghi dung ma
-  // nuoc, roi toi zone trung ma nuoc (vd "CA"), roi EU, cuoi cung ROW.
-  function chonPhiShip(ship, code) {
-    const tatCa = (x) => /^(all|)$/i.test(x[1]);
-    return ship.find((x) => x[1].split(/\s*,\s*/).includes(code)) ||
-      ship.find((x) => (x[0] === code || (code === 'GB' && x[0] === 'UK')) && tatCa(x)) ||
-      (NUOC_EU.has(code) && (ship.find((x) => x[0] === 'EU' && /rest of eu/i.test(x[1])) ||
-        ship.find((x) => x[0] === 'EU' && tatCa(x)))) ||
-      ship.find((x) => x[0] === 'ROW' && tatCa(x)) ||
-      null;
-  }
-
-  // dong: [{ variant, pm, qty }]. Tong = gia goc tung san pham + phi ship: san pham co phi
-  // "first item" cao nhat tinh first item, cac san pham con lai tinh "additional item".
-  // Tra ve { tong, chiTiet } hoac { loi }. chiTiet ghi ro gia goc + dong phi ship da chon
-  // (zone/country) de doi chieu khi so uoc tinh lech cost that.
-  function uocTinhCost(dong, code) {
-    const donVi = [];
-    for (const d of dong) {
-      if (!d.variant) return { loi: 'catalog cũ, bấm "Cập nhật catalog Merchize"' };
-      const gia = d.variant.gia[`${d.pm.toLowerCase()}_${TIER}`] ?? d.variant.gia[TIER];
-      if (typeof gia !== 'number' || isNaN(gia)) return { loi: `không có giá ${TIER} cho ${d.variant.sku}` };
-      const phi = phiShipTheoBang(d.variant.sku, code) || chonPhiShip(d.variant.ship, code);
-      if (!phi) return { loi: `không có phí ship tới ${code} cho ${d.variant.sku}` };
-      const matSau = d.matSau ? PHU_PHI_MAT_SAU : 0;
-      for (let i = 0; i < d.qty; i++) donVi.push({ sku: d.variant.sku, gia, matSau, phi });
-    }
-    if (donVi.length === 0) return { loi: 'đơn trống' };
-    let iMax = 0;
-    donVi.forEach((u, i) => { if (u.phi[2] > donVi[iMax].phi[2]) iMax = i; });
-    let tong = 0;
-    const phan = donVi.map((u, i) => {
-      const ship = i === iMax ? u.phi[2] : u.phi[3];
-      tong += u.gia + u.matSau + ship;
-      return `${u.sku} ${u.gia}${u.matSau ? ` + mặt sau ${u.matSau}` : ''} + ship ${ship} (${u.phi[0]}/${u.phi[1] || 'all'}, ${i === iMax ? 'first' : 'additional'})`;
-    });
-    // Tat ca san pham hien dung deu la hang kho US (ma ...US) nen don toi cac nuoc tren deu chiu thue.
-    if (NUOC_THUE_CHAU_AU.has(code)) {
-      tong += THUE_NHAP_KHAU_CHAU_AU;
-      phan.push(`thuế nhập khẩu ${THUE_NHAP_KHAU_CHAU_AU}`);
-    }
-    tong = Math.round(tong * 100) / 100;
-    return { tong, chiTiet: `${code}: ${phan.join(' | ')} = ${tong}` };
   }
 
   // ============ GOOGLE OAUTH + SHEETS API (giong script Import Cost/Earnings) ============
@@ -782,7 +692,6 @@
   function dungDon(don, catalog, tenTab) {
     const loi = [];
     const skus = [];
-    const dongCost = [];
     if (don.daGuiTruoc) loi.push('đơn này đã có dòng được gửi/đánh dấu trước đó');
 
     const first = don.rows[0].r;
@@ -828,10 +737,6 @@
 
       const qty = parseInt(cell(r, COL.quantity), 10);
       const pm = cell(r, COL.printingMethod).toUpperCase();
-      dongCost.push({
-        variant: tra.variant || null, pm: pm || 'DTF', qty: qty > 0 ? qty : 1,
-        matSau: laLink(cell(r, COL.designFront)) && laLink(cell(r, COL.designBack))
-      });
       const item = {
         name: title,
         merchize_sku: tra.sku || '',
@@ -853,28 +758,8 @@
     return {
       loi,
       skus,
-      ...(() => {
-        if (!country || coLoiSku(loi) || (don.skuTay || []).some(Boolean)) return { cost: '', chiTietCost: '' };
-        const kq = uocTinhCost(dongCost, country);
-        return kq.loi ? { cost: kq.loi, chiTietCost: '' } : { cost: kq.tong, chiTietCost: kq.chiTiet };
-      })(),
       payload: { order_id: don.orderNumber, identifier, shipping_info: shipping, items }
     };
-  }
-
-  function coLoiSku(loi) {
-    return loi.some((x) => /không có màu|không nhận ra loại áo|catalog chưa có|khớp nhiều màu/.test(x));
-  }
-
-  // Ghi Base Cost (cot Y) vao dong DAU cua don, giong cach dang dien tay. USER_ENTERED de la so.
-  async function ghiBaseCost(spreadsheetId, title, list) {
-    const data = list.filter((x) => typeof x.cost === 'number')
-      .map((x) => ({ range: `'${title}'!Y${x.row}`, values: [[x.cost]] }));
-    if (data.length === 0) return;
-    await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
-      method: 'POST',
-      body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data })
-    });
   }
 
   // ============ TEB PRINT (fulfill rieng cho 1 so account) ============
@@ -1086,12 +971,12 @@
 
   // SKU ZooTop cua 1 dong (rong neu khong co). Don ngoai US: bang quoc te truoc, roi cac bang khac,
   // va chi nhan SKU bat dau bang G / C.
-  function zootopSkuDong(r, bangZoo) {
+  function zootopSkuDong(r, bangZoo, r0 = r) {
     const pm = phuongPhapIn(cell(r, COL.printingMethod));
     if (!pm) return '';
     const tenSp = (ZOOTOP_TEN[chuanTen(cell(r, COL.title))] || {})[pm];
     const skuThuong = tenSp ? bangZoo[khoaZooTop(tenSp, pm, cell(r, COL.color), cell(r, COL.size))] || '' : '';
-    if (maQuocGia(cell(r, COL.country)) === 'US') return skuThuong;
+    if (maQuocGia(cell(r0, COL.country)) === 'US') return skuThuong;
     const maLoai = ZOOTOP_QT_MA[chuanTen(cell(r, COL.title))];
     const skuQt = maLoai ? (bangZoo.quocTe || {})[[maLoai, pm, chuanHoaMau(cell(r, COL.color)), chuanHoaSize(cell(r, COL.size))].join('|')] || '' : '';
     if (skuDiNgoaiUs(skuQt)) return skuQt;
@@ -1099,11 +984,11 @@
   }
 
   // Ly do 1 dong khong co SKU ZooTop (de bao loi ro rang).
-  function lyDoKhongCoZooTop(r, bangZoo) {
+  function lyDoKhongCoZooTop(r, bangZoo, r0 = r) {
     const pm = phuongPhapIn(cell(r, COL.printingMethod));
     const moTa = `${cell(r, COL.printingMethod) || '?'} | ${cell(r, COL.title)} | ${cell(r, COL.color)} | ${cell(r, COL.size)}`;
     if (!pm) return `${moTa}: cột A không phải DTG/DTF`;
-    if (maQuocGia(cell(r, COL.country)) !== 'US') return `${moTa} (${cell(r, COL.country)}): không có SKU đi ngoài US (G/C) trong bảng quốc tế hay các bảng khác`;
+    if (maQuocGia(cell(r0, COL.country)) !== 'US') return `${moTa} (${cell(r0, COL.country)}): không có SKU đi ngoài US (G/C) trong bảng quốc tế hay các bảng khác`;
     const tenSp = (ZOOTOP_TEN[chuanTen(cell(r, COL.title))] || {})[pm];
     if (!tenSp) return `${moTa}: title chưa có trong danh sách ZooTop`;
     const cd = bangZoo.chanDoan || { sanPham: {} };
@@ -1113,7 +998,8 @@
 
   // Ca don di ZooTop khi MOI dong deu co SKU ZooTop -> mang SKU theo dong, khong thi null.
   function zootopSkuCuaDon(don, bangZoo) {
-    const skus = don.rows.map(({ r }) => zootopSkuDong(r, bangZoo));
+    const r0 = don.rows[0].r;
+    const skus = don.rows.map(({ r }) => zootopSkuDong(r, bangZoo, r0));
     return skus.every(Boolean) ? skus : null;
   }
 
@@ -1122,19 +1008,20 @@
   const ZOOTOP_COT_DAU = 'D';
   const ZOOTOP_COT_CUOI = 'AA';
   // 1 dong sheet fulfill ZooTop, cot D -> AA (24 o).
-  function dongZooTop(r, sku) {
+  // Nguoi nhan / dia chi lay o dong dau cua don (r0), san pham lay o dong r.
+  function dongZooTop(r, sku, r0 = r) {
     const v = new Array(24).fill('');
     v[0] = cell(r, COL.orderNumber);          // D order_id
     v[2] = ZOOTOP_SHIPPING_TYPE;              // F shipping_type
-    v[3] = cell(r, COL.name);                 // G buyer_first_name
-    v[5] = cell(r, COL.phone);                // I
-    v[6] = cell(r, COL.email);                // J
-    v[7] = cell(r, COL.country);              // K
-    v[8] = cell(r, COL.state);                // L
-    v[9] = cell(r, COL.city);                 // M
-    v[10] = cell(r, COL.address1);            // N
-    v[11] = cell(r, COL.address2);            // O
-    v[12] = cell(r, COL.postalCode);          // P
+    v[3] = cell(r0, COL.name);                // G buyer_first_name
+    v[5] = cell(r0, COL.phone);               // I
+    v[6] = cell(r0, COL.email);               // J
+    v[7] = cell(r0, COL.country);             // K
+    v[8] = cell(r0, COL.state);               // L
+    v[9] = cell(r0, COL.city);                // M
+    v[10] = cell(r0, COL.address1);           // N
+    v[11] = cell(r0, COL.address2);           // O
+    v[12] = cell(r0, COL.postalCode);         // P
     v[13] = cell(r, COL.quantity) || '1';     // Q
     v[14] = sku;                              // R
     v[15] = cell(r, COL.designFront);         // S
@@ -1146,7 +1033,7 @@
   // Ghi NOI TIEP vao sheet fulfill ZooTop (cot D -> AA), dong trong ke tiep theo cot D (order_id).
   async function ghiSheetZooTop(target, dsZoo) {
     const dong = [];
-    dsZoo.forEach((d) => d.rows.forEach(({ r }, i) => dong.push(dongZooTop(r, d.zooSkus[i]))));
+    dsZoo.forEach((d) => d.rows.forEach(({ r }, i) => dong.push(dongZooTop(r, d.zooSkus[i], d.rows[0].r))));
     if (!dong.length) return;
     const cotB = await sheetsApiFetch(
       `${target.spreadsheetId}/values/${encodeURIComponent(`'${target.sheetTitle}'!${ZOOTOP_COT_DAU}:${ZOOTOP_COT_DAU}`)}?majorDimension=COLUMNS`,
@@ -1192,10 +1079,10 @@
         if (loiSku) return { ...d0, skuTay, zooSkus: null, tebSku: '', loiChiDinh: loiSku };
         if (ncc === 'ZooTop') {
           if (!zooTarget) return { ...d0, skuTay, zooSkus: null, tebSku: '', loiChiDinh: 'SKU ZooTop nhưng tab chưa gắn sheet ZooTop' };
-          const zooSkus = d0.rows.map(({ r }, i) => skuTay[i] || zootopSkuDong(r, bangZoo));
+          const zooSkus = d0.rows.map(({ r }, i) => skuTay[i] || zootopSkuDong(r, bangZoo, d0.rows[0].r));
           if (zooSkus.every(Boolean)) return { ...d0, zooSkus, tebSku: '' };
           return { ...d0, skuTay, zooSkus: null, tebSku: '', loiChiDinh: 'đơn đi ZooTop theo SKU tự điền nhưng có dòng chưa có SKU: ' +
-            d0.rows.filter((x, i) => !zooSkus[i]).map(({ r }) => lyDoKhongCoZooTop(r, bangZoo)).join('; ') };
+            d0.rows.filter((x, i) => !zooSkus[i]).map(({ r }) => lyDoKhongCoZooTop(r, bangZoo, d0.rows[0].r)).join('; ') };
         }
         if (ncc === 'Teb') {
           const tebSku = DUNG_TEB && d0.rows.length === 1 ? skuTay[0] : '';
@@ -1209,8 +1096,8 @@
       if (d.chiDinh === 'ZooTop') {
         const zooSkus = bangZoo ? zootopSkuCuaDon(d, bangZoo) : null;
         const loiChiDinh = zooSkus ? '' : !zooTarget ? 'chỉ định @ZooTop nhưng tab chưa gắn sheet ZooTop'
-          : 'chỉ định @ZooTop nhưng không có SKU ZooTop: ' + d.rows.filter(({ r }) => !zootopSkuDong(r, bangZoo))
-            .map(({ r }) => lyDoKhongCoZooTop(r, bangZoo)).join('; ');
+          : 'chỉ định @ZooTop nhưng không có SKU ZooTop: ' + d.rows.filter(({ r }) => !zootopSkuDong(r, bangZoo, d.rows[0].r))
+            .map(({ r }) => lyDoKhongCoZooTop(r, bangZoo, d.rows[0].r)).join('; ');
         return { ...d, zooSkus, tebSku: '', loiChiDinh };
       }
       if (d.chiDinh === 'Teb') {
@@ -1237,8 +1124,8 @@
       dongTebBaoCao.unshift(`${dsZoo.length} đơn đi ZooTop` + (dsZoo.length ? `: ${dsZoo.map((d) => d.orderNumber).join(', ')}` : '.'));
       // Don co dong khong tim thay SKU ZooTop (de doi chieu voi file SKU ZooTop).
       const thieuZoo = tatCa.filter((d) => !d.zooSkus && !d.chiDinh && !d.loiChiDinh).slice(0, 10).map((d) => {
-        const r = (d.rows.find(({ r: x }) => !zootopSkuDong(x, bangZoo)) || d.rows[0]).r;
-        return `• ${d.orderNumber}: ${lyDoKhongCoZooTop(r, bangZoo)}`;
+        const r = (d.rows.find(({ r: x }) => !zootopSkuDong(x, bangZoo, d.rows[0].r)) || d.rows[0]).r;
+        return `• ${d.orderNumber}: ${lyDoKhongCoZooTop(r, bangZoo, d.rows[0].r)}`;
       });
       if (thieuZoo.length) dongTebBaoCao.splice(1, 0, `Không có SKU ZooTop (đi ${DUNG_TEB ? 'Teb / ' : ''}Merchize):`, ...thieuZoo);
       const soSku = (bangZoo.chanDoan || {}).soSku || {};
@@ -1724,12 +1611,13 @@
       storeInfo.style.color = st ? '#2e7d32' : '#c62828';
       storeBox.style.display = !st || moSuaStore ? 'block' : 'none';
       boStoreBtn.style.display = st ? 'block' : 'none';
-      tebInfo.textContent = teb ? `✅ Sheet Teb: ${teb.fileTitle || teb.sheetTitle}`
+      tebInfo.textContent = !DUNG_TEB ? `Teb đang tạm tắt${teb ? ` (sheet: ${teb.fileTitle || teb.sheetTitle})` : ''}`
+        : teb ? `✅ Sheet Teb: ${teb.fileTitle || teb.sheetTitle}`
         : canTeb ? '❌ Chưa chọn sheet Teb' : 'Tab này chưa dùng Teb, mọi đơn gửi Merchize (bấm để chọn sheet Teb)';
-      tebInfo.style.color = teb ? '#2e7d32' : canTeb ? '#c62828' : '#777';
+      tebInfo.style.color = !DUNG_TEB ? '#777' : teb ? '#2e7d32' : canTeb ? '#c62828' : '#777';
       tebInfo.style.display = 'block';
       // Tab chua dung Teb: o link Teb hien cung o sua store (de them Teb khi can).
-      tebBox.style.display = (canTeb && !teb) || moSuaTeb || !st || moSuaStore ? 'block' : 'none';
+      tebBox.style.display = (DUNG_TEB && canTeb && !teb) || moSuaTeb ? 'block' : 'none';
       tebInput.placeholder = teb
         ? `Đang dùng: ${teb.fileTitle || teb.sheetTitle} / ${teb.sheetTitle} (dán link mới để đổi, để trống rồi bấm Lưu để bỏ)`
         : 'Link sheet Teb (mở đúng tab rồi copy link) nếu tab này dùng Teb';
