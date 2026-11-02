@@ -819,6 +819,15 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Nút ⬇ tải ảnh đang xem ở góc ảnh chính (v9.60)
+
+Trên trang `/listing/...`, góc trên-trái của ảnh chính có nút **⬇**. Bấm vào là tải **ảnh đang hiển thị** (bản full size `il_fullxfull`), tên file = **tiêu đề sản phẩm** (đã bỏ ký tự cấm như `/ : * ? " < > |`, tối đa 100 ký tự).
+
+- Ảnh chính được tìm theo hình học (ảnh lớn nhất nằm trong khung carousel, không tính dải thumbnail) nên vẫn đúng khi bấm mũi tên hoặc chọn thumbnail khác; ảnh được xác định lúc **bấm** nút.
+- Nếu đang hiện video thì nút ẩn / báo không có ảnh chính.
+- Dùng lại cơ chế tải sẵn có (blob → GM_download, có dự phòng), nên không cần cấp thêm quyền.
+- Tải nhiều ảnh cùng 1 listing sẽ trùng tên: trình duyệt tự thêm `(1)`, `(2)`... vào cuối.
+
 ### Nhãn hiện nhanh hơn: đồng bộ Sheet 10s, ngay khi mở trang/quay lại tab, gửi ngay khi Publish (v9.59)
 
 Nguyên nhân nhãn chậm dù Sheet đã có dữ liệu: chu kỳ đọc Sheet 60s, trang mới chờ ~2s mới đọc, khoá đồng bộ 20s bị kẹt khi chuyển trang giữa lúc đang đồng bộ, lệnh gửi khi Publish bị hoãn 1,5s (và mất nếu chuyển trang), và vẽ lại nhãn trễ 500ms.

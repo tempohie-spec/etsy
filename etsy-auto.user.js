@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.59
+// @version      9.60
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.59';
+  const PHIEN_BAN = '9.60';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -6522,6 +6522,102 @@ function doGet(e) {
     };
   }
 
+  // ================== NUT TAI ANH DANG XEM (goc tren-trai anh chinh, trang /listing/) ==================
+  // v9.60: bam nut la tai ANH DANG HIEN o khung chinh (full size), ten file = tieu de san pham.
+  // Anh chinh duoc tim theo HINH HOC (anh to nhat dang nam trong vung khung carousel, khong tinh
+  // dai thumbnail) nen chay dung du Etsy doi cau truc the, va luon lay dung anh dang hien sau khi
+  // bam mui ten / chon thumbnail (anh duoc xac dinh luc BAM, khong phai luc dung nut).
+  const ID_NUT_TAI_ANH_HIEN_TAI = 'ea-btn-tai-anh-hien-tai';
+
+  // Hinh chu nhat cua anh sau khi bi cat boi cac khung cha co overflow an/cuon (khung carousel)
+  function hinhNhatSauKhiCat(img) {
+    const r0 = img.getBoundingClientRect();
+    let [t, l, b, rr] = [r0.top, r0.left, r0.bottom, r0.right];
+    let el = img.parentElement;
+    for (let i = 0; el && el !== document.body && i < 10; i++, el = el.parentElement) {
+      const cs = getComputedStyle(el);
+      if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+      const r = el.getBoundingClientRect();
+      t = Math.max(t, r.top); l = Math.max(l, r.left); b = Math.min(b, r.bottom); rr = Math.min(rr, r.right);
+    }
+    return { top: t, left: l, width: Math.max(0, rr - l), height: Math.max(0, b - t) };
+  }
+
+  function timAnhChinhListing() {
+    const thumb = timKhoiCarousel();
+    let tot = null;
+    let diemTot = 0;
+    for (const img of document.querySelectorAll('img')) {
+      if (thumb && thumb.contains(img)) continue;
+      const src = img.currentSrc || img.src || '';
+      if (!/etsystatic\.com/.test(src)) continue;
+      const r0 = img.getBoundingClientRect();
+      if (r0.width < 300 || r0.height < 300) continue;
+      if (r0.top + window.scrollY > 1400) continue; // anh chinh nam o dau trang, bo qua anh goi y phia duoi
+      const v = hinhNhatSauKhiCat(img);
+      const diem = v.width * v.height;
+      if (diem > diemTot) { diemTot = diem; tot = { img, v }; }
+    }
+    return diemTot >= 300 * 300 ? tot : null;
+  }
+
+  function urlAnhFullSize(url) {
+    return url.replace(/il_(?:\d+x(?:\d+|N)|fullxfull)(\.)/, 'il_fullxfull$1');
+  }
+
+  let dangTaiAnhHienTai = false;
+  async function taiAnhDangXem() {
+    if (dangTaiAnhHienTai) return;
+    const kq = timAnhChinhListing();
+    if (!kq) { hienThongBao('⚠️ Không tìm thấy ảnh chính (có thể đang hiện video).', '#F59E0B'); return; }
+    const nut = document.getElementById(ID_NUT_TAI_ANH_HIEN_TAI);
+    const url = urlAnhFullSize(kq.img.currentSrc || kq.img.src);
+    const tenFile = `${lamSachTenFile(layTieuDe() || 'etsy-image')}.${laySoDuoiFile(url)}`;
+    dangTaiAnhHienTai = true;
+    if (nut) nut.textContent = '⏳';
+    try {
+      const cach = await luuAnhXuongMay(url, tenFile);
+      console.log(`[Etsy Auto] Đã lưu ảnh đang xem (${cach}):`, tenFile, url);
+      hienThongBao('✅ Đã tải ảnh: ' + tenFile, '#16A34A');
+    } catch (loi) {
+      console.error('[Etsy Auto] Lỗi tải ảnh đang xem:', url, loi);
+      hienThongBao('❌ Không tải được ảnh. Xem Console (F12).', '#DC2626');
+    } finally {
+      dangTaiAnhHienTai = false;
+      if (nut) nut.textContent = '⬇';
+    }
+  }
+
+  function capNhatNutTaiAnhHienTai() {
+    let nut = document.getElementById(ID_NUT_TAI_ANH_HIEN_TAI);
+    const kq = layListingId() ? timAnhChinhListing() : null;
+    if (!kq) { if (nut) nut.style.display = 'none'; return; }
+    if (!nut) {
+      nut = document.createElement('button');
+      nut.id = ID_NUT_TAI_ANH_HIEN_TAI;
+      nut.type = 'button';
+      nut.textContent = '⬇';
+      nut.title = 'Tải ảnh đang xem (full size) — tên file = tiêu đề sản phẩm';
+      nut.style.cssText = `
+        position:absolute; z-index:99998; width:40px; height:36px; padding:0; cursor:pointer;
+        background:rgba(255,255,255,.92); color:#222; border:1px solid rgba(0,0,0,.25);
+        border-radius:8px; font-size:20px; line-height:34px; text-align:center;
+        box-shadow:0 1px 4px rgba(0,0,0,.35);
+      `;
+      nut.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); taiAnhDangXem(); });
+      document.body.appendChild(nut);
+    }
+    nut.style.display = 'block';
+    nut.style.left = Math.round(kq.v.left + window.scrollX + 10) + 'px';
+    nut.style.top = Math.round(kq.v.top + window.scrollY + 10) + 'px';
+  }
+
+  function khoiDongNutTaiAnhHienTai() {
+    capNhatNutTaiAnhHienTai();
+    HEN_GIO.setInterval(capNhatNutTaiAnhHienTai, 500);
+    window.addEventListener('resize', capNhatNutTaiAnhHienTai);
+  }
+
   // Chi kich hoat giao dien + tinh nang tren dung 3 dang trang lam viec, khong hien tool o
   // nhung trang khong lien quan (trang chu, gio hang, tin nhan, tai khoan...):
   //   - /search                        trang tim kiem / luoi san pham
@@ -6551,6 +6647,8 @@ function doGet(e) {
     if (layListingId() && dangBatTuHien()) {
       hienThongKeListing({ imLangKhiLoi: true });
     }
+
+    khoiDongNutTaiAnhHienTai();
 
     // Gan the mini vao luoi san pham tren MOI trang, va theo doi de gan tiep khi trang nap them the
     ganThongKeVaoLuoi();
