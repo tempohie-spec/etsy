@@ -506,7 +506,7 @@ function tomTatApiTracking(goiHang) {
 
 // Tra ve { tracking, cost }: co ghi tracking moi / cost moi hay khong (de bao cao).
 // API tra theo ma don (external_number) nen tin ket qua; ma RX/tracking chi ghi o dong dau.
-function apDungKetQuaApi(tab, dong, kq, boGhi, costCu) {
+function apDungKetQuaApi(tab, dong, kq, boGhi, costCu, boQua) {
   const kqGhi = { tracking: false, cost: false };
   if (!kq.coGoi) return kqGhi;
   dong.forEach(({ rowNumber, row }, i) => {
@@ -522,7 +522,7 @@ function apDungKetQuaApi(tab, dong, kq, boGhi, costCu) {
     }
   });
   kqGhi.tracking = kq.tracking.length > 0;
-  kqGhi.cost = datCostApi(tab, dong, kq, boGhi, costCu);
+  kqGhi.cost = datCostApi(tab, dong, kq, boGhi, costCu, boQua);
   return kqGhi;
 }
 
@@ -538,9 +538,11 @@ function docSoTien(v) {
 // Cost Merchize tu API vao Y (dong dau). costCu = { ma don: cost API lan truoc } (KV "apicost:<tab>").
 // O Y trong -> dien. O Y da co so -> chi ghi de khi cost API THAY DOI so voi lan truoc (Merchize cap nhat
 // cost sau), de khong de len so thuc tru tu webhook hay so sua tay khi Merchize khong doi gi.
-function datCostApi(tab, dong, kq, boGhi, costCu) {
+function datCostApi(tab, dong, kq, boGhi, costCu, boQua) {
   if (!kq.coGoi) return false;
   const r0 = dong[0].row;
+  // Da co cost that (ffm_cost.total tu search/v3) -> khong dung cost tinh tu API tracking.
+  if (boQua && boQua.has(cell(r0, COL.orderNumber))) return false;
   let cost = kq.cost;
   if (NUOC_THUE_CHAU_AU.has(maQuocGia(cell(r0, COL.country)))) cost += THUE_NHAP_KHAU_CHAU_AU;
   cost = Math.round(cost * 100) / 100;
@@ -920,15 +922,30 @@ async function chayLich(env, event) {
     giuCost[tab] = new Set(ds.concat(dsCost).map(([ma]) => ma));
     tatCaCanTra.push(...ds.map(([ma, dong]) => ({ tab, ma, r0: dong[0].row })));
     const laRx = (v) => /^[A-Z]{2}-\d+-\d+$/.test(v);
-    // Don chua co ma RX (AD trong): 1 request search/v3 lay 100 don moi nhat cua store -> ma RX theo ma
-    // don Etsy, ghi luon vao AD de tra tracking theo lo 50 don thay vi tra tung don.
-    if (ds.some(([, dong]) => !laRx(cell(dong[0].row, COL.merchizeId))) && dem.n < GIOI_HAN_REQUEST - 10) {
+    // 1 request search/v3 lay 100 don moi nhat cua store (khi tab co don Merchize trong 10 ngay):
+    // - ma RX theo ma don Etsy -> ghi AD cho don chua co, de tra tracking theo lo 50 don;
+    // - ffm_cost.total = tong Merchize tru that (gom ca phu phi nhu usps_peak_surcharge) -> Base Cost.
+    const coFfm = new Set();
+    if ((ds.length || dsCost.length) && dem.n < GIOI_HAN_REQUEST - 10) {
       try {
         const kq = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_DON_MOI);
         const rxTheoMa = {};
+        const ffmTheoMa = {};
         ((kq && kq.orders) || []).forEach((o) => {
           const ma = str(o.external_order_number || (o.external_order_id || {}).id);
           if (ma && laRx(str(o.code))) rxTheoMa[ma] = str(o.code);
+          const tong = docSoTien((o.ffm_cost || {}).total);
+          if (ma && o.has_fulfillment_cost !== false && tong !== null && tong > 0) ffmTheoMa[ma] = tong;
+        });
+        // Cost that: ghi Y khi khac (don trong 10 ngay, ca don da co tracking).
+        ds.concat(dsCost).forEach(([ma, dong]) => {
+          if (ffmTheoMa[ma] === undefined) return;
+          coFfm.add(ma);
+          const r0 = dong[0].row;
+          if (docSoTien(cell(r0, COL.baseCost)) === ffmTheoMa[ma]) return;
+          boGhi.dat(tab, dong[0].rowNumber, COL.baseCost, ffmTheoMa[ma], true);
+          r0[COL.baseCost] = String(ffmTheoMa[ma]);
+          thongKe.cost.push({ tab, ma });
         });
         ds.forEach(([ma, dong]) => {
           const r0 = dong[0].row;
@@ -949,13 +966,14 @@ async function chayLich(env, event) {
         phan.forEach(([, dong]) => {
           const rx = cell(dong[0].row, COL.merchizeId);
           const cua = goiHang.filter((g) => str(g.name).replace(/-F\d+$/i, '') === rx);
-          ghiNhan(tab, cell(dong[0].row, COL.orderNumber), apDungKetQuaApi(tab, dong, tomTatApiTracking(cua), boGhi, costApi[tab]));
+          ghiNhan(tab, cell(dong[0].row, COL.orderNumber), apDungKetQuaApi(tab, dong, tomTatApiTracking(cua), boGhi, costApi[tab], coFfm));
         });
       } catch (e) { /* loi tam thoi, lan sau tra lai */ }
     }
     // Don da co tracking trong 10 ngay: tra lai theo lo (50 don/request) chi de bat cost Merchize cap nhat sau.
-    for (let i = 0; i < dsCost.length && dem.n < GIOI_HAN_REQUEST - 10; i += 50) {
-      const phan = dsCost.slice(i, i + 50);
+    const dsCostCon = dsCost.filter(([ma]) => !coFfm.has(ma));
+    for (let i = 0; i < dsCostCon.length && dem.n < GIOI_HAN_REQUEST - 10; i += 50) {
+      const phan = dsCostCon.slice(i, i + 50);
       try {
         const goiHang = await merchizeFetch(dem, store, 'POST', '/order/external/orders/list-orders-tracking', {
           orders: phan.map(([, dong]) => ({ code: cell(dong[0].row, COL.merchizeId), external_number: '', identifier: '' }))
@@ -971,7 +989,7 @@ async function chayLich(env, event) {
     chuaRx.forEach(([ma, dong]) => {
       const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
       if (ngay && ngay >= homNayVN()) return;
-      donLe.push({ tab, store, ma, dong, ngay: ngay ? ngay.getTime() : 0 });
+      donLe.push({ tab, store, ma, dong, ngay: ngay ? ngay.getTime() : 0, coFfm });
     });
   }
   // Chua lai request cho: ghi Sheet (2), Telegram (1), so du moi store (1/store).
@@ -997,13 +1015,13 @@ async function chayLich(env, event) {
     let hanMuc = conLai;
     const layHanMuc = () => (hanMuc > 0 ? (hanMuc--, true) : false);
     let daXet = 0;
-    const traMotDon = async ({ tab, store, ma, dong }) => {
+    const traMotDon = async ({ tab, store, ma, dong, coFfm }) => {
       if (!layHanMuc()) return;
       daXet++;
       try {
         const url = (m) => '/order/external/orders/tracking?external_number=' + encodeURIComponent(m);
         const goiHang = await merchizeFetch(dem, store, 'GET', url(ma));
-        ghiNhan(tab, ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi, costApi[tab]));
+        ghiNhan(tab, ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi, costApi[tab], coFfm));
       } catch (e) { /* bo qua, lan sau tra lai */ }
     };
     // Goi song song 6 don/lan (gioi han ket noi dong thoi cua Cloudflare) cho nhanh.

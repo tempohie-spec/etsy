@@ -1548,7 +1548,9 @@ Khớp đơn theo đúng mã đơn Etsy trong cột C (đơn gửi lại có h�
 cũng phải ghi `4181764944a`). API tracking không trả về tên khách hàng nên không đối chiếu theo
 tên. **Mã đơn Merchize (AD), Tracking (AE), Hãng vận chuyển (AF), Ticket (AG) chỉ ghi ở dòng đầu**
 của đơn nhiều dòng (dòng sau nếu còn giá trị cũ sẽ bị xoá); AC ghi cho mọi dòng của đơn.
-Cost từ API: ô Y trống thì điền. Đơn Merchize trong 10 ngày đã có tracking vẫn được tra lại theo lô (50 đơn/request)
+Cost Merchize ưu tiên **`ffm_cost.total`** của đơn (API search/v3, 1 request/store lấy 100 đơn mới nhất): đây là tổng
+Merchize trừ thật, gồm cả phụ phí như `usps_peak_surcharge`. Đơn trong 10 ngày có số này thì ô Y được ghi đè khi khác
+(cả đơn đã có tracking). Đơn không có trong 100 đơn đó thì dùng cách cũ: cost từ API: ô Y trống thì điền. Đơn Merchize trong 10 ngày đã có tracking vẫn được tra lại theo lô (50 đơn/request)
 để bắt cost Merchize cập nhật sau: Worker nhớ cost API lần trước của từng đơn (KV `apicost:<tab>`) và chỉ ghi đè ô Y
 khi cost API thay đổi, nên số thực trừ từ webhook hoặc số sửa tay được giữ nếu Merchize không đổi gì.
 
