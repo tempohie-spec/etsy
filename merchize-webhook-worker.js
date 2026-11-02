@@ -367,7 +367,8 @@ function noiDungTuSuKien(ev) {
     // Co tracking: chi dien AE/AF, khong doi trang thai (AC giu ten nha cung cap).
     co.tracking = str(r.tracking_number);
     co.carrier = str(r.tracking_company);
-  } else if (loai === 'ORDER.PAYMENT.FULFILLMENT_COST') {
+  } else if (loai.startsWith('ORDER.PAYMENT.FULFILLMENT_COST')) {
+    // Ca "fulfillment cost" va "fulfillment cost paid": price = so tien Merchize tru.
     const gia = Number(r.price);
     if (!isNaN(gia) && str(r.price) !== '') co.cost = gia;
   } else if (loai === 'ORDER.REQUEST.DONE') {
@@ -480,6 +481,8 @@ async function nhanWebhook(request, env, ctx) {
   }
   // Tra 200 ngay de Merchize khong gui lai, phan ghi Sheet chay nen.
   ctx.waitUntil(xuLyNgay(env, ev));
+  // Luu mau payload moi loai su kien (7 ngay) de /debug xem cau truc.
+  ctx.waitUntil(env.EVENTS.put('mau:' + loaiSuKien(ev), JSON.stringify(ev).slice(0, 6000), { expirationTtl: 7 * 86400 }).catch(() => {}));
   return json({ ok: true });
 }
 
@@ -1204,6 +1207,52 @@ async function xuLyConfig(request, env) {
   return json(ketQua);
 }
 
+// Lay cac truong lien quan tien (so, hoac ten co fee/cost/price/total...) tu 1 object, bo thong tin khach.
+function chonTruongTien(obj) {
+  const kq = {};
+  const di = (o, duong) => {
+    if (Object.keys(kq).length >= 200 || o === null || o === undefined) return;
+    if (Array.isArray(o)) { o.slice(0, 10).forEach((x, i) => di(x, `${duong}[${i}]`)); return; }
+    if (typeof o === 'object') { Object.keys(o).forEach((k) => di(o[k], duong ? `${duong}.${k}` : k)); return; }
+    if (/name|phone|email|address|city|state|zip|post|country|image|design|mockup|url|link|note/i.test(duong)) return;
+    const laSo = typeof o === 'number' || (/^-?\d+(\.\d+)?$/.test(String(o)) && String(o).length < 12);
+    if (laSo || /fee|cost|price|total|amount|tax|discount|ship|surcharge|charge|paid|payment/i.test(duong)) kq[duong] = o;
+  };
+  di(obj, '');
+  return kq;
+}
+
+// GET /debug?key=...&ma=<ma don Etsy>: cac truong tien cua don tu API tracking va search/v3, va mau
+// webhook fulfillment cost gan nhat. Dung de doi chieu cost (vd lech phi so voi Merchize).
+async function xuLyDebug(env, url) {
+  const dem = taoBoDem();
+  const ma = str(url.searchParams.get('ma'));
+  const stores = docCauHinhStores(env);
+  const kq = { ma };
+  for (const tab of Object.keys(stores)) {
+    const store = stores[tab];
+    if (!ma || !store || !store.baseUrl || !store.token) continue;
+    try {
+      const goiHang = await merchizeFetch(dem, store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma));
+      if (!goiHang.length) continue;
+      kq.tab = tab;
+      kq.apiTracking = chonTruongTien(goiHang);
+      kq.costWorkerTinh = tomTatApiTracking(goiHang).cost;
+      const tim = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_DON_MOI.replace('external_number=', 'external_number=' + encodeURIComponent(ma)));
+      const o = ((tim && tim.orders) || []).find((x) => str(x.external_order_number || (x.external_order_id || {}).id) === ma);
+      kq.searchV3 = o ? chonTruongTien(o) : 'không tìm thấy';
+      break;
+    } catch (e) { kq['loi_' + tab] = e.message.slice(0, 200); }
+  }
+  for (const loai of ['ORDER.PAYMENT.FULFILLMENT_COST', 'ORDER.PAYMENT.FULFILLMENT_COST_PAID']) {
+    const mau = await env.EVENTS.get('mau:' + loai);
+    if (mau) { try { kq['webhook_' + loai] = chonTruongTien(JSON.parse(mau)); } catch (e) { /* bo qua */ } }
+  }
+  const cacLoai = (await env.EVENTS.list({ prefix: 'mau:' })).keys.map((k) => k.name.slice(4));
+  kq.cacLoaiWebhookDaNhan = cacLoai;
+  return json(kq);
+}
+
 function dungKey(env, url) {
   return str(env.SECRET_KEYS).split(',').map(str).filter(Boolean).includes(url.searchParams.get('key') || '');
 }
@@ -1324,6 +1373,10 @@ export default {
       return json({ ok: true, telegram: await res.json().catch(() => null) });
     }
     // Chay lich ngay lap tuc: /run?key=<1 trong cac SECRET_KEYS>
+    if (request.method === 'GET' && url.pathname === '/debug') {
+      if (!dungKey(env, url)) return json({ ok: false, error: 'invalid key' }, 401);
+      try { return await xuLyDebug(env, url); } catch (e) { return json({ ok: false, error: e.message }, 500); }
+    }
     if (request.method === 'GET' && url.pathname === '/run') {
       const cacKey = str(env.SECRET_KEYS).split(',').map(str).filter(Boolean);
       if (!cacKey.includes(url.searchParams.get('key') || '')) return json({ ok: false, error: 'invalid key' }, 401);

@@ -1418,6 +1418,9 @@ dòng đó để script tra lại.
   có thì đơn đi Merchize.
 - Worker: tracking không có tên hãng thì đoán theo đầu mã: `92...` / `94...` / `42...` = USPS, `20...` / `GM...` = DHL (cho mọi nguồn).
 - Tracking từ sheet ZooTop / Teb chỉ lấy mã thật (8+ ký tự chữ/số, ít nhất 6 chữ số); chữ ghi chú như `NGOÀI US`, `Priority` bị bỏ qua.
+- `GET /debug?key=<SECRET_KEY>&ma=<mã đơn Etsy>`: các trường tiền của đơn từ API tracking và search/v3 của Merchize, cost Worker
+  đang tính, mẫu webhook fulfillment cost gần nhất (không kèm thông tin khách). Dùng khi cost lệch với Merchize.
+- Webhook `Order payment fulfillment cost` và `... cost paid` đều ghi `price` vào Base Cost (Y).
 - Telegram: gõ `/update` để cập nhật ngay (giống mở `/run?key=`), kết quả là tin tóm tắt như mỗi lần chạy; `/help` xem lệnh.
 
 ## ZooTop (v1.43)
