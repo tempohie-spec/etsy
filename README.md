@@ -1545,7 +1545,9 @@ Khớp đơn theo đúng mã đơn Etsy trong cột C (đơn gửi lại có h�
 cũng phải ghi `4181764944a`). API tracking không trả về tên khách hàng nên không đối chiếu theo
 tên. **Mã đơn Merchize (AD), Tracking (AE), Hãng vận chuyển (AF), Ticket (AG) chỉ ghi ở dòng đầu**
 của đơn nhiều dòng (dòng sau nếu còn giá trị cũ sẽ bị xoá); AC ghi cho mọi dòng của đơn.
-Cost từ API không ghi đè ô Y đã có số, vì thuế châu Âu không phải đơn nào cũng bị thu (vd đơn UK không bị thu).
+Cost từ API: ô Y trống thì điền. Đơn Merchize trong 10 ngày đã có tracking vẫn được tra lại theo lô (50 đơn/request)
+để bắt cost Merchize cập nhật sau: Worker nhớ cost API lần trước của từng đơn (KV `apicost:<tab>`) và chỉ ghi đè ô Y
+khi cost API thay đổi, nên số thực trừ từ webhook hoặc số sửa tay được giữ nếu Merchize không đổi gì.
 
 **Đơn cần xử lý (Request update, chỉ đơn tạo trong 10 ngày gần nhất):** mỗi lần chạy, với từng store Worker gọi
 `GET <baseUrl>/order/orders/statistic-issues` (API nội bộ trang Orders). Có đơn `issue_request_update`
