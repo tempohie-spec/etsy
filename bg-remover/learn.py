@@ -106,10 +106,11 @@ def representative_point(labels, label, objs=None):
     return int(xs[k] + sl[1].start), int(ys[k] + sl[0].start)
 
 
-def suggest_points(rem, o, flips, learner, threshold=None):
+def suggest_points(rem, o, flips, learner, threshold=None, exclude=()):
     """Các điểm (x, y) nằm trong những khoảng nền kín mà mô hình cho là nên xóa (hiện đang được giữ).
 
     threshold: xác suất tối thiểu để đề xuất xóa; mặc định là ngưỡng người dùng đã chọn (learner.threshold).
+    exclude: nhãn các vùng không được đề xuất (người dùng đã bấm giữ lại sau khi được đề xuất).
     """
     threshold = learner.threshold if threshold is None else threshold
     if not learner.ready:
@@ -119,7 +120,7 @@ def suggest_points(rem, o, flips, learner, threshold=None):
     if not len(ids):
         return []
     prob = learner.predict(X)
-    chosen = [int(i) for i, p in zip(ids, prob) if p >= threshold and not remove[i]]
+    chosen = [int(i) for i, p in zip(ids, prob) if p >= threshold and not remove[i] and int(i) not in exclude]
     objs = ndimage.find_objects(labels) if chosen else None
     return [representative_point(labels, i, objs) for i in chosen]
 

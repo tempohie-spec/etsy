@@ -244,6 +244,7 @@ class App(tk.Tk):
         self.store = Store()
         self.learner = Learner()
         self._suggested = set()   # ảnh đã được đề xuất vùng nền, để không đề xuất lại sau khi người dùng khôi phục
+        self.suggested = {}       # đường dẫn -> các điểm do ứng dụng đề xuất (cũng nằm trong flips)
         self._learn_warned = False
         self.profile = None       # tên cấu hình đang áp dụng
 
@@ -331,11 +332,12 @@ class App(tk.Tk):
         self.view.pack(side="left", fill="both", expand=True, padx=(8, 0))
         self.status = ttk.Label(
             self, padding=(8, 0, 8, 8), wraplength=1160,
-            text="Chọn ảnh để bắt đầu (có thể chọn nhiều ảnh, mỗi ảnh giữ riêng chỉnh sửa của nó). Kéo thanh trắng để so sánh, "
+            text="Chọn ảnh hoặc kéo thả ảnh/thư mục vào cửa sổ để bắt đầu (có thể mở nhiều ảnh, mỗi ảnh giữ riêng chỉnh sửa của nó). Kéo thanh trắng để so sánh, "
                  "lăn chuột để zoom, kéo ảnh để di chuyển, bấm đúp để về vừa khung. Bấm vào một khoảng nền để đổi giữa xóa và giữ vùng đó.",
         )
         self.status.pack(fill="x")
 
+        self.drop_enabled = self.enable_drop()
         self.bind_all("<Control-z>", self.undo)
         self.bind_all("<Control-Z>", self.undo)
         self.bind_all("<Control-y>", self.redo)
@@ -527,7 +529,8 @@ class App(tk.Tk):
         return self.hists.setdefault(self.path, {"undo": [], "redo": [], "committed": None})
 
     def state(self):
-        return {"settings": self.settings(), "flips": [list(p) for p in self.flips.get(self.path, [])]}
+        return {"settings": self.settings(), "flips": [list(p) for p in self.flips.get(self.path, [])],
+                "suggested": [list(p) for p in self.suggested.get(self.path, [])]}
 
     def commit_history(self):
         h, cur = self.hist(), self.state()
@@ -544,6 +547,7 @@ class App(tk.Tk):
         try:
             self.apply_settings(st["settings"])
             self.flips[self.path] = [tuple(p) for p in st["flips"]]
+            self.suggested[self.path] = [tuple(p) for p in st.get("suggested", [])]
             self.refresh()
         finally:
             self._restoring = False
@@ -584,14 +588,19 @@ class App(tk.Tk):
             "kết quả quay về như khi chỉ dùng tự động. Có thể hoàn tác bằng Ctrl+Z.",
         ):
             self.flips.pop(self.path, None)
+            self.suggested.pop(self.path, None)
             self.refresh()
 
     # --- Ảnh ---
     def pick(self):
         """Thêm ảnh vào danh sách (không làm mất chỉnh sửa của các ảnh đang mở) rồi mở ảnh đầu tiên vừa chọn."""
-        paths = [Path(p) for p in filedialog.askopenfilenames(filetypes=[("Ảnh", " ".join("*" + e for e in sorted(EXTS)))])]
+        self.open_paths(filedialog.askopenfilenames(filetypes=[("Ảnh", " ".join("*" + e for e in sorted(EXTS)))]))
+
+    def open_paths(self, paths):
+        """Thêm các ảnh vào danh sách rồi mở ảnh đầu tiên trong số đó. Trả về số ảnh hợp lệ."""
+        paths = [Path(p) for p in paths]
         if not paths:
-            return
+            return 0
         # So sánh theo đường dẫn chuẩn hóa: trên Windows cùng một file có thể khác chữ hoa/thường
         same = lambda p: os.path.normcase(os.path.abspath(p))
         opened = {same(f): f for f in self.files}
@@ -601,6 +610,47 @@ class App(tk.Tk):
         target = paths[0] if not fresh else fresh[0]
         self.refresh_list()
         self.load(self.files.index(target))
+        return len(paths)
+
+    # --- Kéo thả ảnh vào cửa sổ ---
+    def enable_drop(self):
+        """Bật kéo thả file (cần thư viện tkinterdnd2). Thiếu thư viện thì bỏ qua, vẫn dùng được nút "Chọn ảnh"."""
+        try:
+            from tkinterdnd2 import DND_FILES, TkinterDnD
+            TkinterDnD.require(self)
+        except Exception:  # noqa: BLE001 - không có kéo thả không phải lỗi nghiêm trọng
+            return False
+        stack = list(self.winfo_children())
+        while stack:   # đăng ký mọi ô trong cửa sổ để thả vào chỗ nào cũng được
+            w = stack.pop()
+            stack.extend(w.winfo_children())
+            try:
+                w.drop_target_register(DND_FILES)
+                w.dnd_bind("<<Drop>>", self.on_drop)
+            except (tk.TclError, AttributeError):
+                pass
+        return True
+
+    def dropped_images(self, data):
+        """Danh sách ảnh từ dữ liệu thả vào: tách đường dẫn (kể cả có dấu cách), mở rộng thư mục, lọc theo đuôi file."""
+        out = []
+        for raw in self.tk.splitlist(data):
+            p = Path(raw)
+            if p.is_dir():
+                out.extend(sorted(f for f in p.iterdir() if f.is_file() and f.suffix.lower() in EXTS))
+            elif p.suffix.lower() in EXTS and p.is_file():
+                out.append(p)
+        return out
+
+    def on_drop(self, event):
+        images = self.dropped_images(event.data)
+        if images:
+            self.open_paths(images)
+            if len(images) > 1:
+                self.status.config(text=f"Đã thêm {len(images)} ảnh. " + self.status_text())
+        else:
+            self.status.config(text="Không có file ảnh hợp lệ trong những gì vừa thả vào (hỗ trợ: " + ", ".join(sorted(EXTS)) + ").")
+        return event.action
 
     def load(self, i):
         # Rời ảnh đang mở: ghi nhận thao tác đang chờ và cấu hình các thanh trượt của nó
@@ -651,7 +701,7 @@ class App(tk.Tk):
         if self._job:
             self.after_cancel(self._job)
             self._job = None
-        for store in (self.flips, self.doc_settings, self.hists, self._cache):
+        for store in (self.flips, self.suggested, self.doc_settings, self.hists, self._cache):
             store.pop(path, None)
         self._suggested.discard(path)
         del self.files[self.index]
@@ -828,19 +878,39 @@ class App(tk.Tk):
         self.status.config(text=f"Đã học từ ảnh này: {len(ids)} vùng ({int(y.sum())} xóa, {int((1 - y).sum())} giữ).")
 
     def apply_suggestions(self):
-        """Đề xuất xóa các khoảng nền kín mà mô hình cho là nền; trả về số vùng đề xuất."""
+        """Tính lại đề xuất theo ngưỡng hiện tại: bỏ các đề xuất cũ, giữ nguyên các vùng người dùng tự bấm.
+
+        Vùng đã được đề xuất mà người dùng bấm để giữ lại thì không đề xuất lại.
+        Trả về (số vùng đề xuất mới, số đề xuất cũ đã bỏ, số vùng người dùng đã từ chối).
+        """
+        path = self.path
         o = self.options()
         o.connected = True
         self.busy(True)
         try:
-            points = suggest_points(self.remover, o, self.flips.get(self.path, []), self.learner)
+            old = [tuple(p) for p in self.suggested.get(path, [])]
+            manual = [tuple(p) for p in self.flips.get(path, [])]
+            for p in old:
+                if p in manual:
+                    manual.remove(p)
+            old_by_region = {}
+            for p in old:
+                lab = self.remover.region_at(o, *p)
+                if lab:
+                    old_by_region.setdefault(lab, []).append(p)
+            rejected = {self.remover.region_at(o, *p) for p in manual} & set(old_by_region)
+            # Giữ cặp "đề xuất + người dùng bấm lại" của vùng bị từ chối để vùng đó vẫn được giữ
+            keep_old = [p for lab in rejected for p in old_by_region[lab]]
+            base = manual + keep_old
+            points = suggest_points(self.remover, o, base, self.learner, exclude=rejected)
         finally:
             self.busy(False)
-        self._suggested.add(self.path)
+        self._suggested.add(path)
+        self.flips[path] = base + points
+        self.suggested[path] = keep_old + points
         if points:
-            self.flips.setdefault(self.path, []).extend(points)
             self.connected.set(True)
-        return len(points)
+        return len(points), len(old) - len(keep_old), len(rejected)
 
     def suggest_now(self):
         if self.remover is None:
@@ -854,9 +924,21 @@ class App(tk.Tk):
                 f"Hiện có {n} vùng ({removed} xóa).\n\nHãy bấm chọn vùng trên vài ảnh rồi bấm \"Học từ ảnh này\".",
             )
             return
-        k = self.apply_suggestions()
+        self.flush()
+        new, dropped, rejected = self.apply_suggestions()
         self.refresh()
-        self.status.config(text=f"Đã đề xuất xóa {k} khoảng nền kín. Bấm vào vùng để đổi lại, Ctrl+Z để hủy đề xuất.")
+        th = f"{self.learner.threshold:.2f}"
+        if new:
+            lines = [f"Đã đề xuất xóa {new} khoảng nền kín (ngưỡng {th})."]
+        else:
+            lines = [f"Không có khoảng nền kín nào đạt ngưỡng {th}.", "Thử giảm \"Ngưỡng đề xuất\" để có thêm đề xuất."]
+        if dropped:
+            lines.append(f"Đã bỏ {dropped} đề xuất của lần trước.")
+        if rejected:
+            lines.append(f"Giữ nguyên {rejected} vùng bạn đã bấm giữ lại.")
+        lines.append("Bấm vào vùng để đổi lại, Ctrl+Z để hủy.")
+        self.status.config(text=" ".join(lines))
+        messagebox.showinfo("Đề xuất vùng nền", "\n".join(lines))
 
     def on_threshold(self):
         self.learner.threshold = self.threshold.get()
