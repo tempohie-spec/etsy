@@ -173,8 +173,10 @@ class Remover:
             # Chi pixel net ve (nhan 0) moi can tinh lai do trong suot; khoang nen duoc giu nam sat vung bi xoa
             # (cach mot net rat manh) phai giu nguyen, neu khong se thanh lo li ti tren vung trang
             ring = zone & (labels == 0)
+            fill = None
             if o.corners:
-                ring |= self._corner_specks(dist, labels, gone, ring, o)
+                specks, fill = self._corner_specks(dist, labels, gone, ring, o)
+                ring |= specks
         else:
             gone = dist <= tol
             ring = ~gone & (dist < opaque)
@@ -192,6 +194,8 @@ class Remover:
         out[gone] = 0
         out[ring, :3] = (fg * 255 + 0.5).astype(np.uint8)
         out[ring, 3] = (alpha * self.a_in[ring] + 0.5).astype(np.uint8)
+        if o.connected and fill is not None and fill.any():
+            self._paint_dark(out, fill, dist > JOIN_DARK, max(2, round(max(self.h, self.w) / 1000) + 1) * 2)
         if o.join > 0:
             self._join_lines(out, dist, o.join)
         if o.smooth > 0:
@@ -216,28 +220,41 @@ class Remover:
         near = ndimage.binary_dilation(gone, iterations=2 * r, mask=free)
         thin = light & ~ndimage.binary_opening(light, iterations=r) & cand & ~ring & near
         if not thin.any():
-            return thin
+            return thin, thin
         comp, n = ndimage.label(thin, structure=np.ones((3, 3), bool))
         touch = np.unique(comp[ndimage.binary_dilation(gone | ring) & thin])
         keep = np.zeros(n + 1, bool)
         keep[touch] = True
-        # Khe hep thong tu nen da xoa vao mot khoang trang duoc giu ben trong (cho hai net gan cham nhau, vi du
-        # vien nguc va vien chan thu) la mot phan cua hinh ve, khong phai vet sot: khong xoa
-        kept_inside = (labels > 0) & ~gone
-        inner = np.unique(comp[ndimage.binary_dilation(kept_inside) & thin])
-        keep[inner] = False
         keep[0] = False
-        return keep[comp]
+        specks = keep[comp]
+        fill = np.zeros_like(specks)
+        # Khe hep thong tu nen da xoa vao mot khoang trang duoc giu ben trong (cho hai net gan cham nhau, vi du
+        # vien nguc va vien chan thu): xoa se thanh lo thung vao phan trang. Phan khe nam gan khoang trang do
+        # (do theo duong di qua pixel sang) khong xoa ma to bang mau net ben canh, de hai net lien nhau.
+        kept_inside = (labels > 0) & ~gone
+        if kept_inside.any():
+            guard = ndimage.binary_dilation(kept_inside, iterations=2 * r, mask=light & ~gone) & specks
+            if guard.any():
+                specks &= ~guard
+                dark = dist > JOIN_DARK
+                # Chi to phan nam giua hai net dam va sat phia nen da xoa (cua khe), khong lan vao long khoang trang
+                between = ndimage.binary_closing(dark, iterations=r, border_value=0) & ~dark
+                mouth = ndimage.binary_dilation(gone, iterations=r, mask=light)
+                fill = guard & between & mouth
+        return specks, fill
 
     def _join_lines(self, out, dist, r):
         """Noi net o cho giao: khe rat hep giua hai net dam (mat di sau dong hinh thai ban kinh r) dang bi xoa
         hoac ban trong suot thi to bang mau net gan nhat, de hai net trong lien nhu anh goc thay vi bi dut."""
         dark = dist > JOIN_DARK
         gap = ndimage.binary_closing(dark, iterations=r, border_value=0) & ~dark & (out[..., 3] < 255)
-        if not gap.any():
+        self._paint_dark(out, gap, dark, r + 1)
+
+    def _paint_dark(self, out, mask, dark, reach):
+        """To cac pixel trong mask bang mau pixel net dam gan nhat (trong ban kinh reach), dac hoan toan."""
+        if not mask.any():
             return
-        ys, xs = np.nonzero(gap)
-        reach = r + 1
+        ys, xs = np.nonzero(mask)
         solid = np.pad(dark, reach)
         colors = np.zeros((len(ys), 3), np.uint8)
         todo = np.arange(len(ys))

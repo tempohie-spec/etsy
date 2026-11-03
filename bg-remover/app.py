@@ -496,7 +496,8 @@ class App(tk.Tk):
         self.check_feature(p, "Xuyên nét mảnh", self.bridge_on,
                            "Xóa luôn các khoảng nền bị dây đèn, nét chữ chia cắt; độ dày tự tính theo kích thước ảnh.")
         self.check_feature(p, "Xóa vệt trắng ở góc nhọn", self.corners_on,
-                           "Làm sạch vệt nền còn sót trong khe hẹp giữa hai nét viền.")
+                           "Làm sạch vệt nền còn sót trong khe hẹp giữa hai nét viền; vệt ở chỗ hai nét gần chạm nhau "
+                           "được tô bằng màu nét bên cạnh để không thủng vào phần trắng bên trong.")
         self.check_feature(p, "Bịt khe hở nét vẽ", self.close_gaps,
                            "Chặn nền rò vào bên trong qua khe hở nhỏ của nét viền.")
         self.check_feature(p, "Vẽ nét chắn (B)", self.draw_on,
