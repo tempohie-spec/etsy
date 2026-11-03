@@ -47,10 +47,13 @@ Lưu ý: bấm vào nền ngoài (nối với mép ảnh) không đổi được
 | Chỉ xóa nền nối với mép ảnh | `--connected` | Giữ phần trắng/đen nằm bên trong thiết kế |
 | Xuyên nét mảnh | `--bridge` | Bật sẵn trong ứng dụng. Nền xuyên qua nét mảnh (dây đèn, nét chữ) để xóa luôn các khoảng nền bị chúng chia cắt, nét mảnh vẫn được giữ. Độ dày tự tính theo kích thước ảnh (khoảng 1 px cho mỗi 1000 px cạnh dài). Tắt đi nếu thiết kế có viền nhân vật mảnh bị xuyên qua làm mất phần trắng bên trong |
 | Vẽ nét chắn (phím B) / Tẩy nét chắn (phím E) | (chỉ trong ứng dụng) | Bật vẽ rồi kéo chuột trái qua chỗ hở của viền để nền không tràn vào bên trong (dùng cho khe hở lớn mà "Bịt khe hở nét vẽ" không bịt được). Bật tẩy rồi bấm hoặc kéo qua nét chắn để xóa từng nét (mỗi lượt tẩy là một bước Ctrl+Z). Esc để thôi vẽ/tẩy. Nét chắn chỉ dùng khi xét vùng nền thông nhau, không xuất hiện trong ảnh lưu ra; pixel nền dưới nét theo phía gần nhất nên không để lại vệt. Nét chắn lưu theo từng ảnh và được áp dụng khi xử lý cả lô |
+| Nối nét ở chỗ giao (px) | `--join N` | Mặc định 0 (tắt). Khi hai nét viền gần chạm nhau mà không chạm hẳn (hay gặp ở nét vẽ tay), khe nhỏ giữa chúng là nền nên bị xóa, nhìn như nét bị đứt. Tùy chọn này tô màu nét vào các khe hẹp hơn 2N px giữa hai nét đậm, chỉ ở chỗ đang bị xóa, để chỗ giao trông liền. Nên thử 2; cao quá có thể nối dính các nét nằm gần nhau |
 | Xóa vệt trắng ở góc nhọn | `--corners` | Bật sẵn trong ứng dụng. Ở góc nhọn giữa hai nét viền (nơ, nhánh bông tuyết, chỗ nét chữ giao nhau), khe nền quá hẹp nên hay sót vệt trắng. Tùy chọn này làm trong suốt các pixel sáng nằm trong khe hẹp, sát nền đã xóa và nối liền với nó; phần tô sáng rộng bên trong hình và các khoảng nền kín được giữ không bị đụng tới. Nếu vẫn còn vệt nhạt màu (kem, hồng) ở chỗ nhiều nét chụm lại, tăng **Độ nhạy góc nhọn** (0,2 đến 0,65, mặc định 0,45; dòng lệnh `--corner-light`). Thanh này chỉ tác động lên khe hẹp sát nền đã xóa, an toàn hơn tăng Độ nhạy chung (Độ nhạy chung từ khoảng 0,2 trở lên bắt đầu xóa cả phần trắng bên trong hình) |
 | Bịt khe hở nét vẽ | `--close-gaps` | Tránh nền rò vào trong thiết kế qua khe hở 1 đến 2 px trong nét vẽ |
 
 Phần viền luôn được làm sạch quầng trắng/đen ở cạnh (không cần bật).
+
+Với tranh màu pastel rất nhạt, giữ **Độ nhạy thấp (khoảng 0,06)**: màu tô chỉ khác nền trắng chưa tới 0,2 (xanh bạc hà, vàng kem...) sẽ bị coi là nền nếu Độ nhạy cao. Với tranh nét mảnh (viền 2 đến 3 px), **tắt Xuyên nét mảnh**.
 
 ## Lưu ý
 - Ở chế độ mặc định (không bật "chỉ xóa nền nối với mép ảnh"), phần thiết kế màu trắng trên nền trắng (hoặc đen trên nền đen) bị tách cùng nền.

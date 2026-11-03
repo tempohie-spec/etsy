@@ -20,6 +20,7 @@ GROW = 2          # px mo rong quanh vung nen de xu ly vien mo anti-alias
 CLOSE = 2         # px khe ho duoc bit khi bat close_gaps
 EDGE_REACH = 3    # px toi da de lay mau vien tu vung dac gan nhat
 CONNECT_MIN = 0.08
+JOIN_DARK = 0.45      # pixel khac nen hon muc nay coi la net ve dam khi noi net o cho giao
 SPECK_AREA = 20       # khoang nen kin nho hon muc nay (px) nam trong khe hep duoc coi la vet sot, khong phai chi tiet
 
 
@@ -34,6 +35,7 @@ class Options:
     bridge: int = 0             # px: nen xuyen qua net manh hon 2*bridge px (day den, net chu); 0 = tat
     corners: bool = False       # xoa vet trang con sot trong khe hep o goc nhon giua hai net vien
     corner_light: float = 0.45  # do nhay goc nhon: pixel khac nen it hon muc nay trong khe hep duoc coi la vet sot
+    join: int = 0               # px: to mau net vao khe hep hon 2*join px giua hai net dam sat nen (0 = tat)
 
 
 def auto_bridge(size):
@@ -191,6 +193,8 @@ class Remover:
         out[gone] = 0
         out[ring, :3] = (fg * 255 + 0.5).astype(np.uint8)
         out[ring, 3] = (alpha * self.a_in[ring] + 0.5).astype(np.uint8)
+        if o.join > 0:
+            self._join_lines(out, dist, o.join)
         if o.smooth > 0:
             self._feather(out, o.smooth)
         return Image.fromarray(out, "RGBA")
@@ -221,6 +225,31 @@ class Remover:
         keep[touch] = True
         keep[0] = False
         return keep[comp]
+
+    def _join_lines(self, out, dist, r):
+        """Noi net o cho giao: khe rat hep giua hai net dam (mat di sau dong hinh thai ban kinh r) dang bi xoa
+        hoac ban trong suot thi to bang mau net gan nhat, de hai net trong lien nhu anh goc thay vi bi dut."""
+        dark = dist > JOIN_DARK
+        gap = ndimage.binary_closing(dark, iterations=r, border_value=0) & ~dark & (out[..., 3] < 255)
+        if not gap.any():
+            return
+        ys, xs = np.nonzero(gap)
+        reach = r + 1
+        solid = np.pad(dark, reach)
+        colors = np.zeros((len(ys), 3), np.uint8)
+        todo = np.arange(len(ys))
+        for dy, dx in _offsets(reach):
+            if not todo.size:
+                break
+            hit = solid[ys[todo] + dy + reach, xs[todo] + dx + reach]
+            if hit.any():
+                sel = todo[hit]
+                colors[sel] = self.rgb[ys[sel] + dy, xs[sel] + dx]
+                todo = todo[~hit]
+        found = np.ones(len(ys), bool)
+        found[todo] = False
+        out[ys[found], xs[found], :3] = colors[found]
+        out[ys[found], xs[found], 3] = self.a_in[ys[found], xs[found]]
 
     @staticmethod
     def _feather(out, sigma):
@@ -322,9 +351,9 @@ _OFFSETS = _offsets(EDGE_REACH)
 
 
 def remove_background(img, bg="auto", tolerance=0.06, opaque=0.8, connected=False,
-                      close_gaps=False, smooth=0.0, bridge=False, corners=False, corner_light=0.45):
+                      close_gaps=False, smooth=0.0, bridge=False, corners=False, corner_light=0.45, join=0):
     """Ham tien dung cho dong lenh: xu ly mot anh, tra ve RGBA."""
-    o = Options(bg, tolerance, opaque, connected, close_gaps, smooth, auto_bridge(img.size) if bridge else 0, corners, corner_light)
+    o = Options(bg, tolerance, opaque, connected, close_gaps, smooth, auto_bridge(img.size) if bridge else 0, corners, corner_light, join)
     return Remover(img).render(o)
 
 
@@ -344,10 +373,11 @@ def main(argv=None):
     p.add_argument("--bridge", action="store_true", help="Xuyen net manh: nen xuyen qua day den, net chu (do day tu dong theo kich thuoc anh)")
     p.add_argument("--corners", action="store_true", help="Xoa vet trang con sot trong khe hep o goc nhon giua hai net vien (can --connected)")
     p.add_argument("--corner-light", type=float, default=0.45, help="Do nhay goc nhon 0.2 den 0.65: cao hon thi xoa duoc vet nhat mau hon (can --corners)")
+    p.add_argument("--join", type=int, default=0, help="Noi net o cho giao (px, 0 den 3): to mau net vao khe hep giua hai net sat nen; thu 2")
     p.add_argument("--smooth", type=float, default=0.0, help="Lam min vien (px), thu 1 den 2")
     a = p.parse_args(argv)
     kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.bridge,
-              close_gaps=a.close_gaps, smooth=a.smooth, bridge=a.bridge, corners=a.corners, corner_light=a.corner_light)
+              close_gaps=a.close_gaps, smooth=a.smooth, bridge=a.bridge, corners=a.corners, corner_light=a.corner_light, join=a.join)
 
     src = Path(a.input)
     if src.is_dir():

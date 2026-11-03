@@ -417,6 +417,7 @@ class App(tk.Tk):
         self.bridge_on = tk.BooleanVar(value=True)
         self.corners_on = tk.BooleanVar(value=True)
         self.corner_light = tk.DoubleVar(value=0.45)
+        self.join = tk.IntVar(value=0)
         self.smooth = tk.DoubleVar(value=0.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
@@ -514,6 +515,9 @@ class App(tk.Tk):
                             "Giảm nếu màu nhạt bị trong suốt; tăng để viền chuyển mềm hơn.")
         self.slider_feature(p, "Làm mịn viền (px)", self.smooth, 0, 2, 0.1,
                             "Thêm quầng mềm ở ngoài mép để bớt răng cưa; nên thử 1.")
+        self.slider_feature(p, "Nối nét ở chỗ giao (px)", self.join, 0, 3, 1,
+                            "Tô màu nét vào khe rất hẹp giữa hai nét viền sát nền để chỗ giao trông liền, không bị đứt. "
+                            "0 = tắt, nên thử 2; cao quá có thể nối dính các nét nằm gần nhau.", integer=True)
         self.slider_feature(p, "Độ nhạy góc nhọn", self.corner_light, 0.2, 0.65, 0.05,
                             "Cao hơn thì xóa được cả vệt nhạt màu ở góc nhọn; chỉ tác động khe hẹp sát nền.")
 
@@ -695,14 +699,14 @@ class App(tk.Tk):
         """Tùy chọn xử lý từ một cấu hình; `size` là kích thước ảnh để tính độ dày xuyên nét mảnh."""
         bridge = auto_bridge(size) if size and d.get("bridge_on", True) else 0
         return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"], d.get("smooth", 0.0), bridge,
-                       d.get("corners", True), d.get("corner_light", 0.45))
+                       d.get("corners", True), d.get("corner_light", 0.45), d.get("join", 0))
 
     # --- Cấu hình có tên ---
     def settings(self):
         return {"bg": self.bg.get(), "tolerance": round(self.tol.get(), 4), "opaque": round(self.opq.get(), 4),
                 "connected": self.connected.get(), "close_gaps": self.close_gaps.get(),
                 "bridge_on": self.bridge_on.get(), "corners": self.corners_on.get(),
-                "corner_light": round(self.corner_light.get(), 3),
+                "corner_light": round(self.corner_light.get(), 3), "join": int(self.join.get()),
                 "smooth": round(self.smooth.get(), 3)}
 
     def apply_settings(self, d):
@@ -710,7 +714,7 @@ class App(tk.Tk):
                                ("connected", self.connected, bool), ("close_gaps", self.close_gaps, bool),
                                ("smooth", self.smooth, float),
                                ("bridge_on", self.bridge_on, bool), ("corners", self.corners_on, bool),
-                               ("corner_light", self.corner_light, float)):
+                               ("corner_light", self.corner_light, float), ("join", self.join, int)):
             if key in d:
                 try:
                     var.set(cast(d[key]))
@@ -1092,6 +1096,8 @@ class App(tk.Tk):
         k = self.fast.w / self.remover.w
         o = self.options()
         o.smooth *= k
+        if o.join:
+            o.join = max(1, round(o.join * k))
         if o.bridge:
             o.bridge = max(1, round(o.bridge * k))
         flips = [(int(x * k), int(y * k)) for x, y in self.flips.get(self.path, [])]
