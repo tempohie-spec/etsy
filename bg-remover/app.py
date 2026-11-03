@@ -1,4 +1,5 @@
 """Ứng dụng máy tính tách nền ảnh thiết kế 2D (nền trắng hoặc đen). Chạy: python app.py"""
+import json
 import os
 import threading
 import tkinter as tk
@@ -13,7 +14,7 @@ from PIL import Image, ImageTk
 
 from compare import fit_view, render_view
 from learn import MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, suggest_points
-from remove_bg import EXTS, SUFFIX, Options, Remover, auto_bridge
+from remove_bg import EXTS, SUFFIX, Options, Remover, auto_bridge, barrier_mask
 from settings import Store
 
 ZOOM_STEP = 1.2
@@ -24,6 +25,7 @@ PREVIEW_SIDE = 800   # cạnh dài (px) của bản thu nhỏ dùng để xem nh
 POLL_MS = 15         # chu kỳ kiểm tra kết quả xem nhanh từ luồng nền
 FULL_DELAY = 350     # ms yên lặng trước khi tính lại đầy đủ
 HISTORY_MAX = 100
+STROKE_COLOR = "#ff2fd0"   # màu hiển thị nét chắn
 PANEL_WIDTH = 340    # bề rộng bảng tùy chọn bên phải
 DESC_WRAP = PANEL_WIDTH - 40
 CACHE_SIZE = 4       # số ảnh vừa mở được giữ sẵn trong bộ nhớ để chuyển lại gần như tức thì
@@ -133,6 +135,11 @@ class CompareCanvas(tk.Canvas):
         self.bg = None          # None: ô caro, hoặc màu (r, g, b)
         self.compare = False    # True: hiện ảnh gốc bên trái thanh chia, kết quả bên phải
         self.on_click = None
+        self.on_stroke = None   # gọi khi vẽ xong một nét chắn, với danh sách điểm theo tọa độ ảnh
+        self.draw_mode = False
+        self.draw_width = 8     # độ dày nét đang vẽ (px theo ảnh)
+        self.strokes = []       # nét chắn đã có của ảnh, để hiện lên khi đang ở chế độ vẽ
+        self._stroke = []
         self._tk = None
         self._last = self._press = (0, 0)
         self.bind("<Configure>", lambda e: self.on_resize())
@@ -140,6 +147,9 @@ class CompareCanvas(tk.Canvas):
         self.bind("<B1-Motion>", self.drag)
         self.bind("<ButtonRelease-1>", self.release)
         self.bind("<Double-Button-1>", lambda e: self.reset_view())
+        # Chuột phải kéo luôn là di chuyển ảnh (chuột trái đang dùng để vẽ khi bật chế độ vẽ)
+        self.bind("<ButtonPress-3>", lambda e: setattr(self, "_last", (e.x, e.y)))
+        self.bind("<B3-Motion>", self.pan_right)
         self.bind("<MouseWheel>", self.wheel)
         self.bind("<Button-4>", lambda e: self.zoom_at(e.x, e.y, ZOOM_STEP))
         self.bind("<Button-5>", lambda e: self.zoom_at(e.x, e.y, 1 / ZOOM_STEP))
@@ -188,14 +198,46 @@ class CompareCanvas(tk.Canvas):
     def div_x(self):
         return self.frac * self.size[0] if self.compare else 0   # tắt so sánh: cả khung là kết quả
 
+    def set_draw_mode(self, on):
+        self.draw_mode = on
+        self.config(cursor="pencil" if on else "")
+        self.redraw()
+
+    def to_image(self, e):
+        return (e.x - self.ox) / self.scale, (e.y - self.oy) / self.scale
+
+    def pan_right(self, e):
+        if self.before is None:
+            return
+        self.ox += e.x - self._last[0]
+        self.oy += e.y - self._last[1]
+        self._last = (e.x, e.y)
+        self.redraw()
+
     def press(self, e):
         self._last = self._press = (e.x, e.y)
-        self.mode = "div" if self.compare and abs(e.x - self.div_x()) <= GRAB else "pan"
-        if self.mode == "div":
+        if self.compare and abs(e.x - self.div_x()) <= GRAB:
+            self.mode = "div"
             self.drag(e)
+        elif self.draw_mode and self.before is not None:
+            self.mode = "draw"
+            x, y = self.to_image(e)
+            self._stroke = [[round(x, 1), round(y, 1)]]
+            r = max(1.0, self.draw_width * self.scale / 2)
+            self.create_oval(e.x - r, e.y - r, e.x + r, e.y + r, fill=STROKE_COLOR, outline="", tags="live")
+        else:
+            self.mode = "pan"
 
     def drag(self, e):
         if self.before is None:
+            return
+        if self.mode == "draw":
+            x, y = self.to_image(e)
+            lx, ly = self._stroke[-1]
+            if abs(x - lx) + abs(y - ly) >= 1:
+                self._stroke.append([round(x, 1), round(y, 1)])
+                self.create_line(lx * self.scale + self.ox, ly * self.scale + self.oy, e.x, e.y, fill=STROKE_COLOR,
+                                 width=max(1.0, self.draw_width * self.scale), capstyle="round", tags="live")
             return
         if self.mode == "div":
             self.frac = min(max(e.x / self.size[0], 0.0), 1.0)
@@ -206,6 +248,12 @@ class CompareCanvas(tk.Canvas):
         self.redraw()
 
     def release(self, e):
+        if self.mode == "draw":
+            self.mode = None
+            stroke, self._stroke = self._stroke, []
+            if stroke and self.on_stroke:
+                self.on_stroke(stroke)
+            return
         moved = abs(e.x - self._press[0]) + abs(e.y - self._press[1])
         if self.mode == "pan" and moved <= CLICK_MAX and self.on_click and self.before is not None:
             x, y = int((e.x - self.ox) / self.scale), int((e.y - self.oy) / self.scale)
@@ -241,6 +289,8 @@ class CompareCanvas(tk.Canvas):
             self._tk = ImageTk.PhotoImage(img)
         self.delete("all")
         self.create_image(0, 0, image=self._tk, anchor="nw")
+        if self.draw_mode:
+            self.draw_strokes()
         if not self.compare:
             return
         x = self.div_x()
@@ -251,6 +301,18 @@ class CompareCanvas(tk.Canvas):
         self.create_text(x, h / 2, text="<>", fill="#333", font=("Arial", 10, "bold"))
         self.label(8, 8, "Trước", "nw")
         self.label(w - 8, 8, "Sau", "ne")
+
+    def draw_strokes(self):
+        """Hiện các nét chắn (chỉ để xem, không nằm trong ảnh kết quả)."""
+        for st in self.strokes:
+            pts = [(x * self.scale + self.ox, y * self.scale + self.oy) for x, y in st["pts"]]
+            w = max(1.0, st["w"] * self.scale)
+            if len(pts) > 1:
+                self.create_line(*[c for p in pts for c in p], fill=STROKE_COLOR, width=w, capstyle="round",
+                                 joinstyle="round")
+            else:
+                (x, y), r = pts[0], w / 2
+                self.create_oval(x - r, y - r, x + r, y + r, fill=STROKE_COLOR, outline="")
 
     def label(self, x, y, text, anchor):
         t = self.create_text(x, y, text=text, fill="white", anchor=anchor, font=("Arial", 10, "bold"))
@@ -285,6 +347,7 @@ class App(tk.Tk):
         self.learner = Learner()
         self._suggested = set()   # ảnh đã được đề xuất vùng nền, để không đề xuất lại sau khi người dùng khôi phục
         self.suggested = {}       # đường dẫn -> các điểm do ứng dụng đề xuất (cũng nằm trong flips)
+        self.barriers = {}        # đường dẫn -> các nét chắn người dùng vẽ: [{"pts": [[x, y], ...], "w": px}]
         self._learn_warned = False
         self.profile = None       # tên cấu hình đang áp dụng
 
@@ -301,6 +364,8 @@ class App(tk.Tk):
         self.profile_var = tk.StringVar()
         self.auto_suggest = tk.BooleanVar(value=True)
         self.compare_on = tk.BooleanVar(value=False)
+        self.draw_on = tk.BooleanVar(value=False)
+        self.barrier_w = tk.IntVar(value=8)
         self.threshold = tk.DoubleVar(value=self.learner.threshold)
 
         bar = ttk.Frame(self, padding=(8, 8, 8, 0))
@@ -339,6 +404,7 @@ class App(tk.Tk):
         panel.pack(side="right", fill="y", padx=(8, 0))
         self.view = CompareCanvas(body)
         self.view.on_click = self.on_click
+        self.view.on_stroke = self.on_stroke
         self.view.pack(side="left", fill="both", expand=True, padx=(8, 0))
         p = panel.inner
 
@@ -369,6 +435,14 @@ class App(tk.Tk):
                            "Làm sạch vệt nền còn sót trong khe hẹp giữa hai nét viền.")
         self.check_feature(p, "Bịt khe hở nét vẽ", self.close_gaps,
                            "Chặn nền rò vào bên trong qua khe hở nhỏ của nét viền.")
+        self.check_feature(p, "Vẽ nét chắn", self.draw_on,
+                           "Bật rồi kéo chuột trái vẽ qua chỗ hở của viền để nền không tràn vào trong; kéo chuột phải "
+                           "để di chuyển ảnh. Nét chắn không xuất hiện trong ảnh lưu ra.", command=self.toggle_draw)
+        self.slider_feature(p, "Độ dày nét chắn (px)", self.barrier_w, 2, 40, 1,
+                            "Độ dày nét vẽ tiếp theo, tính theo pixel của ảnh; nên vừa đủ phủ kín chỗ hở.",
+                            integer=True, on_change=lambda: setattr(self.view, "draw_width", self.barrier_w.get()))
+        self.button_feature(p, "Xóa nét chắn của ảnh này", self.clear_barriers,
+                            "Bỏ mọi nét chắn đã vẽ trên ảnh đang mở (Ctrl+Z để lấy lại).")
         self.slider_feature(p, "Độ nhạy", self.tol, 0, 0.4, 0.01,
                             "Tăng nếu còn vệt nền; quá cao (từ khoảng 0,2) sẽ ăn vào phần trắng bên trong.")
         self.slider_feature(p, "Độ đặc", self.opq, 0.3, 1.0, 0.01,
@@ -635,7 +709,8 @@ class App(tk.Tk):
 
     def state(self):
         return {"settings": self.settings(), "flips": [list(p) for p in self.flips.get(self.path, [])],
-                "suggested": [list(p) for p in self.suggested.get(self.path, [])]}
+                "suggested": [list(p) for p in self.suggested.get(self.path, [])],
+                "barriers": json.loads(json.dumps(self.barriers.get(self.path, [])))}
 
     def commit_history(self):
         h, cur = self.hist(), self.state()
@@ -653,6 +728,8 @@ class App(tk.Tk):
             self.apply_settings(st["settings"])
             self.flips[self.path] = [tuple(p) for p in st["flips"]]
             self.suggested[self.path] = [tuple(p) for p in st.get("suggested", [])]
+            self.barriers[self.path] = json.loads(json.dumps(st.get("barriers", [])))
+            self.apply_barrier()
             self.refresh()
         finally:
             self._restoring = False
@@ -684,16 +761,20 @@ class App(tk.Tk):
         if not self.files:
             return
         n = len(self.flips.get(self.path, []))
-        if not n:
-            messagebox.showinfo("Khôi phục ảnh gốc", "Ảnh này chưa có vùng nào được bấm chọn thủ công.")
+        m = len(self.barriers.get(self.path, []))
+        if not n and not m:
+            messagebox.showinfo("Khôi phục ảnh gốc", "Ảnh này chưa có vùng bấm chọn hay nét chắn nào.")
             return
+        what = " và ".join(t for t in (f"{n} vùng đã bấm chọn" if n else "", f"{m} nét chắn" if m else "") if t)
         if messagebox.askyesno(
             "Khôi phục ảnh gốc",
-            f"Bạn có chắc muốn khôi phục ảnh gốc?\n\n{n} vùng đã bấm chọn trên ảnh này sẽ bị xóa, "
+            f"Bạn có chắc muốn khôi phục ảnh gốc?\n\n{what} trên ảnh này sẽ bị xóa, "
             "kết quả quay về như khi chỉ dùng tự động. Có thể hoàn tác bằng Ctrl+Z.",
         ):
             self.flips.pop(self.path, None)
             self.suggested.pop(self.path, None)
+            self.barriers.pop(self.path, None)
+            self.apply_barrier()
             self.refresh()
 
     # --- Ảnh ---
@@ -781,6 +862,7 @@ class App(tk.Tk):
             self._cache[path] = (self.src, self.remover, self.fast)
             while len(self._cache) > CACHE_SIZE:
                 self._cache.popitem(last=False)
+        self.apply_barrier()
         if path in self.doc_settings:
             self.apply_settings(self.doc_settings[path])      # ảnh đã mở trước đó: khôi phục cấu hình riêng của nó
         else:
@@ -796,6 +878,47 @@ class App(tk.Tk):
         if self.fast is not None:
             self.submit_quick()   # bản xem nhanh thường xong trước, kết quả đầy đủ thay vào sau
 
+    # --- Nét chắn ---
+    def apply_barrier(self):
+        """Đưa nét chắn của ảnh đang mở vào bộ tách nền (cả bản đầy đủ và bản xem nhanh) và khung xem."""
+        strokes = self.barriers.get(self.path, [])
+        sig = json.dumps(strokes)
+        if getattr(self.remover, "strokes_sig", None) != sig:   # chỉ tính lại khi nét chắn thay đổi
+            self.remover.set_barrier(barrier_mask(strokes, self.remover.size))
+            self.remover.strokes_sig = sig
+            if self.fast is not None:
+                self.fast.set_barrier(barrier_mask(strokes, self.fast.size, self.fast.w / self.remover.w))
+        self.view.strokes = strokes
+        self.view.redraw()
+
+    def toggle_draw(self):
+        on = self.draw_on.get()
+        self.view.draw_width = self.barrier_w.get()
+        self.view.set_draw_mode(on)
+        if on:
+            self.status.config(text="Đang vẽ nét chắn: kéo chuột trái qua chỗ hở của viền, kéo chuột phải để di chuyển ảnh, "
+                                    "lăn chuột để phóng to. Tắt \"Vẽ nét chắn\" để bấm chọn vùng như bình thường.")
+
+    def on_stroke(self, points):
+        if self.remover is None:
+            return
+        self.barriers.setdefault(self.path, []).append({"pts": points, "w": int(self.barrier_w.get())})
+        if not self.connected.get():
+            self.connected.set(True)  # nét chắn chỉ có nghĩa khi xét vùng nền nối với mép ảnh
+        self.apply_barrier()
+        self.refresh()
+        if self.fast is not None:
+            self.submit_quick()
+
+    def clear_barriers(self):
+        if self.remover is None or not self.barriers.get(self.path):
+            self.status.config(text="Ảnh này chưa có nét chắn nào.")
+            return
+        n = len(self.barriers.pop(self.path))
+        self.apply_barrier()
+        self.refresh()
+        self.status.config(text=f"Đã xóa {n} nét chắn. Ctrl+Z để lấy lại.")
+
     def close_current(self):
         if not self.files:
             return
@@ -806,7 +929,7 @@ class App(tk.Tk):
         if self._job:
             self.after_cancel(self._job)
             self._job = None
-        for store in (self.flips, self.suggested, self.doc_settings, self.hists, self._cache):
+        for store in (self.flips, self.suggested, self.barriers, self.doc_settings, self.hists, self._cache):
             store.pop(path, None)
         self._suggested.discard(path)
         del self.files[self.index]
@@ -1105,7 +1228,8 @@ class App(tk.Tk):
         if suggest:
             self.learner.prepare()   # dựng mô hình trước khi các luồng dùng chung
         tasks = [(f, dst, dict(self.doc_settings.get(f) or self.settings()), list(self.flips.get(f, [])),
-                  suggest and f not in self._suggested and not self.flips.get(f)) for f, dst in jobs]
+                  suggest and f not in self._suggested and not self.flips.get(f),
+                  json.loads(json.dumps(self.barriers.get(f, [])))) for f, dst in jobs]
         stop = threading.Event()
         ex = ThreadPoolExecutor(BATCH_WORKERS)
 
@@ -1128,13 +1252,17 @@ class App(tk.Tk):
 
     def _batch_one(self, task, stop):
         """Xử lý một ảnh trong luồng nền (không được đụng tới giao diện). Trả về (ảnh, lỗi hoặc None)."""
-        f, dst, d, flips, suggest = task
+        f, dst, d, flips, suggest, strokes = task
         if stop.is_set():
             return f, "stopped"
         try:
             img = Image.open(f).convert("RGBA")
             rem = Remover(img)
+            if strokes:
+                rem.set_barrier(barrier_mask(strokes, img.size))
             opts = self.options_from(d, img.size)
+            if strokes:
+                opts.connected = True
             if suggest:
                 o2 = self.options_from(d, img.size)
                 o2.connected = True

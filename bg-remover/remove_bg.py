@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from scipy import ndimage
 
 EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
@@ -58,6 +58,8 @@ class Remover:
         self._auto = None
         self._dist = {}
         self._regions = {}
+        self.barrier = None       # net chan nguoi dung ve (mang bool H x W): nen khong duoc thong qua
+        self._barrier_ver = 0
 
     @property
     def size(self):
@@ -80,24 +82,38 @@ class Remover:
             self._dist = {bg: cached}
         return cached
 
+    def set_barrier(self, mask):
+        """Dat net chan (mang bool H x W, hoac None de bo)."""
+        self.barrier = mask if mask is not None and mask.any() else None
+        self._barrier_ver += 1
+        self._regions = {}
+
     def regions(self, bg, threshold, close, bridge=0):
         """Chia cac pixel gan mau nen thanh cac vung lien thong. Tra ve (labels, areas, cham_mep)."""
-        key = (bg, round(threshold, 4), close, bridge)
+        bar = self.barrier
+        key = (bg, round(threshold, 4), close, bridge, self._barrier_ver)
         cached = self._regions.get(key)
         if cached is None:
-            mask = self.distance(bg) <= threshold
+            base = self.distance(bg) <= threshold
+            mask = base
             if close:
                 # Mo hinh thai: cac khe nen hep hon 2*close px bi bo, nen khong ro vao trong thiet ke
                 mask = ndimage.binary_erosion(mask, iterations=close, border_value=1)
                 mask = ndimage.binary_dilation(mask, iterations=close)
+            if bar is not None:
+                mask = mask & ~bar   # net chan cat dut nen
             if bridge:
                 # Dong hinh thai chi de xet lien thong: nen o hai ben mot net manh duoc coi la mot vung,
                 # nhung chinh net manh van khong thuoc vung nen nen duoc giu lai.
                 joined = ndimage.binary_closing(mask, iterations=bridge, border_value=1)
+                if bar is not None:
+                    joined &= ~bar   # xuyen net manh cung khong duoc vuot qua net chan
                 labels, n = ndimage.label(joined)
                 labels *= mask
             else:
                 labels, n = ndimage.label(mask)
+            if bar is not None:
+                _fill_barrier(labels, bar & base)
             areas = np.bincount(labels.ravel(), minlength=n + 1)
             border = np.zeros(n + 1, bool)
             edge = np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]])
@@ -248,6 +264,39 @@ class Remover:
         fg = fg.copy()
         fg[semi] = colors
         return fg
+
+
+def _fill_barrier(labels, fill):
+    """Pixel nen nam duoi net chan theo vung nen gan nhat, de net chan khong de lai vet trang hay lo thung."""
+    if not fill.any():
+        return
+    ys, xs = np.nonzero(fill)
+    pad = 64
+    y0, y1 = max(ys.min() - pad, 0), min(ys.max() + pad + 1, labels.shape[0])
+    x0, x1 = max(xs.min() - pad, 0), min(xs.max() + pad + 1, labels.shape[1])
+    crop = labels[y0:y1, x0:x1]   # chi tinh trong vung quanh net chan cho nhanh
+    if not (crop > 0).any():
+        return
+    _, idx = ndimage.distance_transform_edt(crop == 0, return_indices=True)
+    f = fill[y0:y1, x0:x1]
+    crop[f] = crop[idx[0][f], idx[1][f]]
+
+
+def barrier_mask(strokes, size, scale=1.0):
+    """Ve cac net chan thanh mang bool kich thuoc `size` (W, H). Moi net: {"pts": [[x, y], ...], "w": do day px}."""
+    if not strokes:
+        return None
+    img = Image.new("1", size, 0)
+    d = ImageDraw.Draw(img)
+    for st in strokes:
+        w = max(1, round(st["w"] * scale))
+        pts = [(x * scale, y * scale) for x, y in st["pts"]]
+        if len(pts) > 1:
+            d.line(pts, fill=1, width=w, joint="curve")
+        r = w / 2
+        for x, y in (pts[0], pts[-1]):   # dau tron o hai dau net
+            d.ellipse((x - r, y - r, x + r, y + r), fill=1)
+    return np.asarray(img, bool)
 
 
 _offset_cache = {}
