@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image, ImageTk
 
 from compare import fit_view, render_view
+from cursors import FALLBACK as FALLBACK_CURSORS, cursor_specs
 from learn import MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, suggest_points
 from remove_bg import EXTS, SUFFIX, Options, Remover, auto_bridge, barrier_mask
 from settings import Store
@@ -41,6 +42,18 @@ PREVIEW_BGS = {
     "Xám đậm": (64, 64, 64),
     "Xám nhạt": (200, 200, 200),
 }
+
+
+def _stroke_distance(stroke, x, y):
+    """Khoảng cách ngắn nhất từ điểm (x, y) tới đường gấp khúc của một nét chắn."""
+    pts = np.asarray(stroke["pts"], float)
+    if len(pts) == 1:
+        return float(np.hypot(*(pts[0] - (x, y))))
+    a, b = pts[:-1], pts[1:]
+    ab = b - a
+    t = np.clip(((x - a[:, 0]) * ab[:, 0] + (y - a[:, 1]) * ab[:, 1]) / np.maximum((ab ** 2).sum(1), 1e-9), 0, 1)
+    proj = a + ab * t[:, None]
+    return float(np.hypot(proj[:, 0] - x, proj[:, 1] - y).min())
 
 
 class PreviewWorker(threading.Thread):
@@ -136,7 +149,11 @@ class CompareCanvas(tk.Canvas):
         self.compare = False    # True: hiện ảnh gốc bên trái thanh chia, kết quả bên phải
         self.on_click = None
         self.on_stroke = None   # gọi khi vẽ xong một nét chắn, với danh sách điểm theo tọa độ ảnh
-        self.draw_mode = False
+        self.tool = None        # None, "draw" (vẽ nét chắn) hoặc "erase" (tẩy nét chắn)
+        self.space = False      # đang giữ phím Space: kéo chuột trái để di chuyển ảnh
+        self.on_erase = None    # gọi khi tẩy tại một điểm (x, y, bán kính theo tọa độ ảnh)
+        self.on_erase_done = None
+        self.cursors = dict(FALLBACK_CURSORS)
         self.draw_width = 8     # độ dày nét đang vẽ (px theo ảnh)
         self.strokes = []       # nét chắn đã có của ảnh, để hiện lên khi đang ở chế độ vẽ
         self._stroke = []
@@ -198,10 +215,22 @@ class CompareCanvas(tk.Canvas):
     def div_x(self):
         return self.frac * self.size[0] if self.compare else 0   # tắt so sánh: cả khung là kết quả
 
-    def set_draw_mode(self, on):
-        self.draw_mode = on
-        self.config(cursor="pencil" if on else "")
+    def set_tool(self, tool):
+        self.tool = tool
+        self.update_cursor()
         self.redraw()
+
+    def set_space(self, on):
+        if on != self.space:
+            self.space = on
+            self.update_cursor()
+
+    def update_cursor(self):
+        cursor = "fleur" if self.space else self.cursors.get(self.tool, "") if self.tool else ""
+        try:
+            self.config(cursor=cursor)
+        except tk.TclError:   # con trỏ tự vẽ không nạp được: dùng con trỏ có sẵn
+            self.config(cursor=FALLBACK_CURSORS.get(self.tool, "") if not self.space else "fleur")
 
     def to_image(self, e):
         return (e.x - self.ox) / self.scale, (e.y - self.oy) / self.scale
@@ -214,12 +243,30 @@ class CompareCanvas(tk.Canvas):
         self._last = (e.x, e.y)
         self.redraw()
 
+    def erase_at(self, e, first=False):
+        """Tẩy dọc đoạn từ vị trí chuột trước tới vị trí hiện tại, để kéo nhanh không nhảy qua nét mảnh."""
+        if not self.on_erase:
+            return
+        x, y = self.to_image(e)
+        tol = 6 / self.scale   # dung sai 6 px trên màn hình
+        px, py = (x, y) if first else self._erase_last
+        n = max(1, int(np.hypot(x - px, y - py) / max(tol / 2, 0.5)))
+        for k in range(n + 1):
+            self.on_erase(px + (x - px) * k / n, py + (y - py) * k / n, tol)
+        self._erase_last = (x, y)
+
     def press(self, e):
         self._last = self._press = (e.x, e.y)
-        if self.compare and abs(e.x - self.div_x()) <= GRAB:
+        self.focus_set()   # để phím tắt (B, E, Space) không bị ô chọn đang có tiêu điểm "nuốt" mất
+        if self.space:
+            self.mode = "move"   # giữ Space: chỉ di chuyển ảnh, không vẽ, không chọn vùng
+        elif self.compare and abs(e.x - self.div_x()) <= GRAB:
             self.mode = "div"
             self.drag(e)
-        elif self.draw_mode and self.before is not None:
+        elif self.tool == "erase" and self.before is not None:
+            self.mode = "erase"
+            self.erase_at(e, first=True)
+        elif self.tool == "draw" and self.before is not None:
             self.mode = "draw"
             x, y = self.to_image(e)
             self._stroke = [[round(x, 1), round(y, 1)]]
@@ -231,6 +278,9 @@ class CompareCanvas(tk.Canvas):
     def drag(self, e):
         if self.before is None:
             return
+        if self.mode == "erase":
+            self.erase_at(e)
+            return
         if self.mode == "draw":
             x, y = self.to_image(e)
             lx, ly = self._stroke[-1]
@@ -241,13 +291,21 @@ class CompareCanvas(tk.Canvas):
             return
         if self.mode == "div":
             self.frac = min(max(e.x / self.size[0], 0.0), 1.0)
-        elif self.mode == "pan":
+        elif self.mode in ("pan", "move"):
             self.ox += e.x - self._last[0]
             self.oy += e.y - self._last[1]
             self._last = (e.x, e.y)
         self.redraw()
 
     def release(self, e):
+        if self.mode == "move":
+            self.mode = None
+            return
+        if self.mode == "erase":
+            self.mode = None
+            if self.on_erase_done:
+                self.on_erase_done()
+            return
         if self.mode == "draw":
             self.mode = None
             stroke, self._stroke = self._stroke, []
@@ -289,7 +347,7 @@ class CompareCanvas(tk.Canvas):
             self._tk = ImageTk.PhotoImage(img)
         self.delete("all")
         self.create_image(0, 0, image=self._tk, anchor="nw")
-        if self.draw_mode:
+        if self.tool:
             self.draw_strokes()
         if not self.compare:
             return
@@ -365,6 +423,8 @@ class App(tk.Tk):
         self.auto_suggest = tk.BooleanVar(value=True)
         self.compare_on = tk.BooleanVar(value=False)
         self.draw_on = tk.BooleanVar(value=False)
+        self.erase_on = tk.BooleanVar(value=False)
+        self._erased = False
         self.barrier_w = tk.IntVar(value=8)
         self.threshold = tk.DoubleVar(value=self.learner.threshold)
 
@@ -405,6 +465,9 @@ class App(tk.Tk):
         self.view = CompareCanvas(body)
         self.view.on_click = self.on_click
         self.view.on_stroke = self.on_stroke
+        self.view.on_erase = self.on_erase
+        self.view.on_erase_done = self.on_erase_done
+        self.view.cursors = cursor_specs()
         self.view.pack(side="left", fill="both", expand=True, padx=(8, 0))
         p = panel.inner
 
@@ -435,9 +498,11 @@ class App(tk.Tk):
                            "Làm sạch vệt nền còn sót trong khe hẹp giữa hai nét viền.")
         self.check_feature(p, "Bịt khe hở nét vẽ", self.close_gaps,
                            "Chặn nền rò vào bên trong qua khe hở nhỏ của nét viền.")
-        self.check_feature(p, "Vẽ nét chắn", self.draw_on,
-                           "Bật rồi kéo chuột trái vẽ qua chỗ hở của viền để nền không tràn vào trong; kéo chuột phải "
-                           "để di chuyển ảnh. Nét chắn không xuất hiện trong ảnh lưu ra.", command=self.toggle_draw)
+        self.check_feature(p, "Vẽ nét chắn (B)", self.draw_on,
+                           "Bật rồi kéo chuột trái vẽ qua chỗ hở của viền để nền không tràn vào trong. "
+                           "Nét chắn không xuất hiện trong ảnh lưu ra.", command=self.toggle_draw)
+        self.check_feature(p, "Tẩy nét chắn (E)", self.erase_on,
+                           "Bật rồi bấm hoặc kéo chuột trái qua nét chắn để xóa từng nét.", command=self.toggle_erase)
         self.slider_feature(p, "Độ dày nét chắn (px)", self.barrier_w, 2, 40, 1,
                             "Độ dày nét vẽ tiếp theo, tính theo pixel của ảnh; nên vừa đủ phủ kín chỗ hở.",
                             integer=True, on_change=lambda: setattr(self.view, "draw_width", self.barrier_w.get()))
@@ -480,12 +545,25 @@ class App(tk.Tk):
         self.status = ttk.Label(
             self, padding=(8, 0, 8, 8), wraplength=1360,
             text="Chọn ảnh hoặc kéo thả ảnh/thư mục vào cửa sổ để bắt đầu (có thể mở nhiều ảnh, mỗi ảnh giữ riêng chỉnh sửa của nó). "
-                 "Lăn chuột để phóng to/thu nhỏ, kéo ảnh để di chuyển, bấm đúp hoặc nút \"Vừa khung\" để về khung ban đầu. "
+                 "Lăn chuột để phóng to/thu nhỏ, kéo ảnh (hoặc giữ Space rồi kéo) để di chuyển, bấm đúp hoặc nút \"Vừa khung\" "
+                 "để về khung ban đầu. Phím tắt: B vẽ nét chắn, E tẩy nét chắn. "
                  "Bấm vào một khoảng nền để đổi giữa xóa và giữ vùng đó.",
         )
         self.status.pack(fill="x")
 
         self.drop_enabled = self.enable_drop()
+        # Nút và ô chọn không nhận tiêu điểm bàn phím, để Space/B/E không vô tình bấm lại nút vừa bấm
+        stack = list(self.winfo_children())
+        while stack:
+            w = stack.pop()
+            stack.extend(w.winfo_children())
+            if w.winfo_class() in ("TButton", "TCheckbutton", "TRadiobutton"):
+                w.configure(takefocus=0)
+        for key, action in (("b", self.key_draw), ("B", self.key_draw), ("e", self.key_erase), ("E", self.key_erase)):
+            self.bind_all(f"<KeyPress-{key}>", action)
+        self.bind_all("<KeyPress-space>", lambda e: self.key_space(e, True))
+        self.bind_all("<KeyRelease-space>", lambda e: self.key_space(e, False))
+        self.bind_all("<Escape>", lambda e: self.set_tool(None) if not self.typing() else None)
         self.bind_all("<Control-z>", self.undo)
         self.bind_all("<Control-Z>", self.undo)
         self.bind_all("<Control-y>", self.redo)
@@ -891,13 +969,65 @@ class App(tk.Tk):
         self.view.strokes = strokes
         self.view.redraw()
 
-    def toggle_draw(self):
-        on = self.draw_on.get()
+    def set_tool(self, tool):
+        """Chọn công cụ trên ảnh: None (bấm chọn vùng), "draw" (vẽ nét chắn) hoặc "erase" (tẩy nét chắn)."""
+        self.draw_on.set(tool == "draw")
+        self.erase_on.set(tool == "erase")
         self.view.draw_width = self.barrier_w.get()
-        self.view.set_draw_mode(on)
-        if on:
-            self.status.config(text="Đang vẽ nét chắn: kéo chuột trái qua chỗ hở của viền, kéo chuột phải để di chuyển ảnh, "
-                                    "lăn chuột để phóng to. Tắt \"Vẽ nét chắn\" để bấm chọn vùng như bình thường.")
+        self.view.set_tool(tool)
+        if tool == "draw":
+            self.status.config(text="Đang vẽ nét chắn (B): kéo chuột trái qua chỗ hở của viền; giữ Space hoặc kéo chuột phải "
+                                    "để di chuyển ảnh, lăn chuột để phóng to. Nhấn B hoặc Esc để thôi vẽ.")
+        elif tool == "erase":
+            self.status.config(text="Đang tẩy nét chắn (E): bấm hoặc kéo chuột trái qua nét chắn để xóa từng nét. "
+                                    "Nhấn E hoặc Esc để thôi tẩy.")
+        elif self.remover is not None:
+            self.status.config(text=self.status_text())
+
+    def toggle_draw(self):
+        self.set_tool("draw" if self.draw_on.get() else None)
+
+    def toggle_erase(self):
+        self.set_tool("erase" if self.erase_on.get() else None)
+
+    def typing(self):
+        """Đang gõ trong ô nhập (khi đó phím tắt không được dùng)."""
+        w = self.focus_get()
+        return w is not None and w.winfo_class() in ("TEntry", "TSpinbox", "TCombobox", "Entry", "Spinbox")
+
+    def key_draw(self, _event=None):
+        if not self.typing():
+            self.set_tool(None if self.view.tool == "draw" else "draw")
+
+    def key_erase(self, _event=None):
+        if not self.typing():
+            self.set_tool(None if self.view.tool == "erase" else "erase")
+
+    def key_space(self, _event, down):
+        if down and self.typing():
+            return
+        self.view.set_space(down)
+
+    def on_erase(self, x, y, tol):
+        """Xóa các nét chắn đi qua điểm (x, y) (theo tọa độ ảnh)."""
+        strokes = self.barriers.get(self.path) if self.remover is not None else None
+        if not strokes:
+            return
+        keep = [st for st in strokes if _stroke_distance(st, x, y) > st["w"] / 2 + tol]
+        if len(keep) != len(strokes):
+            self.barriers[self.path] = keep
+            self._erased = True
+            self.view.strokes = keep
+            self.view.redraw()
+
+    def on_erase_done(self):
+        """Tính lại kết quả một lần sau mỗi lượt tẩy (một lượt = một bước Ctrl+Z)."""
+        if self._erased:
+            self._erased = False
+            self.apply_barrier()
+            self.refresh()
+            if self.fast is not None:
+                self.submit_quick()
 
     def on_stroke(self, points):
         if self.remover is None:
