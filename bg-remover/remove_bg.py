@@ -21,7 +21,7 @@ CLOSE = 2         # px khe ho duoc bit khi bat close_gaps
 EDGE_REACH = 3    # px toi da de lay mau vien tu vung dac gan nhat
 CONNECT_MIN = 0.08
 JOIN_DARK = 0.45      # pixel khac nen hon muc nay coi la net ve dam khi to bu khe gan khoang nen duoc giu
-FAR = 4               # khe hep co the keo dai toi FAR * r px tinh tu nen da xoa (r ti le voi kich thuoc anh)
+FAR = 6               # khe hep co the keo dai toi FAR * r px tinh tu nen da xoa (r ti le voi kich thuoc anh)
 FLANK_DARK = 0.55     # hai ben khe deu co net dam hon muc nay thi pixel o giua duoc so voi net do
 FLANK_REL = 0.65      # pixel giua hai net duoc coi la vet sot neu do dam chi bang ty le nay cua net yeu hon
 FLANK_LIGHT = 0.6     # tran khi tim khe hep: pixel khac nen it hon muc nay moi co the thuoc khe
@@ -230,7 +230,7 @@ class Remover:
             return empty, empty
         ys, xs = np.nonzero(thin)
         d = dist[ys, xs]
-        flank = _flank(dist, ys, xs, 2 * r + 2)
+        flank = _flank(dist, ys, xs, 3 * r + 2)
         flanked = flank >= FLANK_DARK
         # Chi pixel o dau khe (sat nen da xoa) moi duoc xoa theo do nhay tuyet doi; chi tiet sang ben trong
         # hinh (diem highlight...) nam xa hon, chi xoa khi nam giua hai net dam

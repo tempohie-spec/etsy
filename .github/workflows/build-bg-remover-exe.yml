@@ -29,7 +29,7 @@ jobs:
         with:
           name: BackgroundRemover-windows
           path: bg-remover/dist/BackgroundRemover.exe
-      # Link tai truc tiep co dinh, luon tro toi ban build moi nhat:
+      # Link tai truc tiep co dinh, luon tro toi ban build moi nhat (co them ban mang ten phien ban, BackgroundRemover-vN.exe):
       # https://github.com/<owner>/<repo>/releases/download/bg-remover-latest/BackgroundRemover.exe
       - name: Publish latest exe as a release
         continue-on-error: true
@@ -38,7 +38,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete bg-remover-latest --cleanup-tag --yes || true
-          gh release create bg-remover-latest dist/BackgroundRemover.exe \
+          cp dist/BackgroundRemover.exe "dist/BackgroundRemover-v${{ github.run_number }}.exe"
+          gh release create bg-remover-latest dist/BackgroundRemover.exe "dist/BackgroundRemover-v${{ github.run_number }}.exe" \
             --title "Background Remover v${{ github.run_number }}" \
             --notes "Phien ban v${{ github.run_number }}. Auto build from commit ${{ github.sha }}" \
             --target "${{ github.sha }}" --latest=false

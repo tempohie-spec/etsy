@@ -59,4 +59,4 @@ Với tranh màu pastel rất nhạt, giữ **Độ nhạy thấp (khoảng 0,06
 
 ## Phiên bản
 
-Mỗi lần cập nhật, bản build trên GitHub tự đặt tên phiên bản dạng `vN (ngày)`, hiển thị trên thanh tiêu đề của cửa sổ và trong tên release. Chạy từ mã nguồn thì hiển thị `dev`.
+Mỗi lần cập nhật, bản build trên GitHub tự đặt tên phiên bản dạng `vN (ngày)`, hiển thị trên thanh tiêu đề của cửa sổ, trong tên release và trong tên file tải về (`BackgroundRemover-vN.exe`, bên cạnh `BackgroundRemover.exe` có link cố định). Chạy từ mã nguồn thì hiển thị `dev`.
