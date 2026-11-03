@@ -166,7 +166,9 @@ class Remover:
         if o.connected:
             labels, remove = self.decide(o, flips)
             gone = remove[labels]
-            zone = ndimage.binary_dilation(gone, iterations=GROW + (CLOSE if o.close_gaps else 0))
+            # Dai vien lan tu vung nen da xoa nhung khong vuot qua net chan (mask: khong lan vao pixel net chan)
+            free = None if self.barrier is None else ~self.barrier
+            zone = ndimage.binary_dilation(gone, iterations=GROW + (CLOSE if o.close_gaps else 0), mask=free)
             # Chi pixel net ve (nhan 0) moi can tinh lai do trong suot; khoang nen duoc giu nam sat vung bi xoa
             # (cach mot net rat manh) phai giu nguyen, neu khong se thanh lo li ti tren vung trang
             ring = zone & (labels == 0)
@@ -201,12 +203,15 @@ class Remover:
         thiet ke (vi du phan trang cua dai ruy bang, von bi net vien ngan cach voi nen).
         """
         r = max(2, round(max(self.h, self.w) / 1000) + 1)
+        free = None if self.barrier is None else ~self.barrier
         light = (dist < o.corner_light) | gone
+        if free is not None:
+            light &= free   # duong noi qua cac pixel sang khong duoc vuot qua net chan
         areas = self._regions_for(o)[1]
         # Pixel net ve sang, hoac manh nen bi khep lai rat nho; khoang nen kin lon hon (ruot gang tay...) khong dung toi
         cand = (labels == 0) | (~gone & (areas[labels] <= SPECK_AREA))
         # Vet sot luon nam sat nen da xoa (o dau khe); chi tiet sang ben trong hinh (diem highlight...) nam xa hon
-        near = ndimage.binary_dilation(gone, iterations=2 * r)
+        near = ndimage.binary_dilation(gone, iterations=2 * r, mask=free)
         thin = light & ~ndimage.binary_opening(light, iterations=r) & cand & ~ring & near
         if not thin.any():
             return thin
