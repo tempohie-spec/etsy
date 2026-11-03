@@ -20,7 +20,11 @@ GROW = 2          # px mo rong quanh vung nen de xu ly vien mo anti-alias
 CLOSE = 2         # px khe ho duoc bit khi bat close_gaps
 EDGE_REACH = 3    # px toi da de lay mau vien tu vung dac gan nhat
 CONNECT_MIN = 0.08
-JOIN_DARK = 0.45      # pixel khac nen hon muc nay coi la net ve dam khi noi net o cho giao
+JOIN_DARK = 0.45      # pixel khac nen hon muc nay coi la net ve dam khi to bu khe gan khoang nen duoc giu
+FAR = 4               # khe hep co the keo dai toi FAR * r px tinh tu nen da xoa (r ti le voi kich thuoc anh)
+FLANK_DARK = 0.55     # hai ben khe deu co net dam hon muc nay thi pixel o giua duoc so voi net do
+FLANK_REL = 0.65      # pixel giua hai net duoc coi la vet sot neu do dam chi bang ty le nay cua net yeu hon
+FLANK_LIGHT = 0.6     # tran khi tim khe hep: pixel khac nen it hon muc nay moi co the thuoc khe
 
 
 @dataclass
@@ -34,7 +38,6 @@ class Options:
     bridge: int = 0             # px: nen xuyen qua net manh hon 2*bridge px (day den, net chu); 0 = tat
     corners: bool = False       # xoa vet trang con sot trong khe hep o goc nhon giua hai net vien
     corner_light: float = 0.45  # do nhay goc nhon: pixel khac nen it hon muc nay trong khe hep duoc coi la vet sot
-    join: int = 0               # px: to mau net vao khe hep hon 2*join px giua hai net dam sat nen (0 = tat)
 
 
 def auto_bridge(size):
@@ -176,7 +179,8 @@ class Remover:
             fill = None
             if o.corners:
                 specks, fill = self._corner_specks(dist, labels, gone, ring, o)
-                ring |= specks
+                gone = gone | specks   # vet sot trong khe goc nhon xoa han (khong tinh do trong suot theo do trang)
+                ring &= ~specks
         else:
             gone = dist <= tol
             ring = ~gone & (dist < opaque)
@@ -196,8 +200,6 @@ class Remover:
         out[ring, 3] = (alpha * self.a_in[ring] + 0.5).astype(np.uint8)
         if o.connected and fill is not None and fill.any():
             self._paint_dark(out, fill, dist > JOIN_DARK, max(2, round(max(self.h, self.w) / 1000) + 1) * 2)
-        if o.join > 0:
-            self._join_lines(out, dist, o.join)
         if o.smooth > 0:
             self._feather(out, o.smooth)
         return Image.fromarray(out, "RGBA")
@@ -208,26 +210,44 @@ class Remover:
         Khe qua hep nen khong duoc tinh la nen, lai nam ngoai dai vien nen con lai vet trang. Chi lay phan
         hep (bien mat khi mo hinh thai) va noi voi nen da xoa, de khong dung vao phan to sang rong ben trong
         thiet ke (vi du phan trang cua dai ruy bang, von bi net vien ngan cach voi nen).
+
+        Cang vao sau goc nhon mau cang bi tron voi mau net nen khong con trang han; vi vay pixel nam giua hai
+        net dam (hai ben deu co net dam) duoc so voi chinh hai net do: nhat hon han net thi coi la vet sot.
+        Tra ve (specks, fill): specks bi xoa han, fill la phan khe gan khoang nen duoc giu thi to bang mau net.
         """
         r = max(2, round(max(self.h, self.w) / 1000) + 1)
         free = None if self.barrier is None else ~self.barrier
-        light = (dist < o.corner_light) | gone
+        loose = max(o.corner_light, FLANK_LIGHT)
+        light = (dist < loose) | gone
         if free is not None:
             light &= free   # duong noi qua cac pixel sang khong duoc vuot qua net chan
         # Chi xet pixel net ve sang (khong thuoc vung nen nao); vung nen duoc giu lai thi khong bao gio dung toi
         cand = labels == 0
-        # Vet sot luon nam sat nen da xoa (o dau khe); chi tiet sang ben trong hinh (diem highlight...) nam xa hon
-        near = ndimage.binary_dilation(gone, iterations=2 * r, mask=free)
-        thin = light & ~ndimage.binary_opening(light, iterations=r) & cand & ~ring & near
+        reach = ndimage.binary_dilation(gone, iterations=FAR * r, mask=free)
+        thin = light & ~ndimage.binary_opening(light, iterations=r) & cand & reach & ~gone
+        empty = np.zeros_like(thin)
         if not thin.any():
-            return thin, thin
+            return empty, empty
+        ys, xs = np.nonzero(thin)
+        d = dist[ys, xs]
+        flank = _flank(dist, ys, xs, 2 * r + 2)
+        flanked = flank >= FLANK_DARK
+        # Chi pixel o dau khe (sat nen da xoa) moi duoc xoa theo do nhay tuyet doi; chi tiet sang ben trong
+        # hinh (diem highlight...) nam xa hon, chi xoa khi nam giua hai net dam
+        near = ndimage.binary_dilation(gone, iterations=2 * r, mask=free)[ys, xs]
+        ok = flanked & ((d < o.corner_light) | (d < FLANK_REL * flank))
+        ok |= near & ~ring[ys, xs] & (d < o.corner_light)
+        thin = empty
+        thin[ys[ok], xs[ok]] = True
+        if not thin.any():
+            return thin, empty
         comp, n = ndimage.label(thin, structure=np.ones((3, 3), bool))
         touch = np.unique(comp[ndimage.binary_dilation(gone | ring) & thin])
         keep = np.zeros(n + 1, bool)
         keep[touch] = True
         keep[0] = False
         specks = keep[comp]
-        fill = np.zeros_like(specks)
+        fill = empty.copy()
         # Khe hep thong tu nen da xoa vao mot khoang trang duoc giu ben trong (cho hai net gan cham nhau, vi du
         # vien nguc va vien chan thu): xoa se thanh lo thung vao phan trang. Phan khe nam gan khoang trang do
         # (do theo duong di qua pixel sang) khong xoa ma to bang mau net ben canh, de hai net lien nhau.
@@ -242,13 +262,6 @@ class Remover:
                 mouth = ndimage.binary_dilation(gone, iterations=r, mask=light)
                 fill = guard & between & mouth
         return specks, fill
-
-    def _join_lines(self, out, dist, r):
-        """Noi net o cho giao: khe rat hep giua hai net dam (mat di sau dong hinh thai ban kinh r) dang bi xoa
-        hoac ban trong suot thi to bang mau net gan nhat, de hai net trong lien nhu anh goc thay vi bi dut."""
-        dark = dist > JOIN_DARK
-        gap = ndimage.binary_closing(dark, iterations=r, border_value=0) & ~dark & (out[..., 3] < 255)
-        self._paint_dark(out, gap, dark, r + 1)
 
     def _paint_dark(self, out, mask, dark, reach):
         """To cac pixel trong mask bang mau pixel net dam gan nhat (trong ban kinh reach), dac hoan toan."""
@@ -336,6 +349,21 @@ def _fill_barrier(labels, fill):
     crop[f] = crop[idx[0][f], idx[1][f]]
 
 
+def _flank(dist, ys, xs, reach):
+    """Voi moi pixel: do dam cua net yeu hon trong hai ben doi dien (theo huong tot nhat trong 4 huong),
+    tim trong ban kinh `reach`. Lon nghia la pixel nam giua hai net dam."""
+    pad = np.pad(dist, reach)
+    best = np.zeros(len(ys), np.float32)
+    for dy, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
+        a = np.zeros(len(ys), np.float32)
+        b = np.zeros(len(ys), np.float32)
+        for k in range(1, reach + 1):
+            np.maximum(a, pad[ys + reach + dy * k, xs + reach + dx * k], out=a)
+            np.maximum(b, pad[ys + reach - dy * k, xs + reach - dx * k], out=b)
+        np.maximum(best, np.minimum(a, b), out=best)
+    return best
+
+
 def barrier_mask(strokes, size, scale=1.0):
     """Ve cac net chan thanh mang bool kich thuoc `size` (W, H). Moi net: {"pts": [[x, y], ...], "w": do day px}."""
     if not strokes:
@@ -371,9 +399,9 @@ _OFFSETS = _offsets(EDGE_REACH)
 
 
 def remove_background(img, bg="auto", tolerance=0.06, opaque=0.8, connected=False,
-                      close_gaps=False, smooth=0.0, bridge=False, corners=False, corner_light=0.45, join=0):
+                      close_gaps=False, smooth=0.0, bridge=False, corners=False, corner_light=0.45):
     """Ham tien dung cho dong lenh: xu ly mot anh, tra ve RGBA."""
-    o = Options(bg, tolerance, opaque, connected, close_gaps, smooth, auto_bridge(img.size) if bridge else 0, corners, corner_light, join)
+    o = Options(bg, tolerance, opaque, connected, close_gaps, smooth, auto_bridge(img.size) if bridge else 0, corners, corner_light)
     return Remover(img).render(o)
 
 
@@ -393,11 +421,10 @@ def main(argv=None):
     p.add_argument("--bridge", action="store_true", help="Xuyen net manh: nen xuyen qua day den, net chu (do day tu dong theo kich thuoc anh)")
     p.add_argument("--corners", action="store_true", help="Xoa vet trang con sot trong khe hep o goc nhon giua hai net vien (can --connected)")
     p.add_argument("--corner-light", type=float, default=0.45, help="Do nhay goc nhon 0.2 den 0.65: cao hon thi xoa duoc vet nhat mau hon (can --corners)")
-    p.add_argument("--join", type=int, default=0, help="Noi net o cho giao (px, 0 den 3): to mau net vao khe hep giua hai net sat nen; thu 2")
     p.add_argument("--smooth", type=float, default=0.0, help="Lam min vien (px), thu 1 den 2")
     a = p.parse_args(argv)
     kw = dict(bg=a.bg, tolerance=a.tolerance, opaque=a.opaque, connected=a.connected or a.bridge,
-              close_gaps=a.close_gaps, smooth=a.smooth, bridge=a.bridge, corners=a.corners, corner_light=a.corner_light, join=a.join)
+              close_gaps=a.close_gaps, smooth=a.smooth, bridge=a.bridge, corners=a.corners, corner_light=a.corner_light)
 
     src = Path(a.input)
     if src.is_dir():
