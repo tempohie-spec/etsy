@@ -223,6 +223,11 @@ class Remover:
         touch = np.unique(comp[ndimage.binary_dilation(gone | ring) & thin])
         keep = np.zeros(n + 1, bool)
         keep[touch] = True
+        # Khe hep thong tu nen da xoa vao mot khoang trang duoc giu ben trong (cho hai net gan cham nhau, vi du
+        # vien nguc va vien chan thu) la mot phan cua hinh ve, khong phai vet sot: khong xoa
+        kept_inside = (labels > 0) & ~gone & ~thin
+        inner = np.unique(comp[ndimage.binary_dilation(kept_inside) & thin])
+        keep[inner] = False
         keep[0] = False
         return keep[comp]
 
