@@ -21,7 +21,6 @@ CLOSE = 2         # px khe ho duoc bit khi bat close_gaps
 EDGE_REACH = 3    # px toi da de lay mau vien tu vung dac gan nhat
 CONNECT_MIN = 0.08
 JOIN_DARK = 0.45      # pixel khac nen hon muc nay coi la net ve dam khi noi net o cho giao
-SPECK_AREA = 20       # khoang nen kin nho hon muc nay (px) nam trong khe hep duoc coi la vet sot, khong phai chi tiet
 
 
 @dataclass
@@ -211,9 +210,8 @@ class Remover:
         light = (dist < o.corner_light) | gone
         if free is not None:
             light &= free   # duong noi qua cac pixel sang khong duoc vuot qua net chan
-        areas = self._regions_for(o)[1]
-        # Pixel net ve sang, hoac manh nen bi khep lai rat nho; khoang nen kin lon hon (ruot gang tay...) khong dung toi
-        cand = (labels == 0) | (~gone & (areas[labels] <= SPECK_AREA))
+        # Chi xet pixel net ve sang (khong thuoc vung nen nao); vung nen duoc giu lai thi khong bao gio dung toi
+        cand = labels == 0
         # Vet sot luon nam sat nen da xoa (o dau khe); chi tiet sang ben trong hinh (diem highlight...) nam xa hon
         near = ndimage.binary_dilation(gone, iterations=2 * r, mask=free)
         thin = light & ~ndimage.binary_opening(light, iterations=r) & cand & ~ring & near
@@ -225,7 +223,7 @@ class Remover:
         keep[touch] = True
         # Khe hep thong tu nen da xoa vao mot khoang trang duoc giu ben trong (cho hai net gan cham nhau, vi du
         # vien nguc va vien chan thu) la mot phan cua hinh ve, khong phai vet sot: khong xoa
-        kept_inside = (labels > 0) & ~gone & ~thin
+        kept_inside = (labels > 0) & ~gone
         inner = np.unique(comp[ndimage.binary_dilation(kept_inside) & thin])
         keep[inner] = False
         keep[0] = False
