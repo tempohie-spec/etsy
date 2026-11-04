@@ -819,6 +819,11 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Sheet gọn hơn, ít gọi Google hơn: không gửi "đã xem", đọc thưa khi ngồi yên (v9.64)
+
+- **👁 "đã xem" chỉ lưu ở máy này**, không gửi lên Google Sheet nữa (chiếm phần lớn số dòng mà chỉ có ích ở máy nguồn). 📋 "đã lấy" và ✅ "đã đăng" vẫn gửi như cũ. Sự kiện "xem" còn sót trong hàng chờ từ bản cũ được bỏ, không gửi. Các dòng "xem" đã có trên Sheet vẫn đọc bình thường.
+- **Nhịp đọc Sheet theo thao tác:** trong 2 phút sau lần thao tác cuối (chuột, phím, cuộn) đọc mỗi 10s; ngồi yên quá 2 phút thì 60s/lần; thao tác lại là về 10s ngay ở lượt kế tiếp. Mở trang, quay lại tab, bấm Publish vẫn đồng bộ ngay.
+
 ### Rà lỗi: tạm nghỉ đồng bộ, tên file, nút tải ảnh (v9.63)
 
 - **Tạm nghỉ đồng bộ (v9.61) không còn phạt nhầm:** request bị huỷ vì chuyển trang không bị tính là lỗi nữa (trước đó trang kế tiếp có thể phải chờ tới 10s mới đồng bộ). Lỗi lần đầu chưa nghỉ; từ lần 2 mới nghỉ 20s → 40s → … tối đa 3 phút.

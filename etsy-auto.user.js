@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.63
+// @version      9.64
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.63';
+  const PHIEN_BAN = '9.64';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -5095,6 +5095,9 @@
   const SO_LISTING_DANH_DAU_TOI_DA = 30000;
   const THOI_GIAN_TINH_DA_XEM = 3000;
   const CHU_KY_DONG_BO_DANH_DAU = 10000; // v9.59: 60s -> 10s (chi khi tab dang hien)
+  // v9.64: chi doc nhanh 10s trong 2 phut sau lan thao tac cuoi (chuot, phim, cuon); ngoi yen thi 60s/lan
+  const CHU_KY_DONG_BO_KHI_RANH = 60000;
+  const THOI_GIAN_CON_TINH_DANG_THAO_TAC = 120000;
   const HAN_KHOA_DONG_BO = 8000; // khoa chong 2 tab dong bo cung luc (v9.59: 20s -> 8s)
   const ID_TRANG_DANH_DAU = Math.random().toString(36).slice(2, 10);
   const HAN_NGUON_DANG_SOAN = 12 * 3600 * 1000; // dan xong qua 12h moi Publish thi khong tinh nua
@@ -5205,7 +5208,8 @@
     apSuKienDanhDau(kho, sk);
     ghiKhoDanhDau(kho);
     console.log(`[Etsy Auto] Đánh dấu listing ${sk.id}: ${loai}${loai === 'dang' ? ` (${sk.nhan || 'chưa đặt nhãn máy'})` : ''}`);
-    if (coSheetDanhDau(caiDat)) {
+    // v9.64: 👁 "da xem" chi giu o MAY NAY, khong gui len Sheet (chiem phan lon so dong ma chi co ich o may nguon)
+    if (loai !== 'xem' && coSheetDanhDau(caiDat)) {
       const hangCho = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []);
       hangCho.push(sk);
       luuGiaTri(KHOA_DANH_DAU_CHO_GUI, JSON.stringify(hangCho.slice(-5000)));
@@ -5505,11 +5509,14 @@
     dangDongBoTrangNay = true;
     luuGiaTri(KHOA_DANH_DAU_DANG_DONG_BO, `${ID_TRANG_DANH_DAU}|${Date.now()}`);
     try {
-      const choGui = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []);
+      // Su kien "xem" con sot trong hang cho tu ban cu (truoc v9.64) -> bo, khong gui
+      const choGui = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).filter((s) => s.loai !== 'xem');
       if (choGui.length) {
         await goiSheetDanhDau('POST', c.urlSheet, { biMat: c.biMat, suKien: choGui });
         const daGui = new Set(choGui.map((s) => `${s.t}|${s.loai}|${s.id}|${s.nhan}`));
-        const conLai = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).filter((s) => !daGui.has(`${s.t}|${s.loai}|${s.id}|${s.nhan}`));
+        const conLai = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).filter(
+          (s) => s.loai !== 'xem' && !daGui.has(`${s.t}|${s.loai}|${s.id}|${s.nhan}`)
+        );
         luuGiaTri(KHOA_DANH_DAU_CHO_GUI, JSON.stringify(conLai));
       }
       const conTro = docJsonLuu(KHOA_DANH_DAU_CON_TRO, { dong: 1 });
@@ -5643,7 +5650,8 @@
       }, 2500);
     })();
 
-    // Dong bo: ngay khi mo trang, khi tab hien lai / lay lai tieu diem, roi moi 10s khi tab dang hien
+    // Dong bo: ngay khi mo trang, khi tab hien lai / lay lai tieu diem, roi moi 10s khi dang thao tac
+    // (60s khi ngoi yen qua 2 phut) va chi khi tab dang hien
     if (coSheetDanhDau()) {
       henDongBoDanhDau(0); // v9.59: khong cho 2s nua
       const dongBoKhiQuayLai = () => {
@@ -5655,10 +5663,22 @@
         dangRoiTrangDanhDau = true;
         if (khoaDongBoDangGiu()) luuGiaTri(KHOA_DANH_DAU_DANG_DONG_BO, '0');
       });
+      let lanThaoTacCuoi = Date.now();
+      const ghiThaoTac = () => {
+        lanThaoTacCuoi = Date.now();
+      };
+      for (const loaiSk of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'scroll']) {
+        window.addEventListener(loaiSk, ghiThaoTac, { capture: true, passive: true });
+      }
       (async () => {
+        let lanDocCuoi = Date.now();
         for (;;) {
           await cho(CHU_KY_DONG_BO_DANH_DAU);
-          if (document.visibilityState === 'visible') henDongBoDanhDau(0);
+          if (document.visibilityState !== 'visible') continue;
+          const dangThaoTac = Date.now() - lanThaoTacCuoi < THOI_GIAN_CON_TINH_DANG_THAO_TAC;
+          if (!dangThaoTac && Date.now() - lanDocCuoi < CHU_KY_DONG_BO_KHI_RANH - 500) continue;
+          lanDocCuoi = Date.now();
+          henDongBoDanhDau(0);
         }
       })();
     }
