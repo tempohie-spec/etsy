@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.65
+// @version      9.66
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.65';
+  const PHIEN_BAN = '9.66';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -2871,8 +2871,39 @@
       ban('mousemove', x + (dx * i) / SO_BUOC, y + (dy * i) / SO_BUOC, 1);
       await cho(16);
     }
+    // v9.66: 1 nhip "dung yen" (cung toa do) ngay truoc khi tha -> van toc = 0. Khong co nhip nay thu vien
+    // react-zoom-pan-pinch tinh van toc cua nhip cuoi va cho anh TROI THEM theo quan tinh sau khi tha chuot
+    // (lech khoi vi tri da tinh, co khi troi tan mep).
+    ban('mousemove', x + dx, y + dy, 1);
     ban('mouseup', x + dx, y + dy, 0);
   }
+
+  // v9.66: Chrome DUNG HAN requestAnimationFrame o tab AN. Thanh zoom cua Etsy phong anh bang hieu ung (chay
+  // tren requestAnimationFrame) nen o tab an anh KHONG BAO GIO duoc phong; luc script keo, thu vien con HUY
+  // luon lan phong dang cho -> anh ket o zoom 1, keo bi chan o mep -> "khong keo duoc anh". Khong co cach
+  // ep trang chay hieu ung khi tab an, nen buoc nay CHO toi khi nguoi dung quay lai tab roi tu lam tiep
+  // (ca Publish) — thay vi bo do giua chung. Tieu de tab doi thanh "⏸ ..." de de nhan ra tab dang cho.
+  async function choTabHien(thongBao) {
+    if (document.visibilityState !== 'hidden') return;
+    const tieuDeCu = document.title;
+    document.title = '⏸ Quay lại tab này — ' + tieuDeCu;
+    hienThongBao(thongBao, '#F59E0B', 0);
+    console.log('[Etsy Auto] Tab đang ẩn — chờ quay lại tab để chỉnh thumbnail');
+    await new Promise((xong) => {
+      const kiemTra = () => {
+        if (document.visibilityState === 'hidden') return;
+        document.removeEventListener('visibilitychange', kiemTra);
+        xong();
+      };
+      document.addEventListener('visibilitychange', kiemTra);
+    });
+    if (document.title.startsWith('⏸ Quay lại tab này — ')) document.title = tieuDeCu;
+    await cho(300);
+  }
+
+  const THONG_BAO_CHO_TAB_THUMBNAIL =
+    '⏸ Đã upload xong — đang CHỜ bạn quay lại tab này để chỉnh thumbnail (Chrome tạm dừng hiệu ứng zoom ở tab ẩn). ' +
+    'Quay lại là script tự chỉnh tiếp và Publish.';
 
   // Sau khi upload xong: mo "Adjust thumbnails", dat zoom + vi tri theo cfg, kiem tra lai, bam Apply.
   // Tra ve { ok, chiTiet }. Neu buoc keo khong co tac dung thi DE MO hop thoai (zoom da dat) cho
@@ -2883,6 +2914,7 @@
       return n && !n.disabled && n.getAttribute('aria-disabled') !== 'true' && dangHienThi(n) ? n : null;
     }, 15000);
     if (!nut) return { ok: false, chiTiet: 'không thấy nút "Adjust thumbnails" (hoặc nút vẫn bị khoá)' };
+    await choTabHien(THONG_BAO_CHO_TAB_THUMBNAIL);
     nut.click();
 
     const hop = await choDieuKien(() => {
@@ -2898,11 +2930,25 @@
     if (!hop) return { ok: false, chiTiet: 'hộp thoại "Adjust thumbnail" không mở/không tải xong ảnh' };
     const { thanh, dlg, vo, noiDung, img } = hop;
 
-    // 1) Zoom: dat gia tri thanh truot (React nhan qua setter goc + su kien input/change)
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(thanh, String(cfg.zoom));
-    thanh.dispatchEvent(new Event('input', { bubbles: true }));
-    thanh.dispatchEvent(new Event('change', { bubbles: true }));
-    await cho(400);
+    // 1) Zoom: dat gia tri thanh truot (React nhan qua setter goc + su kien input/change), roi CHO toi khi anh
+    // thuc su phong xong (hieu ung zoom). Tab bi an giua chung -> cho quay lai tab, dat lai zoom.
+    const datZoom = () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(thanh, String(cfg.zoom));
+      thanh.dispatchEvent(new Event('input', { bubbles: true }));
+      thanh.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const daPhongXong = () => {
+      const t = docTransformThumbnail(noiDung);
+      return t && Math.abs(t.s - cfg.zoom) < 0.02;
+    };
+    let phongXong = false;
+    for (let lan = 0; lan < 3 && !phongXong; lan++) {
+      await choTabHien(THONG_BAO_CHO_TAB_THUMBNAIL);
+      datZoom();
+      phongXong = !!(await choDieuKien(daPhongXong, 3000, 100));
+    }
+    if (!phongXong) console.warn('[Etsy Auto] Zoom thumbnail chưa đạt', cfg.zoom, docTransformThumbnail(noiDung));
+    await cho(150);
 
     // 2) Vi tri: tinh dich chuyen can thiet tu transform hien tai, keo, doc lai, lap toi da 3 lan
     let keoDuoc = true;
@@ -2917,6 +2963,7 @@
       const dy = dich.ty - hienTai.ty;
       lech = Math.max(Math.abs(dx), Math.abs(dy));
       if (lech < 1.5) break;
+      await choTabHien(THONG_BAO_CHO_TAB_THUMBNAIL);
       await keoAnhThumbnail(noiDung, dx, dy);
       await cho(400);
       const sau = docTransformThumbnail(noiDung);
