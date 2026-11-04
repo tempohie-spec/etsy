@@ -408,6 +408,819 @@ Cũng thêm log kích thước từng ảnh (`console.log` dạng `Ảnh <tên>:
 — chưa có bằng chứng cho thấy dung lượng file là nguyên nhân, nhưng nếu lỗi còn tái diễn, log này
 cho dữ liệu cụ thể để kiểm tra thay vì phải đoán lại từ đầu.
 
+### "Không tìm thấy nút Publish copy with changes" dù ảnh đã lên đủ (v9.19)
+
+Log + ảnh chụp thực tế: toast báo `✅ Đã upload 10/10 ảnh ... ⚠️ không tìm thấy nút "Publish copy
+with changes"`, nhưng lưới ảnh lúc đó **vẫn còn vài thẻ đang hiện spinner xoay** (Etsy chưa xử lý
+xong hẳn) — `choEtsyXuLyAnh()` cũ chỉ kiểm tra **có `<img>` xem trước hay chưa**, mà `<img>` đó là
+Blob URL trình duyệt tự vẽ ngay lập tức nên có thể xuất hiện **trước** khi Etsy hoàn tất bước xử lý
+riêng của họ (thẻ vẫn phủ spinner đè lên trên). Script tưởng nhầm là đã "xong" ngay khi thấy đủ
+`<img>`, tiến luôn tới bước tìm nút Publish — nhưng nút đó vẫn đang **disabled** vì Etsy chưa xử lý
+xong, nên `timNutTheoNhan()` (chỉ chấp nhận nút không disabled) không tìm thấy.
+
+Hai thay đổi:
+
+1. `choEtsyXuLyAnh()` thêm kiểm tra **không còn spinner** trên từng thẻ ảnh mới (`dangXuLyRieng()`,
+   selector rộng kiểu `[role="progressbar"]`, `[aria-busy="true"]`, `[class*="spinner" i]`... — cùng
+   cách "dò rộng, không phụ thuộc 1 class cụ thể của Etsy" như `timThongBaoLoiUploadEtsy()`), và bắt
+   trạng thái "xong" phải **giữ nguyên qua 2 lần kiểm tra liên tiếp** (~1s/lần) mới tin — phòng khi
+   selector spinner đoán không khớp đúng markup thật của Etsy, 2 lần ổn định vẫn là một lớp bảo hiểm.
+2. Bước tìm nút **"Publish copy with changes"** đầu tiên đổi từ chờ cố định 600ms rồi kiểm tra
+   đúng 1 lần, sang chờ có polling tối đa 8s (`doiVaTimNutTheoNhan()`, giống 2 bước xác nhận sau
+   đó) — chấp nhận việc nút có thể còn disabled thêm vài giây sau khi ảnh cuối cùng đã xử lý xong.
+
+### Sửa lỗi "spinner rất lâu" do chính v9.19 gây ra + thêm log đo tốc độ (v9.20)
+
+Ngay sau v9.19, người dùng báo ảnh đứng spinner **rất lâu** so với tự upload từ thư viện ảnh trên
+máy. Nguyên nhân: `dangXuLyRieng()` ở v9.19 chỉ kiểm tra `querySelector()` có **tìm thấy** phần tử
+spinner hay không, **không kiểm tra phần tử đó có đang thật sự hiển thị không**. Nhiều khung giao
+diện (nhiều khả năng cả của Etsy) giữ sẵn phần tử spinner/progressbar trong DOM ngay cả khi đã **ẩn**
+(`display:none` hoặc tương đương) — `querySelector()` vẫn "tìm thấy" nó, nên `dangXuLyRieng()` có
+thể trả về `true` **mãi mãi** dù ảnh đã xử lý xong từ lâu, khiến `choEtsyXuLyAnh()` chờ hết veo
+`THOI_HAN_CHO_ETSY_XU_LY_ANH` (180s) **cho mỗi lô**, rồi còn thử lại thêm `SO_LAN_THU_LAI_LO` lần
+nữa — nhân lên thành vài phút "spinner" mỗi lô, đúng như người dùng mô tả.
+
+Sửa: `dangXuLyRieng()` giờ bắt buộc kiểm tra thêm `dangHienThi()` trên chính phần tử spinner tìm
+được — chỉ tính là "đang xử lý" khi spinner đó **thật sự đang hiện trên màn hình**, không chỉ đơn
+thuần tồn tại trong DOM.
+
+Nhân dịp sửa, thêm luôn **log đo tốc độ** trong `choEtsyXuLyAnh()` để tự kiểm tra được từ Console
+(F12) mà không cần đoán mò:
+
+- Mỗi ~5 giây trong lúc chờ, in 1 dòng tình trạng: số thẻ đã xuất hiện / số thẻ có ảnh xem trước /
+  số thẻ còn spinner — ví dụ `... đã chờ 10s cho 5 ảnh: 5/5 thẻ xuất hiện, 5/5 có ảnh xem trước, 1
+  thẻ còn spinner`. Nhìn dãy log này biết ngay đang **chờ Etsy xử lý thật** (số liệu đổi dần) hay
+  **bị kẹt ở đúng 1 thẻ** (số liệu đứng yên không đổi qua nhiều lần log).
+- Khi xử lý xong 1 lô, in tổng thời gian: `Etsy xử lý xong 5 ảnh sau 8.4s`.
+- Nếu hết hẳn thời hạn mà vẫn chưa xong, in cảnh báo rõ số giây đã chờ.
+
+### Log lần đầu cho thấy 2 kiểu chậm khác nhau — thêm log chi tiết phần tử spinner (v9.21)
+
+Nhờ log v9.20, lần thử tiếp theo của người dùng cho thấy **2 kiểu chậm khác hẳn nhau**, cả hai đều
+KHÔNG phải do lỗi selector "kẹt mãi mãi" của v9.19 (log số liệu có thay đổi theo thời gian, không
+đứng yên):
+
+- **Lô đầu tiên** (lưới đích đang trống — `soAnhCu = 0`): `0/5 thẻ mới xuất hiện` liên tục suốt
+  **85 giây** trước khi thẻ nào hiện ra, tổng cộng **89.4s** mới xong. Khi lưới đích còn trống, Etsy
+  gộp khu vực upload thành 1 ô "Drag and drop" duy nhất (xem mục "Chọn đúng ô upload" ở dưới) — nhiều
+  khả năng khung `[aria-roledescription="sortable"]` chỉ được Etsy dựng lên **sau khi** ảnh đầu tiên
+  đã thật sự lên xong ở backend, nên script không có gì để đếm trong lúc đó. Đây là thời gian Etsy
+  xử lý + dựng lại giao diện, không phải script bị kẹt.
+- **Lô sau** (lưới đã có ảnh): thẻ + ảnh xem trước hiện đủ **ngay từ giây thứ 5**, nhưng cả 5 thẻ
+  vẫn báo **"còn spinner" liên tục suốt 30 giây** trước khi hết, tổng **34.4s**.
+
+Vì chưa chắc chắn 100% "còn spinner" ở lô sau là spinner THẬT (Etsy đang xử lý thật) hay là script
+bắt nhầm 1 phần tử không liên quan (selector `[class*="spinner" i]`... vốn cố tình "dò rộng" nên có
+rủi ro khớp nhầm), thêm 1 log CHI TIẾT: lần đầu tiên bắt được 1 phần tử bị coi là spinner trong mỗi
+lượt `choEtsyXuLyAnh()`, in thẳng chính phần tử DOM đó ra Console (`console.log(..., spinner)`) —
+bấm vào để xem tag/class thật, thay vì chỉ đếm số lượng như log của v9.20. Nếu phần tử đó **không
+phải** spinner thật, sẽ biết ngay để thu hẹp lại selector.
+
+Thêm log này giúp lần báo lỗi tiếp theo (nếu spinner vẫn còn "lâu") có đủ dữ liệu để kết luận dứt
+điểm: do Etsy xử lý chậm thật (không sửa được từ script), hay do script đang bắt nhầm phần tử.
+
+### Lần thử tiếp theo: 0 thẻ ảnh xuất hiện suốt 2 lần thử liên tiếp (180s x 2) — thêm log xác nhận input nhận đủ file (v9.22)
+
+Log kế tiếp cho thấy tình huống **nặng hơn hẳn** 2 lần trước: `choEtsyXuLyAnh()` báo
+`0 thẻ đang có trên lưới` liên tục suốt **toàn bộ 180 giây**, rồi lô đó tự động **thử lại** (theo cơ
+chế đã có từ v9.7/v9.8) — và lần thử lại vẫn tiếp tục `0 thẻ` từ đầu, nghĩa là script đã chờ tổng
+cộng hơn 6 phút mà lưới ảnh không hề nhúc nhích. Đây không phải kiểu chậm "Etsy đang xử lý" như 2
+lần trước (số liệu ổn định, không tăng dần) — cần xác nhận file có thực sự vào được `<input>` hay
+không trước khi kết luận gì thêm.
+
+Đáng chú ý: log cùng lần đó cho thấy trong bước lấy ảnh, **3/5 ảnh sản phẩm gốc bị lỗi
+`GM_xmlhttpRequest không phản hồi sau 12s` ở CẢ 2 lần thử** (hết cả `SO_LAN_THU_LAI = 2`) và bị loại
+hẳn khỏi lô upload — cùng một kiểu lỗi mạng/CDN đã gặp nhiều lần trước đó trong quá trình phát triển
+(xem mục "Lỗi treo GM_xmlhttpRequest" phía trên), nhiều khả năng vẫn là mạng/CDN chập chờn phía
+người dùng tại thời điểm đó chứ không phải lỗi script.
+
+Thêm 1 log xác nhận ngay sau khi nhồi file vào `<input>`: in ra `id` của input, tên field cha (qua
+`timTruongChaTheoId()`), và **`input.files.length` đọc lại ngay sau khi gán** — để xác nhận chắc
+chắn (1) script có nhồi đúng `<input>` ảnh sản phẩm (không phải input video hay input sai do React
+vẽ lại) và (2) trình duyệt có thực sự ghi nhận đủ số file vào input hay không, NGAY TẠI THỜI ĐIỂM
+nhồi — tách bạch rõ 2 khả năng: nếu input nhận đúng đủ file mà sau đó vẫn không thẻ nào xuất hiện,
+nguyên nhân chắc chắn nằm ở phía Etsy (không đọc được sự kiện `change`, hoặc backend không xử lý),
+không còn là nghi vấn "nhồi sai/nhồi hỏng" từ phía script nữa.
+
+### Kết luận sau chuỗi log v9.19 → v9.22: cơ chế hoạt động đúng, bỏ log gây hoang mang (v9.23)
+
+Log tiếp theo (cùng listing, thử lại) mang tin tốt: **cả 9 ảnh (4 sản phẩm + 5 bảng size) upload
+thành công**, tổng thời gian chờ Etsy xử lý chỉ khoảng **45s** — không còn kiểu "0 thẻ suốt 180s"
+như lần trước. Log này còn xác nhận dứt điểm 2 nghi vấn còn treo lại:
+
+1. **`input.files.length` đọc ngay sau khi gán luôn ra `0`, kể cả ở lô THÀNH CÔNG** — chứng minh đây
+   chỉ là hiện tượng bình thường của Etsy (React tự xoá trắng `FileList` hiển thị của input ngay sau
+   khi nhận sự kiện `change`, để cho phép chọn lại đúng file đó ở lần sau), **không phải dấu hiệu
+   lỗi** như nghi ngờ ban đầu ở v9.22. Bỏ hẳn số liệu này khỏi log (chỉ giữ lại `id`/field cha của
+   input) vì nó chỉ gây hoang mang mỗi lần xem log mà không nói lên điều gì.
+2. **Phần tử bị coi là "còn spinner" đúng là spinner THẬT của Etsy**: log in ra
+   `<div data-clg-id="WtSpinner" role="alert" aria-live="assertive" class="wt-spinner wt-spinner--01">`
+   — `data-clg-id="WtSpinner"` là tên component nội bộ (Wonderland UI) của chính Etsy dùng cho
+   spinner, không phải phần tử bắt nhầm. Xác nhận các thay đổi ở v9.19–v9.21 đang hoạt động đúng.
+
+Kết luận: trường hợp cực đoan ở v9.22 (0 thẻ suốt 2×180s, đồng thời 3/5 ảnh fetch bị timeout ở cả 2
+lần thử) nhiều khả năng là **mạng/CDN của người dùng thực sự chập chờn nặng đúng lúc đó**, không
+phải lỗi trong script — cơ chế thử lại theo lô (v9.7/v9.8) đã hoạt động đúng thiết kế: tự thử lại
+thay vì bỏ cuộc ngay, và log tiến độ (v9.20/v9.21) cho thấy rõ chuyện gì đang xảy ra thay vì im lặng.
+
+### Phương án dự phòng: tự tải ảnh còn thiếu xuống máy khi upload tự động thất bại hẳn (v9.24)
+
+Một lần chạy khác cho thêm bằng chứng: batch cuối gặp đúng **3 lần liên tiếp lỗi 500 thật từ Etsy**
+(`POST .../listings/images 500`, kèm toast chính chủ "Hm, we're having trouble uploading those
+files..."). Script đã xử lý đúng — dừng lại sau khi thử hết `SO_LAN_THU_LAI_LO + 1` lần, báo rõ số
+ảnh còn thiếu — nhưng người dùng vẫn phải tự tìm cách hoàn tất phần còn lại. Nhân dịp này, hỏi thêm:
+tải hết ảnh xuống máy rồi tự chọn qua "Add photos" thật của Etsy có nhanh/ổn định hơn không?
+
+Câu trả lời: **có khả năng cao là có** — bằng chứng chính là phát hiện đã dẫn tới cơ chế thử lại ở
+v9.7/v9.8: người dùng từng test và xác nhận "upload ảnh trực tiếp từ máy tính thì rất nhanh, không
+lỗi". Lý do kỹ thuật: lỗi 500 xảy ra ở chính server Etsy khi xử lý file — xảy ra như nhau dù file
+được chọn bằng tay hay do script nhồi vào `<input>` — nhưng khi người dùng chọn tay **toàn bộ ảnh
+cùng lúc**, JS của Etsy tự điều phối/thử lại theo cách riêng của họ, có vẻ ổn định hơn hẳn cách
+script chia nhỏ 5 ảnh/lô rồi tiêm liên tục nhiều lần. Việc chọn lại file qua hộp thoại hệ điều hành
+thì KHÔNG script hoá được (giới hạn bảo mật trình duyệt, giống lý do không tự kéo-thả sắp xếp được).
+
+Vì file đã tải xuống máy được đặt tên kèm số thứ tự 2 chữ số (`... - 01.jpg`, `... - 02.jpg`...),
+sắp xếp theo Tên trong Explorer/Finder sẽ luôn đúng thứ tự carousel gốc, nên người dùng chỉ cần chọn
+hết rồi thả vào là ảnh lên đúng thứ tự, không cần kéo sắp xếp lại.
+
+Từ đó, thêm **phương án dự phòng tự động**: khi `tuUploadAnh()` phải dừng hẳn giữa chừng
+(`dungGiuaChung`, đã thử hết số lần cho phép), script **tự tải ngay các ảnh CHƯA upload được xuống
+máy** bằng `taiCacFileConLaiXuongMay()` — dùng lại chính các `File` đã có sẵn trong bộ nhớ (từ bước
+lấy ảnh song song trước đó), **không tốn thêm request nào**, đặt tên kèm `"... - con thiếu - 01..."`
+theo đúng thứ tự còn thiếu. Toast cuối cùng đổi từ "tự upload nốt phần còn thiếu" (không rõ làm sao)
+thành hướng dẫn cụ thể: mở "Add photos" thật của Etsy, sắp Downloads theo Tên, chọn hết rồi thả vào.
+
+### KHÔNG nhồi lại khi chỉ HẾT GIỜ (chưa chắc là lỗi thật) — tránh vượt giới hạn 20 ảnh (v9.25)
+
+Log tiếp theo lộ ra một lỗi thật: 1 lô hết giờ chờ (180s, không phải lỗi Etsy báo — chỉ là script tự
+bỏ cuộc), script vẫn **nhồi lại y hệt các file đó** như khi gặp lỗi thật, rồi lô "thử lại" đó thành
+công rất nhanh (5.2s). Điều này cho thấy nhiều khả năng ảnh của lần đầu **vẫn đang được Etsy xử lý
+phía sau hậu trường** khi script bỏ cuộc chờ — nhồi lại là nhồi **thêm một lượt chọn file mới**, trong
+khi Etsy có thể vẫn đang đếm cả lượt cũ vào tổng số ảnh của listing. Hậu quả thực tế: script tiếp tục
+chạy hết các lô sau, nhưng đến gần cuối thì Etsy chặn hẳn bằng thông báo gốc **"You can only add 20
+photos and 2 videos per listing. Select fewer files and try again."** — vừa có nguy cơ ảnh lên trùng,
+vừa bị chặn vượt hạn mức, dù tổng số ảnh thực người dùng chọn chưa hề vượt 20.
+
+Sửa 2 chỗ:
+
+1. **Chỉ nhồi lại khi Etsy TỰ BÁO LỖI THẬT** (`lyDo === 'loi_that'`, tức bắt được đúng toast lỗi của
+   Etsy — tín hiệu đáng tin, biết chắc lô đó bị từ chối). **Không còn nhồi lại khi chỉ HẾT GIỜ**
+   (`lyDo === 'het_gio'`) — trường hợp này script chỉ đang *nghi ngờ*, không có gì xác nhận ảnh đã
+   thật sự thất bại; nhồi thêm 1 lượt chọn file mới lúc này rủi ro cao hơn lợi ích. Gặp hết giờ ->
+   dừng lô đó ngay, chuyển sang phương án dự phòng tải-về-máy (v9.24) để người dùng tự kiểm tra và
+   hoàn tất bằng tay — an toàn hơn là tự ý đoán và nhồi lại.
+2. **Giảm `THOI_HAN_CHO_ETSY_XU_LY_ANH` từ 180s xuống 120s** — dữ liệu thực tế qua nhiều lần chạy
+   cho thấy các lô xử lý xong thật sự đều dưới 90s (thường chỉ vài giây, trường hợp lâu nhất quan
+   sát được là ~89s); 180s chỉ kéo dài thời gian chờ vô ích cho trường hợp thật sự bị kẹt.
+
+Toast báo lỗi cuối cùng cũng đổi từ "Đã thử lại N lần" (giả định luôn thử đủ số lần) thành đếm đúng
+**số lần đã thử thực tế** (`lanThuCuoi`), vì giờ có thể dừng chỉ sau 1 lần nếu gặp hết giờ ngay từ đầu.
+
+### Lô đầu tiên khi lưới đích còn trống hay bị kẹt — giảm xuống 1 ảnh để "khởi động" lưới (v9.26)
+
+Soát lại TẤT CẢ các log lỗi "kẹt" đã thu thập được từ v9.19 tới giờ (nhiều phiên chạy khác nhau,
+nhiều listing khác nhau), lộ ra một quy luật rất rõ: **lỗi kẹt (ảnh không hiện xem trước, không báo
+lỗi, không spinner — chỉ đứng im tới hết giờ) chỉ từng xảy ra ở đúng LÔ ĐẦU TIÊN của một lượt upload,
+và chỉ khi lưới đích đang HOÀN TOÀN TRỐNG lúc bắt đầu** (`soAnhCu === 0`). Log lúc đó luôn cho thấy
+input được nhồi vào có `id="(không id)"` — tức là ô `<input>` gộp chung "Drag and drop" mà Etsy dùng
+riêng khi lưới chưa có ảnh nào (xem mục "Chọn đúng ô upload" bên dưới). **Mọi lô sau đó** (lưới đã có
+ít nhất 1 ảnh, Etsy đã chuyển sang ô riêng `id="thumbnail-upload-..."`) — dù cùng kích thước 5 ảnh,
+cùng listing, cùng phiên chạy — **luôn ổn định**, kể cả khi phải đợi lâu vẫn luôn có tiến triển
+(spinner giảm dần, ảnh xem trước tăng dần), chưa từng đứng im hoàn toàn.
+
+Suy ra: bản thân cái ô `<input>` gộp chung lúc lưới trống có vẻ xử lý một lô nhiều file (5 ảnh) kém
+tin cậy hơn hẳn so với ô riêng dùng cho các lần sau — có thể do đây là ô dùng chung cho cả luồng kéo-
+thả lẫn chọn file, chưa được Etsy tối ưu cho việc nhận nhiều file cùng lúc qua sự kiện `change` giả
+lập.
+
+Sửa: khi `soAnhCu === 0`, **lô đầu tiên chỉ nhồi đúng 1 ảnh** (`KICH_THUOC_LO_KHOI_TAO = 1`) thay vì
+`KICH_THUOC_LO_UPLOAD` (5) như bình thường — đủ để Etsy chuyển lưới ra khỏi trạng thái "ô gộp chung"
+sang ô riêng ổn định. Từ lô thứ 2 trở đi (lưới đã có ít nhất 1 ảnh) mới dùng lại đúng kích thước 5
+ảnh/lô như cũ. Chỉ ảnh hưởng listing đích đang trống hoàn toàn lúc bắt đầu Alt+V — không đổi gì với
+các trường hợp lưới đích đã có sẵn ảnh từ trước.
+
+### `soAnhCu === 0` không phải điều kiện đúng — kiểm tra lại chính cái `<input>` mỗi lô (v9.27)
+
+Ngay lần chạy kế tiếp, giả định ở v9.26 (chỉ ô gộp chung lúc lưới TRỐNG mới không ổn định, chỉ lô
+ĐẦU TIÊN mới cần lô nhỏ) bị chứng minh sai: log cho thấy lưới đích **đã có sẵn 5 ảnh từ trước** (đợt
+upload trước đó trong cùng phiên), vậy mà lô kế tiếp (5 ảnh) **vẫn** bị nhồi vào đúng ô gộp chung
+`id="(không id)"` và **vẫn kẹt y hệt** kiểu cũ (`3/5 có ảnh xem trước, 0 thẻ còn spinner`, đứng im).
+Tức là: ô gộp chung không chỉ xuất hiện khi lưới trống, và không chỉ ở lô đầu tiên — `soAnhCu === 0`
+chỉ là sự trùng hợp quan sát được trong các log trước đó, không phải nguyên nhân thật.
+
+Sửa lại theo đúng tín hiệu quan sát trực tiếp thay vì suy đoán gián tiếp: **trước MỖI lô** (không chỉ
+lô đầu), tự hỏi lại `timOChonAnhSanPham()` xem ô hiện tại có `id` hay không — hễ **không có `id`**
+(ô gộp chung) thì lô đó chỉ nhồi **1 ảnh**, bất kể đang là lô thứ mấy hay lưới đã có sẵn bao nhiêu
+ảnh. Ngay khi ô có `id` ổn định (`thumbnail-upload-...`) trở lại thì lô tiếp theo mới quay về đúng
+kích thước 5 ảnh như cũ. Cách này tự thích ứng theo đúng trạng thái thật của trang tại từng thời
+điểm, không còn dựa vào một điều kiện gián tiếp (`soAnhCu`) có thể sai trong các tình huống khác.
+
+### Batch 1 ảnh vẫn kẹt — nghi ô gộp chung dùng cơ chế "Drag and drop" riêng, bắn thêm sự kiện thả (v9.28)
+
+Log kế tiếp phá luôn giả thuyết "do kích thước lô" của v9.26/v9.27: đã giảm xuống **đúng 1 ảnh** cho
+lô đó (xác nhận qua log `Đã nhồi 1 file vào <input id="(không id)"...>`), nhưng ảnh đó **vẫn không
+hiện xem trước**, số thẻ trên lưới còn tụt dần (3 → 1) theo thời gian chờ — tức là vấn đề chưa bao
+giờ nằm ở việc nhồi *bao nhiêu* file, mà nằm ở chính **cách ô gộp chung này phản ứng (hay không phản
+ứng) với việc nhồi file qua `<input>.files` + sự kiện `input`/`change`**.
+
+Giả thuyết mới: ô này tên là **"Drag and drop"** — rất có thể Etsy nối nó với một trình nghe sự kiện
+**`drop`** riêng (thả file kéo vào), khác với `change` thông thường của input — và trình nghe đó mới
+là con đường THẬT SỰ để đăng ký lượt chọn ảnh cho ô này, còn `change` có thể chỉ là lối dự phòng khi
+người dùng bấm để mở hộp thoại chọn file hệ điều hành (không áp dụng được khi script tự gán `.files`).
+
+`nhoiFileVaoO()` giờ bắn **thêm** (không thay thế) một chuỗi sự kiện kéo-thả đầy đủ
+(`dragenter` → `dragover` → `drop`) mang theo **cùng 1 `DataTransfer`** chứa các file, ngay sau
+`input`/`change` như cũ. An toàn với ô RIÊNG (`thumbnail-upload-...`) — nếu ở đó không có trình nghe
+`drop`, các sự kiện này không làm gì cả, đường `input`/`change` cũ vẫn hoạt động như trước.
+
+⚠️ Đây là một thay đổi **thử nghiệm dựa trên suy luận hợp lý** (giống hướng dẫn kéo-thả sắp xếp ảnh
+trong bảng chọn ở script — dùng đúng HTML5 Drag and Drop API), chưa có bằng chứng xác nhận 100% đây
+là nguyên nhân — cần chạy thực tế lần nữa mới biết chắc có giải quyết được hay không.
+
+### RÚT LẠI v9.28: bắn cả 2 sự kiện gây LÊN TRÙNG ảnh — quay về chỉ dùng input/change (v9.29)
+
+Lần chạy kế tiếp: mọi lô đều báo "Etsy xử lý xong" thành công, **không hề có lô nào lỗi/hết giờ/thử
+lại** — nhưng người dùng báo ảnh **bị lên trùng**, và Etsy chặn hẳn bằng thông báo gốc "You can only
+add 20 photos and 2 videos per listing" dù số ảnh người dùng chọn không hề vượt 20.
+
+Nguyên nhân gần như chắc chắn: ô đó (dù gộp chung hay riêng) rất có thể nghe **CẢ HAI** sự kiện
+`change` LẪN `drop` cùng lúc (không phải chỉ 1 trong 2 như giả thuyết ở v9.28) — bắn cả 2 sự kiện
+mang cùng 1 `DataTransfer` khiến Etsy **đăng ký file đó 2 lần**, mỗi lô 5 ảnh thành 10 ảnh trên
+lưới. Đây là hậu quả nghiêm trọng hơn hẳn vấn đề ban đầu (1 lô thỉnh thoảng bị kẹt/chậm) — ảnh trùng
+phải tự dọn tay, còn tệ hơn là dừng lại chờ.
+
+Rút lại toàn bộ thay đổi của v9.28: `nhoiFileVaoO()` quay về **chỉ** bắn `input` + `change` như từ
+đầu, không còn bắn thêm chuỗi `dragenter`/`dragover`/`drop` nữa. Đánh đổi: ô gộp chung "(không id)"
+có thể vẫn thỉnh thoảng bị kẹt ở lô đầu như trước v9.28 — nhưng đã có sẵn 2 lớp bảo vệ để giảm thiệt
+hại: giảm lô đó xuống 1 ảnh (v9.26/v9.27, ít nhất chỉ mất 1 ảnh mỗi lần kẹt thay vì cả 5), và tự tải
+phần còn thiếu xuống máy khi upload tự động thất bại hẳn (v9.24) — an toàn hơn nhiều so với rủi ro
+lên trùng ảnh + bị Etsy chặn vượt hạn mức.
+
+Người dùng còn nêu giả thuyết riêng: lỗi liên quan tới sản phẩm có **2 Custom option** (không bị khi
+thử sản phẩm khác không có custom option). Chưa có cơ sở kỹ thuật rõ ràng để giải thích mối liên hệ
+này (ô upload ảnh và Custom options là 2 phần độc lập của form, không chung DOM/logic) — ghi nhận lại
+đây, cần thêm dữ liệu (ví dụ thử đúng listing đó sau khi rút lại v9.28) mới kết luận được có phải
+trùng hợp hay không.
+
+### Có thể liên quan Custom options thật — chờ lâu hơn theo số ô đã tạo trước khi upload (v9.30)
+
+Sau v9.29, người dùng chạy lại đúng cặp so sánh (2 listing khác nhau, cùng 1 phiên): listing **có 2
+ô Custom options** ("Choose your favorite character" — List of options, và "Show Some Love to Our
+Shop" — Text box) **kẹt lại đúng ở lô đầu tiên** (đứng im hơn 60s, giống các lần trước); listing
+**không cần tạo Custom option nào** thì **chạy trơn tru toàn bộ**, không lô nào kẹt/lỗi/thử lại. Kết
+quả này khớp với giả thuyết người dùng nêu ở v9.29 — không còn là trùng hợp ngẫu nhiên nữa.
+
+Cơ chế nghi ngờ: `danTieuDeVaTag()` (luồng Alt+V) tạo TỪNG ô cá nhân hoá xong mới chuyển tab "Photo
+& Video" rồi bắt đầu upload — nhưng khoảng nghỉ trước đó chỉ cố định 300ms (trước khi bấm tab) và
+500ms (trước khi upload), KHÔNG PHỤ THUỘC vào việc vừa tạo bao nhiêu ô. Mỗi ô Custom option là 1 chu
+kỳ "Add field → điền → Done" riêng, có thể kéo theo request lưu/validate riêng phía Etsy — nếu vừa
+tạo XONG 2 ô mà lập tức chuyển tab + nhồi ảnh ngay, Etsy có thể vẫn còn đang xử lý/ổn định lại giao
+diện phía sau, đúng lúc đó gặp phải batch ảnh đầu tiên nên bị "kẹt" ở đúng thời điểm nhạy cảm này.
+
+Sửa (thay đổi AN TOÀN — chỉ làm chậm thêm vài giây, không đổi hành vi/thứ tự gì khác, để kiểm chứng
+giả thuyết mà không risk như v9.28): thời gian nghỉ trước khi chuyển tab và trước khi bắt đầu upload
+giờ **tăng theo đúng số ô Custom option vừa tạo được** (`ketQuaPerso.thanhCong`) — thêm 500ms mỗi ô:
+
+| Số ô Custom option đã tạo | Đợi trước khi bấm tab | Đợi trước khi bắt đầu upload |
+|---|---|---|
+| 0 (như trước) | 300ms | 500ms |
+| 1 | 800ms | 1000ms |
+| 2 | 1300ms | 1500ms |
+
+Console log thêm dòng `Đã tạo N ô cá nhân hoá — đợi thêm Xms trước khi chuyển tab...` khi có ít nhất
+1 ô, để dễ đối chiếu lần chạy tới xem có còn kẹt ở đúng listing nhiều Custom option hay không.
+
+### v9.30 KHÔNG đủ — chuyển hướng: nhờ người dùng tự thêm 1 ảnh trước khi script bắt đầu (v9.31)
+
+Người dùng thử lại đúng listing đó với v9.30: **vẫn kẹt y hệt** ở lô đầu (`0/1 có ảnh xem trước`,
+đứng im). Đợi lâu hơn không đủ để giải quyết — thời gian không phải (hoặc không phải toàn bộ)
+nguyên nhân thật. Tính đến đây, ô "(không id)" gộp chung đã "sống sót" qua **4 cách sửa khác nhau**
+(giảm batch xuống 1 ảnh, bắn thêm sự kiện drop, đợi lâu hơn theo Custom options) mà không cách nào
+giải quyết dứt điểm — trong khi **chính người dùng tương tác tay với đúng ô đó luôn thành công 100%**
+xuyên suốt cả quá trình debug.
+
+Nhân tiện, người dùng hỏi thêm: bảng chọn ảnh của listing này không hiện 2 lựa chọn "Sau khi upload
+xong" (Publish/Dừng) như bình thường — có liên quan không? Lúc đó trả lời "không liên quan" dựa trên
+dòng "Listing này đang có 2 ảnh" hiện trong bảng chọn — **nhưng người dùng khẳng định lại: listing
+đích thực tế đang HOÀN TOÀN TRỐNG, không hề có ảnh nào**. Nghĩa là chính con số "2 ảnh" đó mới là
+**sai** — và đây chính là đầu mối dẫn tới nguyên nhân gốc thật sự, xem mục v9.32 ngay dưới đây.
+
+Đổi hướng hẳn thay vì tiếp tục đoán thêm cách sửa code: **khi phát hiện ô upload đang ở dạng gộp
+chung ngay từ đầu (trước khi làm bất cứ điều gì khác)**, script dừng lại và hiện hộp thoại nhờ
+**chính người dùng tự tay thêm 1 ảnh bất kỳ** (bấm "Add photos" thật của Etsy, chọn 1 ảnh tuỳ ý —
+nội dung không quan trọng, có thể xoá/thay sau) — chỉ cần đủ để Etsy chuyển lưới ra khỏi ô gộp chung
+sang ô riêng ổn định. Bấm "Đã thêm, tiếp tục" thì script tự xác nhận lại ô đã có `id` ổn định rồi
+mới tiếp tục toàn bộ phần còn lại (mở bảng chọn ảnh, tải, upload...) hoàn toàn tự động như trước.
+
+Đây là hướng đi khác hẳn 4 lần sửa trước: **không cố script hoá thêm nữa**, mà đưa đúng 1 bước duy
+nhất (thêm 1 ảnh) — bước nhỏ nhất có thể — sang cho người dùng làm bằng tay, dựa trên bằng chứng
+chắc chắn nhất đã có: tương tác tay luôn thành công.
+
+### TÌM RA NGUYÊN NHÂN GỐC THẬT SỰ: `layCacTheAnh()` đếm nhầm cả phần tử "sortable" của Custom options (v9.32)
+
+Người dùng phản bác đúng chỗ: listing đích **thực tế đang trống hoàn toàn** (không phải "đã có 2
+ảnh" như dòng chữ trong bảng chọn), và chỉ ra mốc thời gian quan trọng — **lỗi này chỉ xuất hiện sau
+khi thêm tính năng điền nhiều Custom option cùng lúc (v9.18)**. Đặt 2 dữ kiện cạnh nhau — soi lại
+`layCacTheAnh()` (hàm đếm số ảnh đang có trên lưới, dùng
+`document.querySelectorAll('[aria-roledescription="sortable"]')`) — lộ ra đúng là hàm này **quét
+trên TOÀN BỘ `document`, không giới hạn trong khu vực lưới ảnh**.
+
+Listing của người dùng có 1 trường Custom option kiểu **"List of options"** với **2 lựa chọn**
+("Choose your favorite character"). Danh sách lựa chọn của trường này (nằm ở tab *Item Options*,
+không phải *Photo & Video*) **cũng được Etsy dựng bằng dnd-kit** (cho phép kéo sắp xếp lại thứ tự
+lựa chọn) nên **cũng mang `aria-roledescription="sortable"`** — giống hệt thuộc tính dùng để nhận
+diện thẻ ảnh. Etsy là SPA và rất có thể **không gỡ hẳn nội dung tab khác khỏi DOM khi chuyển tab**
+(chỉ ẩn bằng CSS) — nên khi đang ở tab Photo & Video, `document.querySelectorAll(...)` vẫn quét
+trúng cả 2 phần tử "sortable" đó từ tab Item Options đang ẩn, đếm nhầm thành **"2 ảnh"** dù thực tế
+listing chưa có ảnh nào. Đây chính là gốc rễ khiến `soAnhCu` sai — kéo theo lệch cả vị trí lát cắt
+(`slice`) khi kiểm tra thẻ ảnh mới trong `choEtsyXuLyAnh()`, tạo ra đúng triệu chứng "kẹt" đã thấy
+xuyên suốt (kiểm tra nhầm phần tử không phải ảnh, nên mãi mãi không thấy `<img>` xem trước).
+
+Mốc thời gian khớp hoàn toàn: trước v9.18, script vẫn tạo được 1 Custom option kiểu "List of
+options" (tính năng có từ v7.2), nhưng có lẽ các listing người dùng test trước đó chỉ dùng kiểu
+*Text box* (không có danh sách lựa chọn nào để đếm nhầm) — sự cố chỉ thật sự lộ ra khi bắt đầu test
+với listing có Custom option kiểu *List of options*.
+
+Sửa đúng gốc: thêm `timKhoiAnhSanPham()` — tìm khối cha mang id liên quan tới ảnh (ví dụ
+`field-listingImages`, dùng lại đúng cách dò của `timTruongChaTheoId()`) từ chính `<input>` ảnh sản
+phẩm đã xác định được. `layCacTheAnh()` giờ **quét bên trong khối đó**, không còn quét cả
+`document` — loại hẳn khả năng đếm nhầm phần tử sortable từ Custom options, Variations, hay bất kỳ
+khu vực nào khác của trang. Dự phòng: nếu không xác định được khối (ví dụ chưa mở đúng tab), vẫn
+quét cả trang như cũ — thà thừa còn hơn thiếu, giữ nguyên triết lý gốc của hàm này.
+
+Giữ nguyên hộp thoại "nhờ thêm 1 ảnh tay" của v9.31 làm lớp bảo vệ dự phòng — không rõ liệu ô
+"(không id)" gộp chung có phải hoàn toàn do lỗi đếm này gây ra hay là một vấn đề thật sự riêng biệt,
+nên chưa vội gỡ bỏ; nếu sau bản sửa này không còn gặp lại hộp thoại đó nữa, xem như xác nhận đây
+đúng là nguyên nhân duy nhất.
+
+### Bỏ hộp thoại "nhờ thêm 1 ảnh tay" (v9.33)
+
+Sau khi xác nhận v9.32 sửa đúng gốc, bỏ hẳn `moYeuCauThemAnhThuCong()` và phần gọi nó trong
+`tuUploadAnh()` (thêm tạm ở v9.31 làm lớp bảo vệ khi chưa rõ nguyên nhân) — quay lại đúng luồng tự
+động hoàn toàn: chỉ còn kiểm tra "có tìm thấy ô upload ảnh hay không" như trước v9.31, không còn bắt
+người dùng thêm ảnh tay trước khi bắt đầu nữa.
+
+### Dọn 2 lớp vá tạm không còn cần: lô 1 ảnh khởi động + chờ theo Custom options (v9.34)
+
+Sau khi xác nhận v9.32 sửa đúng gốc (đếm nhầm phần tử sortable của Custom options) không còn kẹt
+nữa, dọn nốt 2 thay đổi tạm thời từng thêm vào lúc chưa tìm ra nguyên nhân thật, để code gọn lại
+đúng bằng mức cần thiết:
+
+1. **Bỏ logic "lô đầu tiên nhồi 1 ảnh"** (`KICH_THUOC_LO_KHOI_TAO`, thêm ở v9.26/v9.27) — quay lại
+   nhồi cố định `KICH_THUOC_LO_UPLOAD` (5 ảnh/lô) cho mọi lô như từ v9.7, không còn kiểm tra `id`
+   của ô upload trước mỗi lô nữa.
+2. **Bỏ thời gian chờ tăng theo số ô Custom option** (`choSauKhiDanTruocTab`/`soOPersoDaTao`, thêm ở
+   v9.30) — quay lại đúng 300ms trước khi bấm tab Photo & Video và 500ms trước khi bắt đầu upload,
+   không phụ thuộc số ô cá nhân hoá vừa tạo nữa.
+
+### Vì sao nhồi theo lô nhỏ (5, nay là 7 ảnh) thay vì nhồi hết 1 lần? (nhắc lại)
+
+Đây là câu hỏi người dùng hỏi lại giữa lúc dọn dẹp ở trên — nhắc lại nguyên nhân gốc (đã có từ v9.7,
+xem mục "Nhồi ảnh theo từng lô nhỏ..." phía dưới): **không liên quan gì đến lỗi ô gộp chung vừa sửa
+ở trên** — đây là một vấn đề hoàn toàn khác, đã xác nhận bằng log thực tế từ rất sớm trong quá trình
+phát triển.
+
+Log thực tế khi đó: nhồi **8 ảnh cùng lúc** vào ô upload, ảnh xem trước (blob URL, trình duyệt tự vẽ
+ngay lập tức) vẫn hiện bình thường trên cả 8 ô — nhưng Console lại có nhiều dòng
+`POST .../api/v3/ajax/shop/{id}/listings/images 400 (Bad Request)` và Etsy tự bung toast đỏ **"File
+not uploaded"**. Tức là: ảnh xem trước chỉ là trình duyệt tự vẽ từ chính `File` object đưa vào —
+hoàn toàn không cần đợi Etsy thật sự nhận được file ở backend. Việc thật sự tải file lên server là
+**request POST riêng do JavaScript của Etsy tự thực hiện**, và backend đó của Etsy có vẻ **quá tải
+khi nhận quá nhiều file trong 1 lần chọn** — dẫn tới một số ảnh bị từ chối (400) mà không hề hay
+biết nếu chỉ nhìn ảnh xem trước.
+
+Giải pháp: chia nhỏ ra **từng lô 5 ảnh** (`KICH_THUOC_LO_UPLOAD`), đợi Etsy xử lý xong hẳn lô này
+(qua `choEtsyXuLyAnh()`, kiểm tra ảnh xem trước THẬT + không còn spinner) rồi mới nhồi lô tiếp theo
+— giảm tải cho backend upload của Etsy, tránh đúng kiểu lỗi 400 nói trên. Chi tiết đầy đủ xem mục
+"Nhồi ảnh theo từng lô nhỏ + phát hiện lỗi upload THẬT của Etsy (v9.7)" phía dưới.
+
+### Lô 7 ảnh + sửa 3 lỗi ở vòng thử lại upload (v9.35)
+
+**Lô 5 → 7 ảnh** (`KICH_THUOC_LO_UPLOAD = 7`): vẫn dưới ngưỡng 8 ảnh/lần đã từng gặp lỗi 400, nhưng
+20 ảnh giờ chỉ còn 3 lô (7+7+6) thay vì 4. Nếu thấy toast "File not uploaded" xuất hiện thường xuyên
+hơn thì hạ lại 6 hoặc 5.
+
+Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một lô **bị lỗi rồi thử lại**):
+
+1. **Toast lỗi cũ làm lần thử lại "thất bại" ngay lập tức.** Toast đỏ của lần hỏng trước vẫn còn trên
+   màn hình vài giây, nên lần thử lại vừa nhồi xong đã "thấy lỗi" trong 0 giây → đốt sạch cả 3 lượt
+   thử trong ~6s và nhồi trùng cả lô 3 lần mà chưa lần nào thật sự được chờ (khớp với log lỗi 500 trước
+   đây: các lần thử lại đều báo lỗi tức thì). Giờ trước mỗi lần nhồi, script bấm nút đóng (X) của toast
+   lỗi đang hiện (nếu có) và ghi nhớ những toast còn sót lại để **bỏ qua** — chỉ toast lỗi **mới** mới
+   tính là lỗi của lần nhồi này.
+2. **Đếm thẻ mới bị lệch sau lần thử hỏng.** Trước đây vị trí thẻ mới được tính cộng dồn
+   (`soAnhCu + số ảnh đã xong`). Nếu lần hỏng vẫn để lại vài ảnh đã lên được, phép cộng dồn lệch → script
+   lấy nhầm thẻ cũ làm "thẻ mới" và có thể báo xong khi các thẻ cuối vẫn còn đang xử lý. Giờ số thẻ được
+   **đo ngay trước mỗi lần nhồi**. Trước khi thử lại, script cũng chờ lưới "yên" (hết spinner, số thẻ
+   đứng yên, tối đa 20s) thay vì chờ cứng 3s, và log số thẻ chênh lệch để biết có ảnh bị lên trùng
+   không.
+3. **Toast "You can only add 20 photos and 2 videos per listing" không được nhận ra** → script ngồi chờ
+   tới hết 120s. Giờ câu này được bắt ngay (lý do `het_cho`, **không** thử lại vì vô ích), và trước mỗi
+   lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
+   còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
+
+### Sửa lỗi chỉnh thumbnail "không kéo được ảnh" khi tab đang ẩn (v9.66)
+
+**Nguyên nhân (đã tái hiện bằng đúng thư viện react-zoom-pan-pinch 2.x mà Etsy dùng):** thanh zoom của hộp thoại "Adjust thumbnail" phóng ảnh bằng hiệu ứng chạy trên `requestAnimationFrame` — Chrome **dừng hẳn** thứ này ở tab ẩn. Ảnh không được phóng, và khi script kéo thì thư viện còn huỷ luôn lần phóng đang chờ → ảnh kẹt ở zoom 1, bị chặn ở mép → "đã đặt độ phóng nhưng không kéo được ảnh", không Publish.
+
+- Đến bước chỉnh thumbnail mà tab đang ẩn: script **chờ** bạn quay lại tab (thông báo vàng + tiêu đề tab đổi thành **"⏸ Quay lại tab này — ..."** để dễ tìm), quay lại là tự chỉnh tiếp, Apply và Publish như bình thường. Tab bị ẩn giữa chừng (lúc đang zoom/kéo) cũng chờ rồi làm lại bước đó.
+- Sau khi đặt zoom, script **chờ ảnh phóng xong thật** (đọc lại scale) rồi mới kéo, thay vì chờ cố định 0,4s.
+- Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
+- Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
+
+### Sheet chỉ ghi "đã đăng", cột B là link sản phẩm (v9.65)
+
+- **📋 "đã lấy" cũng chỉ lưu ở máy này** (giống 👁 từ v9.64). Google Sheet giờ chỉ nhận ✅ "đã đăng" — thứ duy nhất cần chia sẻ giữa các máy. Sự kiện xem/lấy còn trong hàng chờ từ bản cũ được bỏ.
+- **Cột B ghi link sản phẩm** `https://www.etsy.com/listing/<id>` thay vì chỉ số ID (bấm vào là mở listing). Script đọc được cả dòng cũ (số ID) lẫn dòng mới (link).
+- **Cần cập nhật mã Apps Script** (chỉ 1 lần): 🏷️ Đánh dấu listing → **📋 Copy mã Apps Script** → dán đè toàn bộ mã trong Apps Script → Lưu → Triển khai → Quản lý các bản triển khai → ✏️ → Phiên bản: **Phiên bản mới** → Triển khai (giữ nguyên URL). Chưa cập nhật thì Sheet vẫn chạy như cũ (cột B là số ID).
+- **Đổi các dòng cũ thành link** (tuỳ chọn): trong trình soạn thảo Apps Script chọn hàm `doiIdThanhLink` → **Chạy** 1 lần.
+
+### Sheet gọn hơn, ít gọi Google hơn: không gửi "đã xem", đọc thưa khi ngồi yên (v9.64)
+
+- **👁 "đã xem" chỉ lưu ở máy này**, không gửi lên Google Sheet nữa (chiếm phần lớn số dòng mà chỉ có ích ở máy nguồn). 📋 "đã lấy" và ✅ "đã đăng" vẫn gửi như cũ. Sự kiện "xem" còn sót trong hàng chờ từ bản cũ được bỏ, không gửi. Các dòng "xem" đã có trên Sheet vẫn đọc bình thường.
+- **Nhịp đọc Sheet theo thao tác:** trong 2 phút sau lần thao tác cuối (chuột, phím, cuộn) đọc mỗi 10s; ngồi yên quá 2 phút thì 60s/lần; thao tác lại là về 10s ngay ở lượt kế tiếp. Mở trang, quay lại tab, bấm Publish vẫn đồng bộ ngay.
+
+### Rà lỗi: tạm nghỉ đồng bộ, tên file, nút tải ảnh (v9.63)
+
+- **Tạm nghỉ đồng bộ (v9.61) không còn phạt nhầm:** request bị huỷ vì chuyển trang không bị tính là lỗi nữa (trước đó trang kế tiếp có thể phải chờ tới 10s mới đồng bộ). Lỗi lần đầu chưa nghỉ; từ lần 2 mới nghỉ 20s → 40s → … tối đa 3 phút.
+- **Lỗi 403 "Access Denied / You need access"** giờ báo thẳng cách sửa: Triển khai → Quản lý các bản triển khai → ✏️ → Thực thi "Tôi", truy cập "Bất kỳ ai" → Phiên bản mới.
+- **Tên file:** bỏ thêm dấu `\`, ký tự điều khiển và dấu chấm/khoảng trắng ở cuối tên (Windows không cho), áp dụng cho mọi lần tải ảnh.
+- **Nút ⬇ tải ảnh:** không quét toàn bộ trang mỗi 500ms khi trang không có dải thumbnail, và không tính lại vị trí khi tab đang ẩn.
+
+### Pop-up cảnh báo khi máy chưa đặt nhãn (v9.62)
+
+Mỗi lần ghi nhận **xem / lấy dữ liệu / đăng** mà máy này chưa đặt "Nhãn máy" trong 🏷️ Đánh dấu listing, trên cùng màn hình hiện pop-up vàng **"⚠️ Máy này CHƯA ĐẶT NHÃN"** (nói rõ vừa ghi nhận hành động nào).
+
+- Có nút **🏷️ Đặt nhãn ngay** (mở thẳng hộp cài đặt) và **Đóng**; pop-up không chặn thao tác, ghi nhận liên tiếp chỉ cập nhật nội dung chứ không chồng nhiều cái.
+- Thay cho thông báo nhỏ 8 giây trước đây (chỉ hiện khi bấm Publish).
+- Đã đặt nhãn thì không hiện.
+
+### Lỗi đồng bộ Sheet (403): hiện lý do thật + tự giãn nhịp (v9.61)
+
+Khi Google trả về trang HTML thay vì JSON (403/429...), thông báo lỗi giờ kèm **đoạn chữ đầu trang lỗi của Google** (vd "Google nói: ...vượt quá hạn mức...") và ghi ra Console, để biết đúng nguyên nhân thay vì chỉ "dữ liệu lạ".
+
+- Đồng bộ lỗi thì **tạm nghỉ tăng dần** 10s → 20s → 40s ... tối đa 3 phút (lưu chung nên mọi tab/trình duyệt cùng nghỉ), không dập Google mỗi 10s nữa. Có kết nối lại thì trở về nhịp 10s.
+- Nút **Đồng bộ ngay** và lúc bấm **Publish** vẫn gửi ngay, không bị chặn bởi thời gian nghỉ.
+- Sự kiện chưa gửi vẫn nằm trong hàng chờ của máy và tự gửi khi Sheet dùng lại được.
+
+### Nút ⬇ tải ảnh đang xem ở góc ảnh chính (v9.60)
+
+Trên trang `/listing/...`, góc trên-trái của ảnh chính có nút **⬇**. Bấm vào là tải **ảnh đang hiển thị** (bản full size `il_fullxfull`), tên file = **tiêu đề sản phẩm** (đã bỏ ký tự cấm như `/ : * ? " < > |`, tối đa 100 ký tự).
+
+- Ảnh chính được tìm theo hình học (ảnh lớn nhất nằm trong khung carousel, không tính dải thumbnail) nên vẫn đúng khi bấm mũi tên hoặc chọn thumbnail khác; ảnh được xác định lúc **bấm** nút.
+- Nếu đang hiện video thì nút ẩn / báo không có ảnh chính.
+- Dùng lại cơ chế tải sẵn có (blob → GM_download, có dự phòng), nên không cần cấp thêm quyền.
+- Tải nhiều ảnh cùng 1 listing sẽ trùng tên: trình duyệt tự thêm `(1)`, `(2)`... vào cuối.
+
+### Nhãn hiện nhanh hơn: đồng bộ Sheet 10s, ngay khi mở trang/quay lại tab, gửi ngay khi Publish (v9.59)
+
+Nguyên nhân nhãn chậm dù Sheet đã có dữ liệu: chu kỳ đọc Sheet 60s, trang mới chờ ~2s mới đọc, khoá đồng bộ 20s bị kẹt khi chuyển trang giữa lúc đang đồng bộ, lệnh gửi khi Publish bị hoãn 1,5s (và mất nếu chuyển trang), và vẽ lại nhãn trễ 500ms.
+
+- Đọc Sheet mỗi **10s** (chỉ khi tab đang hiển thị), khoá chống đồng bộ trùng rút còn 8s, có chủ khoá và tự nhả khi rời trang.
+- Đọc Sheet **ngay** khi mở trang, khi quay lại tab (`visibilitychange`) hoặc lấy lại tiêu điểm cửa sổ.
+- Nút **Publish** gửi sự kiện "đã đăng" lên Sheet **ngay lập tức** (đo thực tế ~0,2s).
+- Vẽ lại nhãn sau 100ms khi lưới thay đổi; nếu có yêu cầu đồng bộ lúc đang đồng bộ thì tự chạy lại ngay sau đó.
+- Giới hạn: Google Apps Script không đẩy dữ liệu về máy khác được, nên nhãn từ máy khác hiện tối đa sau ~10s (hoặc ngay khi mở/quay lại tab, sau 1 lượt gọi Sheet ~1–3s). Nhãn do chính máy này ghi hiện tức thì.
+
+### Sửa lỗi: thẻ trùng listing không có nhãn (v9.58)
+
+Triệu chứng: một số listing (vd đơn 4493811737) **không hiện nhãn "đã đăng ở shop nào" trên thumbnail** dù trang listing của chính nó vẫn
+ghi đủ "Đã đăng ở LitbyArt, GDShopzDesigns" (tức dữ liệu có, chỉ nhãn trên lưới thiếu). Nguyên nhân: `timCacTheListing()` chỉ lấy **thẻ đầu
+tiên của mỗi mã listing trên cả trang**. Etsy hay hiện cùng 1 listing ở nhiều chỗ (shop: hàng "Featured/Popular items" rồi lại "All items";
+kết quả tìm kiếm: quảng cáo + kết quả thường) nên thẻ đầu nhận nhãn, các thẻ trùng phía sau không.
+
+Sửa:
+- Hàm mới `timMoiTheListing()`: lấy **mọi thẻ** của mỗi listing (vẫn chỉ phần tử ngoài cùng trong mỗi thẻ; bỏ phần tử lồng bên trong cùng mã như
+  nút tim/khối ảnh), nhãn gắn lên **tất cả** các thẻ. Mini thống kê của Etsy API vẫn dùng hàm cũ.
+- **Vẽ lại định kỳ 2,5s** (chỉ khi tab đang hiện, chỉ thêm nhãn còn thiếu): Etsy/HeyEtsy có thể vẽ lại nội dung thẻ (rê chuột, tải ảnh) làm mất nhãn
+  mà không có node mới nào mang `data-listing-id` để bộ theo dõi DOM nhận ra.
+- Đo vị trí nhãn chỉ khi nội dung hoặc bề rộng thẻ đổi (tránh đo layout mỗi lần vẽ lại).
+
+Đã thử bằng Chromium với trang shop có hàng Featured + All items trùng listing, thẻ lồng nhiều phần tử cùng mã, xoá nhãn rồi chờ tự vẽ lại; bản 9.57
+chạy cùng bài thử cho đúng triệu chứng trên (thẻ trùng ở "All items" không có nhãn).
+
+### Nhãn chỉ hiện tên tài khoản đã đăng, sát mép phải ảnh (v9.57)
+
+- **Chỉ còn tên các tài khoản đã đăng** (mỗi tài khoản một dòng, "✅ Tên"). Bỏ dòng 📋👁 và các nhãn "Đã xem" / "Đã lấy" trên lưới; listing chưa
+  đăng ở tài khoản nào thì **không có nhãn**. Thông tin 👁 / 📋 vẫn có ở tooltip (rê chuột vào nhãn) và ở dòng tóm tắt dưới tiêu đề trang listing.
+- Nhãn **dính sát mép phải** của ảnh (lề 0, chỉ bo góc bên trái). Không còn né nút tim nữa: nút tim của Etsy hiện lên **trên** nhãn khi rê chuột
+  nên có thể che đuôi vài ký tự của 1–2 dòng đầu lúc đó. Vẫn tránh tag bên trái ("Popular now"…): tên vừa chỗ thì ở góc trên, dài hơn thì tự
+  hạ xuống dưới tag để không bị cắt.
+
+### Nhãn hiện đủ tên mọi tài khoản đã đăng, mỗi tài khoản một dòng (v9.56)
+
+Trước đây nhãn gộp "✅ A, B +1" (chỉ 2 tên đầu). Giờ **mỗi tài khoản đã đăng một dòng riêng** (mới đăng nhất ở trên), tối đa 10 dòng, quá thì
+dòng cuối ghi "+N tài khoản nữa". Dưới các dòng tài khoản có 1 dòng nhỏ 📋👁 (đã lấy dữ liệu / đã xem) nếu có; chưa đăng ở đâu thì vẫn là nhãn
+đơn "📋 Đã lấy 👁" (xanh dương) hoặc "👁 Đã xem" (xám). Rê chuột vào nhãn vẫn thấy thời điểm đầy đủ.
+
+Vị trí tự tránh các thứ của Etsy (`datViTriNhanDanhDau()`): đo vị trí thật của **nút tim** và **tag bên trái** ("Popular now"…) trên từng thẻ:
+- nhãn dời sang trái đủ để không đè nút tim, giới hạn bề rộng để không tràn sang tag / ra ngoài ảnh;
+- tên **vừa chỗ bên cạnh** tag + tim thì giữ ở góc trên-phải; tên **dài không vừa** thì tự **hạ xuống dưới hàng tag + tim** để hiện đủ bề rộng
+  (chỉ khi tên dài hơn cả bề rộng thẻ mới bị cắt "…").
+Chuyển trang / thẻ nạp thêm khi cuộn thì vẽ lại, không bị nhân đôi dòng.
+
+### Ghi chú "đang đăng listing nào" theo từng tab + nghe Publish trên mọi trang (v9.55)
+
+Triệu chứng: dùng Alt+V nhưng đôi khi listing không được ghi "✅ đã đăng" (đã điền đủ URL, mã, nhãn). Hai nguyên nhân đã sửa:
+
+1. **Ghi chú dùng chung cho cả trình duyệt.** Alt+V lưu ghi chú "listing nguồn X đang được soạn" vào 1 chỗ chung (`GM_setValue`). Mở 2 tab
+   soạn, Alt+V listing A ở tab 1 rồi Alt+V listing B ở tab 2 thì ghi chú bị ghi đè thành B → bấm Publish ở tab 1 đánh dấu **nhầm B** (rồi xoá
+   ghi chú), A và B đều không được đánh dấu đúng. Giờ ghi chú lưu **theo từng tab** (`sessionStorage`: riêng mỗi tab, giữ qua F5 và chuyển
+   trang nội bộ của Etsy). Không dùng được `sessionStorage` thì quay lại kho chung cũ để vẫn chạy.
+2. **Chỉ nghe click Publish khi trang soạn được tải trực tiếp.** Userscript chạy 1 lần mỗi lần tải trang; Etsy chuyển trang nội bộ (không tải
+   lại) thì không chạy lại — vào trang soạn bằng "Copy listing" từ trang danh sách sẽ không có ai nghe click. Giờ phần nghe click gắn trên
+   **mọi trang etsy.com**, và kiểm tra đường dẫn (`/your/shops/me/listing-editor`) **ngay lúc click**; nút "Publish" ở trang khác hoặc nút
+   "Publish copy with changes" không bị tính, chỉ nút "Publish" cuối cùng.
+
+Thử bằng Chromium với 2 tab chung 1 trình duyệt: Alt+V A (tab 1), Alt+V B (tab 2) → Publish tab 1 đánh dấu đúng A, tab 2 đánh dấu đúng B;
+Alt+V → F5 → Publish vẫn đúng; vào trang soạn bằng `pushState` (không tải lại) vẫn nghe được; Publish ở trang khác không bị tính. Bản 9.54 chạy
+cùng bài thử đó cho kết quả sai (tab 1 đánh dấu nhầm B).
+
+Chưa sửa (có thể làm tiếp): vẫn ghi nhận **ngay lúc click Publish**, chưa đợi Etsy báo đăng thành công (Etsy báo lỗi thiếu thông tin rồi bạn
+bấm Publish lần 2 thì lần 2 không có ghi chú). Dấu 👁 "đã xem" cũng chỉ ghi khi tải trang trực tiếp, chưa theo dõi chuyển trang nội bộ.
+
+### Chọn ảnh + chọn/sửa Custom options trong MỘT hộp thoại (v9.54)
+
+Trước đây Alt+V hỏi 2 lần: hộp thoại Custom options (v9.53) lúc bắt đầu dán, rồi hộp thoại chọn ảnh ở bước upload. Giờ gộp thành
+**một hộp thoại mở ngay lúc bắt đầu Alt+V**, trước khi dán bất cứ thứ gì:
+
+- Phần **⚙️ Custom options** ở trên (có thể thu gọn): tick/sửa/đổi thứ tự/xoá/thêm ô như v9.53.
+- Phần **chọn ảnh** ở dưới: tick, đổi thứ tự, ✂️ thumbnail ảnh #1, "Sau khi upload xong: Publish / dừng lại" như trước.
+- Nút **"Bắt đầu dán + upload"**: dán tiêu đề + tag + các Custom options đã chọn/sửa → mở tab Photo & Video → upload đúng các ảnh đã
+  chọn, **không hỏi lại**. **"Huỷ (không dán)"** = không dán gì.
+- **Chọn 0 ảnh** vẫn bấm được: chỉ dán tiêu đề + tag + Custom options, không upload.
+- Kiểm tra trước khi bắt đầu: ô Custom option được tick phải có tên; ô List of options phải có ít nhất 1 lựa chọn (lỗi hiện ngay
+  trong phần Custom options).
+- Số chỗ trống ảnh trong hộp thoại là **ước lượng lúc bắt đầu** (Etsy giữ sẵn nội dung các tab trong DOM). Tới bước upload script đo lại
+  thật; nếu số ảnh đã chọn không còn vừa thì báo và mở lại hộp chọn ảnh thường. Nếu lúc upload listing thực tế đã có ảnh thì không
+  tự Publish và không chỉnh thumbnail.
+- Listing **không có Custom options**: hộp thoại chỉ có phần chọn ảnh. Clipboard **không có ảnh** (chỉ có Custom options): vẫn dùng hộp
+  thoại Custom options riêng của v9.53. Ô "Luôn hiện phần này khi dán" (trong phần Custom options): tắt thì Custom options dán thẳng,
+  không hỏi (hộp chọn ảnh vẫn hiện); Alt+Shift+V luôn hiện lại phần Custom options.
+
+Đã thử trên một trang soạn listing giả (ô tiêu đề/tag, Add field → Text box / List of options, khung upload ảnh có thẻ "đang upload"):
+1 hộp thoại chung với 3 ảnh + 2 ô Custom; sửa tên ô, bỏ tick 1 ô, bỏ chọn 1 ảnh → dán đúng 1 ô đã sửa + upload đúng 2 ảnh, không hiện hộp
+thoại lần 2; huỷ, 0 ảnh, tên ô trống, không có Custom/không có ảnh đều đúng.
+
+### Chọn / sửa Custom options trước khi dán (v9.53)
+
+Khi dán (Alt+V hoặc nút 📝) mà Clipboard có Custom options (ô cá nhân hoá), một hộp thoại hiện ra **trước khi script bắt đầu dán**:
+- **Tick** ô nào sẽ được tạo (bỏ tick = bỏ qua ô đó); bỏ tick hết thì vẫn dán tiêu đề + tag, không tạo Custom option nào.
+- **Sửa** tên ô (tối đa 45 ký tự), hướng dẫn (tối đa 120 ký tự), đổi kiểu **Text box ↔ List of options**, sửa các lựa chọn
+  (mỗi dòng 1 lựa chọn, tối đa 45 ký tự/lựa chọn, dòng trống bị bỏ).
+- **Đổi thứ tự** (▲▼), **xoá** (✕), **➕ thêm ô mới**.
+- Kiểm tra trước khi dán: ô được tick phải có tên; ô List of options phải có ít nhất 1 lựa chọn.
+- **Huỷ** = không dán gì cả (Clipboard giữ nguyên, không ghi nhớ listing nguồn). Chỉnh sửa chỉ áp dụng cho lần dán này, không đổi
+  Clipboard hay listing nguồn.
+- Ô **"Luôn hỏi trước khi dán"** (mặc định bật): tắt thì Alt+V dán thẳng như trước; **Alt+Shift+V** (hoặc Shift + bấm nút 📝) luôn hiện lại
+  hộp thoại. Listing không có Custom options thì không hiện hộp thoại.
+
+### Không tự tắt Visible dòng "Sold out" khi dán variations/giá từ Google Sheets (v9.52)
+
+Dán variations và "Chỉ điền giá" từ bảng Google Sheets trước đây tự tắt Visible những dòng có chữ "Sold out" (vd "Onesie (Sold out)").
+Giờ **mọi dòng có giá đều để Visible**, dòng "Sold out" được xử lý như các dòng khác; dòng nào không có giá ở cột đã chọn vẫn bị bỏ qua
+(Etsy khoá Visible khi giá trống). Dòng thông báo "🙈 Tạo nhưng tắt Visible" trong hộp xem trước cũng bỏ. "Copy variations" từ listing
+nguồn thì vẫn giữ nguyên trạng thái Visible của từng option ở nguồn — chỉ có đường dán từ Sheets thay đổi.
+
+### Ảnh thiếu/lỗi thì không tự Publish (v9.51)
+
+Khi chọn "Bấm hộ Publish", script giờ **kiểm tra lần cuối trên trang** ngay trước khi bấm (sau khi chờ thêm 1,5s để Etsy kịp
+hiện toast lỗi của ảnh cuối), có bất kỳ dấu hiệu nào thì **không Publish** (`kiemTraAnhTruocPublish()`):
+
+| Dấu hiệu | Ví dụ thông báo |
+|---|---|
+| Có ảnh không lấy được từ listing nguồn (mạng lỗi lúc tải) | "1 ảnh không lấy được từ listing nguồn" |
+| Số ảnh Etsy đếm ít hơn số cần có (ảnh cũ + ảnh vừa upload) | "Etsy chỉ có 12/14 ảnh" |
+| Etsy đang hiện toast lỗi upload | "Etsy đang báo lỗi "File not uploaded…"" |
+| Còn ảnh đang quay spinner | "còn 2 ảnh đang xử lý" |
+| Chỉnh thumbnail chưa xong (đã có từ v9.45) | "thumbnail chưa chỉnh xong" |
+
+Thông báo cuối chuyển đỏ, ghi "⛔ KHÔNG bấm Publish vì: …" và hiện tới khi bấm ẩn; bạn kiểm tra ảnh rồi tự bấm Publish. Trước
+đây, ảnh nguồn tải lỗi vẫn upload phần còn lại rồi Publish luôn, chỉ ghi "(lỗi N ảnh)". Lô upload lỗi/quá giờ thì vẫn như cũ:
+dừng ngay, không Publish.
+
+### Nhãn đánh dấu sang góc phải + dọn code chẩn đoán đã dùng xong (v9.50)
+
+Đồng bộ Google Sheet đã chạy (nguyên nhân cuối cùng: web app phải để **"Người có quyền truy cập: Bất kỳ ai"**). Không cần chia sẻ
+chính Google Sheet công khai — web app "Thực thi dưới dạng: Tôi" đã ghi bằng quyền của chủ Sheet.
+
+**Nhãn chuyển sang góc trên-PHẢI ảnh**: góc trái là tag của Etsy ("Popular now", "Bestseller"...) bị nhãn che mất. Nhãn rộng tối
+đa 60% ảnh và nằm dưới nút tim của Etsy (cùng góc phải, hiện khi rê chuột) nên nút tim vẫn bấm được.
+
+**Bỏ các đoạn chẩn đoán** (vấn đề tương ứng đã giải quyết/kiểm chứng xong), giữ log vận hành (tiến độ 5s, "xử lý xong sau Xs",
+lỗi lô, kiểm tra mạng, nén ảnh, đánh dấu):
+- log phần tử spinner (đã xác nhận là `WtSpinner`); in HTML mục ảnh khi không thấy thẻ (đã sửa bằng thẻ tạm `thumbnail-loading`);
+  in HTML các thẻ khi số ảnh lệch (lỗi đếm video đã sửa); cảnh báo "Gom nhóm thẻ ảnh không chắc chắn" (lưới mới luôn hiện, vô hại);
+- log id/field-cha của ô upload mỗi lô (rút còn "Lô N: đã nhồi X ảnh"); log dung lượng từng ảnh (đã có log "Nén X KB → Y KB");
+  log toạ độ thumbnail (đã kiểm chứng trên Etsy thật, lệch 0,47px);
+- hàm `chuKyThe` không còn ai gọi (sót lại từ tính năng tự sắp xếp ảnh đã bỏ);
+- gửi Sheet chỉ còn 1 cách: GM **không cookie**. Bỏ "GM có cookie" (đăng nhập nhiều tài khoản Google → Google chuyển sang `/u/1/` →
+  404) và "fetch trang" (Etsy chặn CORS) — cả hai đã chứng minh không dùng được. Lỗi vẫn báo thẳng cách sửa: 401/đòi đăng nhập →
+  đổi quyền "Bất kỳ ai"; bị chuyển `/u/N/` → nhầm tài khoản; 404 → kiểm tra URL; "Sai mã bí mật".
+
+### Gọi Google Sheet thử lần lượt 3 cách, nhớ cách chạy được (v9.49)
+
+v9.48 vẫn lỗi: mở thẳng URL web app trên trình duyệt trả `{"ok":true}` (URL, Sheet, mã bí mật đều đúng) nhưng `GM_xmlhttpRequest`
+của script nhận 401/404 — kể cả không kèm cookie. Thay vì đoán tầng nào gây ra, `goiSheetDanhDau()` giờ thử lần lượt:
+**GM không cookie → GM có cookie → `fetch` của chính trang** (`credentials: 'omit'`; Apps Script trả CORS `*`). Cách nào chạy được
+thì nhớ lại (`etsy_auto_danh_dau_cach_gui_v1`) để lần sau dùng trước. Apps Script tự báo lỗi (vd sai mã bí mật) thì dừng luôn,
+không thử cách khác. Cả 3 đều lỗi thì thông báo ghi chi tiết từng cách — mã HTTP, máy chủ cuối, tiêu đề trang lỗi — và Console in
+300 ký tự đầu phản hồi, để chẩn đoán bằng dữ liệu thật.
+
+### Sửa lỗi 404 khi kết nối Google Sheet (v9.48)
+
+Lần cài đầu tiên báo "Sheet trả về dữ liệu lạ (mã 404)". Một nguyên nhân hay gặp của Apps Script: trình duyệt đăng nhập **nhiều
+tài khoản Google**, request mang cookie khiến Google chuyển nhầm sang tài khoản không sở hữu Sheet và trả 404. Web app đã mở cho
+"Bất kỳ ai" nên không cần đăng nhập → request tới Sheet giờ gửi **không kèm cookie** (`anonymous: true`). Thông báo lỗi cũng chỉ rõ
+hơn: 404 → kiểm tra URL (ô "URL ứng dụng web", đuôi `/exec`, không phải `/dev` hay mã triển khai); bị đòi đăng nhập → đổi quyền truy
+cập thành "Bất kỳ ai".
+
+### Đánh dấu listing: 👁 đã xem · 📋 đã lấy dữ liệu · ✅ đã đăng ở máy nào — đồng bộ qua Google Sheet (v9.47)
+
+Nhãn ở góc ảnh (từ v9.50: **góc trên-phải**) của từng thẻ sản phẩm trên mọi lưới etsy.com (tìm kiếm, shop, danh mục...), kèm 1 dòng tóm tắt
+ngay dưới tiêu đề trang listing. Rê chuột lên nhãn để xem đầy đủ thời điểm.
+
+| Nhãn | Ghi khi nào | Ở máy nào |
+|---|---|---|
+| 👁 Đã xem (xám) | mở trang `/listing/<mã>` và ở lại ≥ 3s | máy duyệt nguồn |
+| 📋 Đã lấy (xanh dương) | bấm Alt+G / Alt+C trên listing đó | máy duyệt nguồn |
+| ✅ *nhãn máy* (xanh lá) | bấm **Publish** trên trang tạo/sửa listing sau khi dán (Alt+V) dữ liệu của listing đó | máy đích (máy ảo) |
+
+- Gói dữ liệu Alt+G/Alt+C giờ mang theo **mã listing nguồn** (`tiêu đề|||SRC|||<mã>|||TAGS|||...`), máy đích nhờ đó biết đang
+  đăng lại listing nào. Bản script cũ gặp dấu này sẽ chặn dán và nhắc cập nhật (cơ chế có sẵn) — **mọi máy cần lên 9.47**.
+- "Đã đăng" bắt cả lần bấm "Publish" của bạn lẫn của script (Bấm hộ Publish); 1 lần dán chỉ tính 1 lần đăng; dán xong quá 12
+  giờ mới Publish thì không tính.
+- **Nhãn máy tự đặt** cho từng máy ảo (vd "VM1 – LitbyArt") trong nút **🏷️ Đánh dấu** trên panel.
+
+**Đồng bộ giữa các máy (Google Sheet)** — kho của script là riêng từng trình duyệt, máy ảo không ghi thẳng được vào máy chính,
+nên mọi sự kiện được gửi lên 1 Google Sheet chung (Apps Script web app do bạn tạo) và mỗi máy đọc về mỗi 60s (khi tab đang hiện):
+1. Tạo Google Sheet → Extensions → Apps Script. Trong hộp 🏷️ bấm **Tạo mã** rồi **📋 Copy mã Apps Script** (đã điền sẵn mã bí mật),
+   dán thay toàn bộ mã mẫu, Save.
+2. Deploy → New deployment → Web app: Execute as **Me**, Who has access **Anyone** → copy Web app URL (đuôi `/exec`).
+3. Trên **mọi máy**: mở 🏷️, nhập nhãn máy riêng + **cùng URL và mã bí mật** → Kiểm tra kết nối → Lưu.
+
+Sheet (tab "DanhDau") chỉ lưu thời điểm, mã listing, loại, nhãn máy. Script đọc tiếp theo **số dòng** — đừng xoá/sắp xếp lại dòng.
+Chưa cài Sheet vẫn dùng được, chỉ là nhãn giới hạn trong trình duyệt đó. Gửi lỗi (mất mạng) thì sự kiện nằm chờ và tự gửi lại lần sau;
+nhiều tab mở cùng lúc chỉ 1 tab đồng bộ mỗi 20s. Kho giữ tối đa 30.000 listing (bỏ mục cũ nhất). Thêm `@connect script.google.com`
+và `script.googleusercontent.com` (Violentmonkey có thể hỏi quyền lần đầu).
+
+Đã thử: mã Apps Script chạy trên Google Sheet giả lập (từ chối sai mã bí mật, bỏ sự kiện sai, đọc tiếp theo con trỏ); Chromium với 2
+"máy" tách biệt — máy chính xem 3s → 👁, Alt+C → 📋 + gói có mã nguồn; máy ảo Alt+V → bấm Publish → ✅ "VM1 – LitbyArt" lên Sheet;
+máy chính mở trang tìm kiếm → nhãn "✅ VM1 – LitbyArt 👁📋" đúng góc trên-trái ảnh, thẻ nạp thêm khi cuộn cũng tự có nhãn.
+
+### Nhồi tối đa 20 ảnh một lần (v9.46)
+
+Đo thực tế 14 ảnh (đều dưới 1MB): script chia 2 lô × 7 ảnh mất 9,5s + 12,2s ≈ 22s; thả tay cả 14 ảnh một lần ≈ 15s. Phần
+chậm hơn đến từ việc chia lô: cuối mỗi lô đường truyền gần như rảnh (chờ ảnh chậm nhất), cộng ~1–2s xác nhận mỗi lô.
+
+- `KICH_THUOC_LO_UPLOAD` **7 → 20** (Etsy cho tối đa 20 ảnh/listing ⇒ thực tế là nhồi hết một lần).
+- Thời hạn chờ **tăng theo số ảnh của lô** (`thoiHanChoLo()`): 90s là cho lô 7 ảnh (~13s/ảnh), lô lớn hơn được chia thêm
+  tương ứng — 14 ảnh 180s, 20 ảnh 258s. Thông báo tiến độ hiện đúng thời hạn của lô.
+- Rủi ro đã biết: lỗi 400 "File not uploaded" từng gặp khi nhồi 8 ảnh **nặng** (1,1–1,6MB) — nay ảnh đã được nén dưới 1MB.
+  Nếu Etsy lại báo lỗi này, script dừng ngay (không thử lại); khi đó hạ `KICH_THUOC_LO_UPLOAD` xuống lại.
+
+### Chỉnh thumbnail ảnh đầu ngay trong bảng chọn ảnh (v9.45)
+
+Hộp thoại "Adjust thumbnail" của Etsy (HTML thật người dùng gửi) dùng thư viện `react-zoom-pan-pinch`: ảnh phủ kín khung ở
+zoom 1, vị trí ghi ở `transform: translate3d(tx, ty, 0) scale(s)`, thanh zoom là `<input type="range" min=1 max=2>`; ba khung
+xem trước Square/Portrait/Landscape đều tính từ cùng một vùng. Người dùng đã thử trực tiếp trên trang thật: script đặt thanh
+zoom → scale đổi; giả lập kéo chuột +60/+40px → vị trí đổi đúng +60/+40px. Vì vậy làm được trọn vẹn, **ảnh gốc không bị cắt**:
+
+1. Trong bảng chọn ảnh (chỉ khi listing đích chưa có ảnh), ảnh **#1** có nút **✂️**. Bấm vào mở khung chỉnh: kéo ảnh, thanh
+   zoom 1–2 (giống Etsy), cuộn chuột để phóng, "Về giữa", xem trước Square/Portrait/Landscape. Lưu xong nút thành **✂️✓**.
+   Cấu hình lưu dạng chuẩn hoá `{zoom, cx, cy}` (tâm khung rơi vào điểm nào của ảnh) nên không phụ thuộc kích thước khung.
+   Đổi thứ tự làm ảnh khác lên #1 thì chỉ cấu hình của ảnh đang ở #1 lúc bấm upload được dùng.
+2. Upload xong, **trước khi Publish**: script bấm "Adjust thumbnails" (`data-testid="adjust_thumbnail_button"`), đặt zoom,
+   tính khoảng cần kéo từ `transform` hiện tại rồi giả lập kéo, đọc lại và chỉnh tối đa 3 lần, rồi bấm **Apply**.
+3. Nếu kéo không có tác dụng: để hộp thoại mở (zoom đã đặt) cho bạn kéo nốt. Chỉnh thumbnail chưa xong thì **không tự Publish**
+   (tránh đăng bán với thumbnail sai); thông báo cuối ghi rõ và hiện tới khi bấm ẩn.
+
+Thử trên Chromium: khung chỉnh dùng chuột thật trả về `{zoom: 1.6, cx: 0.41, cy: 0.57}`; hộp thoại Etsy giả lập (khung 456px,
+kéo 1:1, zoom quanh tâm, kẹp biên) nhận đúng vị trí, lệch 0,3px, rồi bấm Apply.
+
+### Tự nhận ra lỗi mạng tới Etsy + thông báo hiện liên tục suốt quá trình upload (v9.44)
+
+Giữ nguyên cấu hình (lô 7 ảnh, chờ tối đa 90s/lô, nén ảnh dưới 1MB). Phân tích log trước cho thấy lần kẹt trùng với lúc chính
+request của Etsy (`nav-badge-counts`) bị `ERR_TIMED_OUT` liên tục — mạng tới etsy.com chập chờn, không phải lỗi script.
+
+**Tự kiểm tra mạng** (`taoTheoDoiMang()`): suốt quá trình upload, cứ 10s script gửi 1 request rất nhỏ
+(`HEAD /robots.txt`, cùng nguồn etsy.com, không cache, không cookie):
+- phản hồi dưới 3s → 🌐 ổn; 3–8s → ⚠️ chậm; quá 8s không phản hồi → ⚠️ chập chờn; lỗi kết nối hoặc máy mất mạng → ⚠️.
+- `fetch` chỉ báo lỗi khi lỗi mạng thật — mọi mã HTTP (kể cả 404) vẫn tính là mạng thông.
+- Khi một lô bị dừng, thông báo dừng kèm **kết luận có phải do mạng không**, ví dụ "4/9 lần kiểm tra mạng tới Etsy bị lỗi/không
+  phản hồi — nhiều khả năng do mạng (thử tắt VPN/proxy hoặc đổi mạng rồi chạy lại)" hoặc "Mạng tới Etsy ổn trong suốt quá
+  trình — không phải do mạng". Mỗi lần kiểm tra xấu cũng được ghi vào Console.
+
+**Thông báo hiện liên tục**: từ lúc lấy ảnh tới khi xong, thông báo không tự ẩn sau 4s nữa mà cập nhật liên tục:
+- lúc lấy ảnh: "Đã lấy x/y ảnh..."; lúc chờ Etsy: "Lô 2/3: Etsy đã xử lý 5/7 ảnh — 25s/90s · Tổng: xong 7/20 ảnh" (cập nhật mỗi giây);
+- dòng cuối luôn là tình trạng mạng tới Etsy; mạng xấu thì thông báo chuyển sang màu cam.
+- Thông báo dừng/lỗi hiện tới khi **bấm vào để ẩn**; thông báo hoàn tất hiện 15s. Các tính năng khác vẫn tự ẩn sau 4s như cũ.
+
+### Chờ mỗi lô tối đa 90s + tự nén ảnh xuống dưới 1MB trước khi upload (v9.43)
+
+Log v9.42 xác nhận 30s ngắn hơn thời gian upload thật (tới giây 30 cả 7 ảnh 1,1–1,6MB vẫn "Image is uploading").
+Người dùng chọn dùng cả 2 cách:
+
+- `THOI_HAN_CHO_ETSY_XU_LY_ANH` **30s → 90s** (khớp dữ liệu cũ: lô xong thật lâu nhất ~89s). Vẫn giữ quy tắc v9.39: lô nào
+  lỗi/quá giờ thì dừng luôn, không thử lại, không tải ảnh xuống máy.
+- **Nén ảnh trước khi upload** (`nenAnhChoEtsy()`, chỉ trong luồng upload, không ảnh hưởng tính năng tải ảnh xuống máy):
+  - Ảnh ≤ 1MB hoặc GIF → **giữ nguyên file gốc** (không nén lại vô ích).
+  - Ảnh nặng hơn → thu về cạnh ngắn **2000px** (mức Etsy khuyên), nền trắng (PNG trong suốt), lưu JPEG chất lượng 0.9,
+    hạ dần tới 0.7; vẫn nặng thì thu nhỏ thêm 15%/lần. Lỗi gì cũng giữ ảnh gốc, không làm hỏng bước upload.
+  - Thử trên ảnh giống ảnh nguồn thật: 1399KB → 755KB, 1336KB → 724KB (2000×2000, chất lượng 0.9). Console in
+    "Nén ...: X KB → Y KB" cho từng ảnh.
+
+### Đếm cả thẻ "đang upload" của Etsy (v9.42)
+
+HTML thật người dùng gửi (log tự in của v9.40) cho thấy: lúc đang upload, Etsy vẽ **thẻ tạm**
+`data-testid="thumbnail-loading"` (ảnh blob mờ `opacity: 0.4` + `WtSpinner` "Image is uploading"), thẻ này **chưa có**
+`aria-roledescription="sortable"` — nên log luôn báo "0 thẻ mới xuất hiện" trong lúc upload. Giờ thẻ ảnh gồm cả 2 loại
+(`SELECTOR_THE_MEDIA`), mỗi thẻ chỉ đếm 1 lần (`locTheNgoaiCung()`).
+
+Cùng log đó xác nhận cách nhận biết dự phòng của v9.40 chạy đúng: "Etsy đếm 7 ảnh (trước lô: 0), **7 spinner** trong
+mục ảnh" suốt 30s → tới giây thứ 30 Etsy **thật sự vẫn đang upload** cả 7 ảnh (mỗi ảnh 1,1–1,6MB; Etsy khuyên dưới 1MB).
+Dừng ở lô 1 lúc đó là do mốc 30s ngắn hơn thời gian upload thật, không phải script đếm sai.
+
+### Sửa lỗi của v9.40: listing trống bị báo "đã đầy 20 ảnh" (v9.41)
+
+v9.40 thêm luật "không thấy ô *Add photos N remaining* thì coi như listing đã đầy" (cho lô cuối làm đầy 20 ảnh, lúc Etsy
+có thể ẩn ô đó). Sai: listing **trống** cũng không có ô này — Etsy hiện khung "Drag and drop files or Upload" thay thế —
+nên script báo "Lưới đang có 20 ảnh, còn chỗ cho 0 ảnh" và không upload.
+
+Sửa:
+- `soAnhTheoTrang()` bỏ luật đoán đó. Thay bằng luật chắc chắn ngược lại: thấy khung "Drag and drop" và không có thẻ nào
+  → listing đang có **0 ảnh**.
+- Trường hợp lô cuối làm đầy listing chỉ được xử lý **bên trong** bước chờ lô: không đọc được số của Etsy, lô này đúng
+  bằng phần còn thiếu tới giới hạn, và khung "Drag and drop" không hiện → mới coi là Etsy đã đếm đủ.
+- Đã chạy thử 4 trạng thái: listing trống, lô đầu trên listing trống, listing đang có 7 ảnh, lô cuối làm đầy 20 ảnh.
+
+### Lưới ảnh kiểu mới: script đếm "0 thẻ" dù Etsy đã nhận ảnh (v9.40)
+
+Log thực tế: nhồi lô 1 (7 ảnh), suốt 30s script báo "0 thẻ đang có trên lưới, 0/7 thẻ mới xuất hiện" rồi dừng vì hết
+giờ — trong khi màn hình có **7 thẻ đang quay spinner** và ô Etsy ghi "Add photos **13 remaining**" (đã nhận 7 ảnh).
+Layout trang lúc này khác trước: ô "Add videos" và "Add photos" nằm **xen trong lưới** ảnh. Khối có id image/photo bao
+quanh `<input>` (vùng quét thẻ từ v9.32) không còn chứa các thẻ ảnh, nên đếm ra 0.
+
+Sửa:
+- **Mở rộng vùng tìm thẻ**: khối quanh `<input>` không có thẻ nào thì tìm trong **cả mục "Photo and video"**
+  (`timKhoiMucAnh()`: tổ tiên nhỏ nhất của ô chọn ảnh có chứa dòng "Add up to N photos"). Vẫn không quét cả trang,
+  để không dính danh sách Options của Custom options (lỗi v9.32).
+- **Thêm cách nhận biết "xong" không phụ thuộc thẻ**: số ảnh Etsy tự đếm (từ "N remaining") đã tăng đủ số ảnh của lô
+  **và** không còn spinner nào đang hiện trong mục ảnh (giữ ổn định qua 2 lần kiểm tra). Kể cả khi Etsy đổi markup làm
+  script không nhận ra thẻ ảnh, lô vẫn được nhận là xong đúng lúc.
+- Log tiến độ mỗi 5s in thêm "Etsy đếm X ảnh (trước lô: Y), Z spinner trong mục ảnh". Nếu sau 10s Etsy đã nhận ảnh mà
+  script vẫn không thấy thẻ mới, Console in HTML mục ảnh (một lần) để gửi lại sửa selector.
+
+### Chờ mỗi lô tối đa 30s, lỗi là dừng luôn, bỏ tải ảnh thiếu xuống máy (v9.39)
+
+Theo yêu cầu người dùng:
+- `THOI_HAN_CHO_ETSY_XU_LY_ANH` giảm **120s → 30s**. Lô nào sau 30s Etsy chưa xử lý xong thì coi là lỗi. Đánh đổi: dữ liệu
+  cũ cho thấy có lô xong thật mất tới ~50–89s; những lô đó giờ sẽ bị dừng dù ảnh có thể vẫn đang lên tiếp phía Etsy —
+  thông báo dừng nhắc chờ một chút rồi kiểm tra lưới trước khi tự thêm ảnh, tránh trùng.
+- **Không thử lại nữa**: lô nào lỗi (Etsy báo lỗi thật, hết chỗ, hoặc quá 30s) thì **dừng luôn**, không nhồi các lô sau
+  (bỏ `SO_LAN_THU_LAI_LO` và bước chờ lưới yên `choLuoiYenLang()`).
+- **Bỏ phương án dự phòng tải ảnh còn thiếu xuống máy** (`taiCacFileConLaiXuongMay()`, có từ v9.24).
+- Thông báo dừng ghi rõ lô số mấy, lý do, đã lên bao nhiêu/tổng, và hiện **15s** thay vì 4s. `hienThongBao()` nhận thêm
+  tham số thời gian hiện (mặc định 4s) — 2 thông báo cũ của thư viện bảng size vốn truyền 8–9s nhưng trước đây bị bỏ qua,
+  giờ hiện đúng thời lượng đó.
+
+Bước tải ảnh từ listing nguồn (12s/lần, tự thử lại 2 lần khi mạng chậm) và các bước chờ nút Publish giữ nguyên.
+
+### Nhận bảng size cả khi alt không ghi "size chart" (v9.38)
+
+Trước đây script chỉ nhận bảng size qua **alt** của ảnh (`size chart`, `size guide`, `measurement`, `chart`...).
+Gặp thực tế: listing có 5 ảnh bảng size liền nhau, nhưng chỉ 3 ảnh có alt kiểu "May include: ... color chart ... size
+chart" (Etsy tự mô tả); 2 ảnh còn lại alt chỉ là "*tiêu đề listing* image 9" / "image 10" nên bị tick nhầm.
+
+Không dùng cách "nhớ mặt ảnh" vì listing nguồn lấy từ nhiều shop, mỗi shop một kiểu bảng size. Thay vào đó xét
+**cả danh sách ảnh** của listing nguồn (`danhDauBangSize()`), thêm 2 luật áp dụng được cho mọi shop:
+
+1. **Kẹp giữa** (`kep`): ảnh nằm giữa 2 ảnh đã biết là bảng size, cách nhau tối đa 3 ảnh → cũng là bảng size (shop gom
+   bảng size thành 1 cụm). Giới hạn 3 để 1 alt nhận nhầm (vd áo "birth chart" khớp chữ "chart") không kéo cả
+   listing vào.
+2. **Cùng kích thước** (`kichthuoc`): chiều rộng gốc (`data-original-image-width` trên ảnh lớn của carousel) **trùng**
+   với một bảng size đã biết **và khác** chiều rộng phổ biến nhất của ảnh sản phẩm → bảng size (bảng size làm từ
+   template riêng nên kích thước khác ảnh mockup; ví dụ trên: áo đều 2000px, bảng size 3000/2700px).
+
+Hai luật chỉ chạy khi listing có **ít nhất 1 ảnh** được alt nhận là bảng size. Kết quả chỉ là bỏ tick sẵn, vẫn tick lại
+được. Console in rõ ảnh nào được nhận thêm và vì sao. Việc chấm điểm diễn ra ở **trang nguồn** (lúc Alt+G/Alt+C), nên trang
+nguồn cần chạy bản 9.38. Áp dụng cho cả bảng chọn ảnh upload, tải ảnh xuống máy và hộp thoại lấy link bảng size.
+
+### Video bị đếm nhầm thành ảnh (v9.37)
+
+Listing chỉ có **1 video, 0 ảnh** nhưng bảng chọn ảnh báo "Listing này đang có **1** ảnh" và khoá luôn lựa chọn
+"Bấm hộ Publish" (lựa chọn đó chỉ mở khi lưới đích trống). Nguyên nhân: thẻ video nằm **chung lưới kéo-thả** với
+ảnh (cùng `aria-roledescription="sortable"`), nên `layCacTheAnh()` đếm cả video.
+
+Sửa:
+- **Số ảnh đang có lấy theo con số chính Etsy tính**: "Add up to 20 photos" trừ "N remaining" của ô *Add photos*
+  (ô này chỉ đếm ảnh, không đếm video). Không đọc được hai số đó thì mới đếm thẻ trên lưới như cũ. Nếu hai cách lệch
+  nhau, Console in cảnh báo kèm HTML các thẻ để gửi lại.
+- **Bỏ thẻ video khỏi lưới khi đếm/chờ ảnh mới**: thẻ có `<video>`/`<source>`, ảnh có src `.mp4`/`/video/`, hoặc
+  nút/nhãn (không phải `<img>`) có aria-label/title/data-testid chứa "video"/"play". Không xét `alt` của ảnh vì
+  Etsy có thể lấy tiêu đề listing làm alt (vd "Video Game Shirt" sẽ làm mọi ảnh bị coi là video).
+- **Chốt an toàn**: nếu số thẻ bị coi là video nhiều hơn số video Etsy báo (đọc từ "and 2 videos" trừ "N remaining"
+  của ô *Add video*; không đọc được thì tối đa 2), coi như nhận diện nhầm và đếm tất cả như trước v9.37.
 
 ### Trình duyệt tự "nhớ" lại lựa chọn Publish/Dừng lần trước — ép lại bằng JS (v9.12)
 
@@ -519,6 +1332,28 @@ Khi `Alt+V` có ảnh để upload: nếu thư viện đang có N ảnh, script 
 còn ít hơn số ảnh trong thư viện, script báo lỗi ngay từ đầu thay vì để bạn chọn ảnh sản phẩm rồi
 mới phát hiện không đủ chỗ.
 
+### Thêm ảnh bảng size từ máy tính, không chỉ từ link (v9.17)
+
+Trước v9.17, thư viện 📐 chỉ nhận **link URL** (dán vào ô hoặc bấm 📋 Dán) — ảnh bảng size tự thiết
+kế/chụp màn hình nằm sẵn trong máy tính, không có ở đâu trên mạng, thì không thêm vào được.
+
+Nút **📁 Thêm ảnh từ máy tính...** trong hộp thoại "Quản lý ảnh bảng size" mở hộp thoại chọn file hệ
+điều hành (chọn được nhiều ảnh cùng lúc). Mỗi ảnh được đọc bằng `FileReader.readAsDataURL()` thành
+chuỗi **base64 (`data:` URL)** rồi lưu thẳng vào thư viện — khác với ảnh dán link (chỉ lưu 1 chuỗi
+URL ngắn), ảnh từ máy tính lưu **toàn bộ nội dung ảnh** ngay trong thư viện, nên:
+
+- **Không cần `@connect`**: khi upload, script nhận ra `url` bắt đầu bằng `data:` thì đọc thẳng bằng
+  `fetch()` (không phải request mạng thật, trình duyệt xử lý ngay tại chỗ) thay vì qua
+  `GM_xmlhttpRequest` — không bị giới hạn domain như link dán tay.
+- **Giới hạn 8MB/ảnh** khi chọn từ máy — chặn sớm để tránh 1 ảnh quá nặng làm đầy bộ nhớ lưu trữ
+  dùng chung (`GM_setValue`, thường chỉ vài MB) và hỏng luôn cả thư viện. Ảnh bảng size thường là
+  ảnh chụp màn hình/thiết kế, hiếm khi cần vượt mức này.
+- Nếu lưu thất bại (hết chỗ lưu trữ), toast báo rõ ngay thay vì âm thầm mất ảnh mới thêm sau khi
+  tải lại trang.
+
+Danh sách hiện tên file gốc (kèm biểu tượng 📁) thay vì cả chuỗi base64 dài dằng dặc như link URL.
+Ảnh từ link và ảnh từ máy tính trộn chung 1 danh sách, sắp xếp bằng nút ↑/↓ như nhau.
+
 ### Lấy link ảnh bảng size ngay trên trang listing đang mở — nút 🔎 (v9.10)
 
 Cách thêm ảnh vào thư viện ở trên (v9.0) bắt bạn phải có sẵn link ảnh từ trước. Nhưng thường thì
@@ -612,6 +1447,32 @@ chạy tuần tự (xấp xỉ 4 lần với `DO_SONG_SONG_TAI_ANH = 4`).
 (bước 5), bước 6 (chờ Etsy xử lý xong) là **Etsy tự tải ảnh lên máy chủ của họ và tạo ảnh xem
 trước** — đây là tốc độ phía server Etsy, script chỉ đứng chờ (`choEtsyXuLyAnh()` kiểm tra mỗi
 giây), không có cách nào làm nhanh hơn từ userscript.
+
+### Giảm thời hạn chờ mỗi lượt tải + báo popup khi mạng chậm cần thử lại (v9.16)
+
+Log thực tế: nhiều dòng `GM_xmlhttpRequest không phản hồi sau 20s`, thử lại 2/2 lần — mỗi ảnh gặp
+tình huống này có thể tốn tới `20s × 3 lần thử + (800ms + 3200ms) đợi giữa các lần` ≈ hơn 1 phút,
+trong khi suốt thời gian đó toast tiến độ `⏳ Đã lấy 1/6 ảnh...` chỉ đứng yên — nhìn như script bị
+treo thật, vì việc thử lại trước đây chỉ ghi vào Console (`console.warn`, phải mở F12 mới thấy).
+
+Hai thay đổi:
+
+1. **`THOI_HAN_MOI_CACH_TAI`** (thời hạn chờ mỗi lượt gọi `GM_xmlhttpRequest`/`GM_download`) giảm từ
+   **20 giây xuống 12 giây** — phát hiện treo và chuyển sang thử lại nhanh hơn 40%, thay vì cứ đợi
+   đủ 20s cho một request rất có thể đã treo hẳn ngay từ đầu.
+2. **`taiMotAnhVoiRetry()`** nhận thêm tham số `baoDangThuLai` (tuỳ chọn): gọi mỗi khi phải thử lại,
+   để nơi gọi tự hiện popup cho người dùng biết — thay vì im lặng chỉ log Console. Áp dụng cho cả
+   2 luồng tải ảnh:
+   - **`taiCacAnhSongSong()`** (dùng khi Alt+G lấy ảnh và Alt+V upload): hiện đúng **1 lần**
+     `⚠️ Mạng đang chậm, một số ảnh cần thử lại...` cho cả lô — dù `DO_SONG_SONG_TAI_ANH = 4` luồng
+     chạy song song có thể cùng gặp chậm gần như đồng thời, tránh spam nhiều toast chồng nhau.
+   - **`luuAnhXuongMay()`** (dùng khi tải từng ảnh riêng lẻ xuống máy — nút "Chỉ lấy dữ liệu" không
+     kèm ảnh, hoặc tải ảnh listing gốc): dùng lại đúng cờ `baoTreo` đã có sẵn (vốn chỉ báo khi bước
+     `GM_download` treo), giờ báo thêm cả khi bước tải dữ liệu ảnh (fetch bytes) phải thử lại.
+
+Không đổi số lần thử lại (`soLanThuLai = 2`, tức tối đa 3 lần/ảnh) hay công thức đợi giữa các lần
+(800ms, 3200ms) — chỉ giảm phần chiếm nhiều thời gian nhất (20s → 12s mỗi lượt) và thêm phản hồi
+trực quan, để người dùng luôn biết script vẫn đang chạy chứ không phải bị treo.
 
 ### Ảnh đi đường Clipboard, không đi `GM_setValue` (v7.5)
 
@@ -807,6 +1668,41 @@ Chuỗi của bản 6.x cũ (chỉ có `PERSO_INSTR`) vẫn đọc được như
 
 Toast báo rõ số lựa chọn đã thêm: `✅ Đã dán tiêu đề + 13 tag + ô cá nhân hoá (2 lựa chọn)`
 
+### Nhiều Custom options cùng lúc (v9.18)
+
+Trước v9.18, script chỉ đọc và tạo **đúng 1** ô cá nhân hoá — nhưng Etsy cho phép 1 listing có
+**nhiều** ô cùng lúc (mỗi ô là 1 `<li id="perso-field-…">` riêng, ví dụ 1 listing có cả 3 ô
+"Character" (text box), "Text under Design" (text box) và "Text Color" (list of options)). Kết
+quả: listing có từ 2 ô trở lên thì chỉ ô đầu tiên được tạo bên trang đích, các ô còn lại **bị mất
+hoàn toàn** mà không có cảnh báo gì.
+
+**Trang nguồn**: `layTatCaCaNhanHoa()` quét **tất cả** `li[id^="perso-field-"]` trên trang (trước
+đây chỉ lấy đúng 1 phần tử đầu tiên tìm được), trả về một mảng — giữ nguyên logic đọc từng ô
+(`[data-label]`/`[data-instructions]`/`<select>`) như trước, chỉ đổi từ "lấy 1" sang "lấy hết".
+Nếu trang không có cấu trúc `li[id^="perso-field-"]` (một số cấu trúc trang khác), vẫn giữ đường dự
+phòng cũ (dò khu vực rộng hơn, đọc đúng 1 ô) để không mất hẳn khả năng tương thích.
+
+**Định dạng Clipboard đổi hẳn** sang 1 khối JSON duy nhất, thay vì 3 dấu ngăn cách rời rạc:
+
+```
+tiêu đề |||TAGS||| tag |||PERSO_LIST||| [{"nhan":"Character","huongDan":"...","loai":"text_input","cacLuaChon":[]}, ...]
+```
+
+Dấu `|||PERSO_LABEL|||`/`|||PERSO_INSTR|||`/`|||PERSO_OPTS|||` (bản 7.2 trở về trước, chỉ chứa được
+1 ô) vẫn được **đọc** (đường dự phòng trong `tachDuLieu()`) để Clipboard tạo bởi bản cũ hơn không bị
+mất trắng, nhưng bản 9.18 trở đi **luôn ghi** theo định dạng JSON mới.
+
+**Trang đích**: lặp qua từng phần tử trong danh sách, mỗi vòng lặp là 1 lượt "Add field" → chọn
+đúng kiểu (Text box/List of options) → điền → bấm Done **hoàn tất** rồi mới mở "Add field" tiếp cho
+ô kế — vì Etsy chỉ cho mở 1 hộp thoại tại 1 thời điểm. 1 ô lỗi (ví dụ không tìm thấy nút "Add field"
+vì đã đạt giới hạn số Custom option của Etsy) không làm hỏng các ô còn lại — script vẫn chạy tiếp
+hết danh sách rồi báo tổng kết, ví dụ:
+
+```
+✅ Đã dán tiêu đề + 13 tag + 3 ô cá nhân hoá
+⚠️ ... + 2/3 ô cá nhân hoá (lỗi: "Text Color": Không tìm thấy nút "Add field")
+```
+
 ### Chống lệch phiên bản giữa các trình duyệt (v7.3)
 
 Script dùng Clipboard hệ thống để chuyển dữ liệu giữa các trình duyệt, nên **hai bên có thể chạy
@@ -959,11 +1855,55 @@ trong Violentmonkey.
 Script dùng đúng id của Etsy: `#le-unstructured-variation-name-input`, `#le-unstructured-variation-option-input`,
 `#variations-select-controlsPrice`. Nếu một bước bị dừng, toast báo bước lỗi: làm tay phần còn lại, bấm Apply rồi bấm "Chỉ điền giá".
 
+### Bấm "Dán variations" lần 2 để dừng giữa chừng (v9.15)
+
+"Dán variations" có thể chạy khá lâu nếu variation có nhiều option (mỗi option là 1 lượt gõ + bấm
+"Add" chờ Etsy xử lý), nên trước v9.15 nếu bấm nhầm hoặc muốn dừng lại giữa chừng thì không có cách
+nào ngoài tải lại trang (mất luôn phần đã tạo dở, phải kiểm tra tay xem đã lỡ tạo tới đâu).
+
+Từ v9.15: **bấm đúng nút đó lần thứ 2 trong lúc đang chạy sẽ dừng lại** — nút tự đổi nhãn thành
+**"⏹ Dán variations - Dừng"** (nền đỏ) ngay khi bắt đầu chạy, đổi lại thành **"🎨 Dán variations"**
+(nền xanh) khi xong hoặc đã dừng, để luôn biết rõ bấm tiếp sẽ dừng hay chạy lại từ đầu.
+
+Cách làm: không có API huỷ giữa chừng một `Promise`/`await` đang chờ, nên bấm lần 2 chỉ **đặt một cờ**
+(`yeuCauDung`); các vòng lặp dài (từng variation, từng option trong 1 variation, từng dòng điền giá/
+Visible) tự kiểm tra cờ này ở đầu mỗi bước lặp và thoát ra ngay bằng cách ném một lỗi đánh dấu riêng —
+script dừng ở **bước lặp gần nhất** (không dừng ngay lập tức giữa chừng một thao tác đang gõ/bấm dở,
+tránh để Etsy ở trạng thái nửa vời khó đoán), không phải dừng ngay tức khắc. Phần đã tạo trước khi
+dừng (variation/option/giá đã điền) vẫn giữ nguyên trên trang — dùng "Chỉ điền giá" để hoàn tất nốt
+phần còn thiếu nếu cần.
+
 ### Copy sang trình duyệt khác qua Clipboard
 
 GM_setValue là kho riêng của từng trình duyệt, nên Copy ở Chrome thì Firefox/Edge không thấy. "Copy variations" ghi thêm dữ liệu vào Clipboard hệ thống (dòng đầu `ETSY_VARIATIONS_V1`), còn "Dán variations"
 và "Chỉ điền giá" ưu tiên đọc Clipboard, không có mới dùng dữ liệu đã lưu trong trình duyệt. Lần đầu trình duyệt
 có thể hỏi quyền đọc Clipboard: bấm Cho phép. Không Copy thứ khác vào Clipboard giữa lúc Copy và Dán.
+
+### Dán thẳng từ Google Sheets (v9.36)
+
+Không cần listing nguồn nữa: bảng giá/size/màu nằm trên Google Sheets thì copy thẳng từ đó.
+
+1. Trên Sheets, bôi chọn vùng bảng **kèm dòng tiêu đề** (vd `A2:E60` — dòng "Type & Size | Giá Sale 30% |
+   Giá List Etsy | 2-sided | Color"; dòng tiêu đề lớn kiểu "Tshirt 2D" chọn lẫn vào cũng được) → `Ctrl+C`.
+2. Sang trang tạo/sửa listing, bấm **🎨 Dán variations**. Script nhận ra Clipboard là bảng (TSV) và mở hộp thoại:
+   - **Variation 1** (mặc định tên `Style & Size`) lấy từ cột tên (tiêu đề có size/style/type).
+   - **Giá lấy từ cột**: chọn 1 trong các cột số (Giá Sale / Giá List Etsy / 2-sided...). Mặc định là cột
+     chọn lần trước, lần đầu là cột có chữ "List"/"Etsy".
+   - **Variation 2** (mặc định `Color`) lấy từ cột màu, không đặt giá. Bỏ tick nếu không cần.
+   - Phần xem trước báo số option, khoảng giá, các dòng **bị bỏ qua vì cột giá đang trống** (vd các dòng
+     Gildan chưa có giá — Etsy khoá switch Visible khi giá trống nên không tạo dòng ẩn không giá được), các
+     dòng có chữ "Sold out" (từ v9.52 **không còn tự tắt Visible**), và **chặn dán** nếu có tên dài quá
+     **20 ký tự** hoặc bị trùng (Etsy sẽ cắt/từ chối, làm lệch bước điền giá).
+3. Bấm **Dán vào Etsy** → chạy đúng luồng "Dán variations" cũ (tạo variation → Prices vary → Apply → điền giá).
+
+Đổi giá trên sheet sau này: copy lại bảng rồi bấm **💲 Chỉ điền giá** ở listing đã có variations — chỉ ghi đè
+giá, khớp theo tên option. Tên variation và cột giá đã chọn được nhớ cho lần sau; dữ liệu lần dán gần nhất cũng được
+lưu như "Copy variations" nên lần sau Clipboard không còn bảng thì vẫn dán lại được.
+
+**Gợi ý cho gọn sheet:** giá trong bảng hiện tại theo đúng công thức `List = Sale / 0.7` và
+`2-sided = (Sale + 6) / 0.7` (làm tròn 2 số) — chỉ cần nhập tay cột Giá Sale, 2 cột kia để công thức
+(`=ROUND(B3/(1-$H$1),2)`, `=ROUND((B3+$H$2)/(1-$H$1),2)` với `H1 = 30%`, `H2 = 6`), đổi % giảm giá hay phụ
+thu 2 mặt chỉ sửa 1 ô.
 
 # Etsy Auto Tracking — Tự động điền tracking từ Google Sheet
 
