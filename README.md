@@ -819,6 +819,14 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Lỗi đồng bộ Sheet (403): hiện lý do thật + tự giãn nhịp (v9.61)
+
+Khi Google trả về trang HTML thay vì JSON (403/429...), thông báo lỗi giờ kèm **đoạn chữ đầu trang lỗi của Google** (vd "Google nói: ...vượt quá hạn mức...") và ghi ra Console, để biết đúng nguyên nhân thay vì chỉ "dữ liệu lạ".
+
+- Đồng bộ lỗi thì **tạm nghỉ tăng dần** 10s → 20s → 40s ... tối đa 3 phút (lưu chung nên mọi tab/trình duyệt cùng nghỉ), không dập Google mỗi 10s nữa. Có kết nối lại thì trở về nhịp 10s.
+- Nút **Đồng bộ ngay** và lúc bấm **Publish** vẫn gửi ngay, không bị chặn bởi thời gian nghỉ.
+- Sự kiện chưa gửi vẫn nằm trong hàng chờ của máy và tự gửi khi Sheet dùng lại được.
+
 ### Nút ⬇ tải ảnh đang xem ở góc ảnh chính (v9.60)
 
 Trên trang `/listing/...`, góc trên-trái của ảnh chính có nút **⬇**. Bấm vào là tải **ảnh đang hiển thị** (bản full size `il_fullxfull`), tên file = **tiêu đề sản phẩm** (đã bỏ ký tự cấm như `/ : * ? " < > |`, tối đa 100 ký tự).

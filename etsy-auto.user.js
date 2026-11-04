@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.60
+// @version      9.61
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.60';
+  const PHIEN_BAN = '9.61';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -5350,6 +5350,20 @@
   //     /macros/u/1/... (nham tai khoan) -> 404;
   //   - fetch tu chinh trang Etsy bi chan CORS.
   // Nen chi giu 1 cach, va khi loi thi bao thang cach sua theo dung dau hieu da gap.
+  // v9.61: khi Google tra ve trang HTML (403/429...) thi lay doan chu dau trang do (bo the, script, style)
+  // dua vao thong bao loi — chinh doan chu do cho biet ly do that (vuot han muc, khong co quyen...).
+  function chiTietTrangLoi(text) {
+    const chu = String(text || '')
+      .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 200);
+    if (chu) console.warn('[Etsy Auto] Google trả về trang lỗi:', chu);
+    return chu ? ` — Google nói: "${chu}"` : '';
+  }
+
   function goiSheetDanhDau(phuongThuc, url, duLieu) {
     return new Promise((resolve, reject) => {
       if (typeof GM_xmlhttpRequest !== 'function') {
@@ -5386,7 +5400,7 @@
                   ? `Google chuyển nhầm tài khoản (mã ${res.status}) — đặt quyền truy cập web app thành "Bất kỳ ai"`
                   : res.status === 404
                     ? 'Không tìm thấy web app (mã 404) — kiểm tra URL copy từ ô "URL ứng dụng web" (đuôi /exec) và bản triển khai còn hoạt động'
-                    : `Sheet trả về dữ liệu lạ (mã ${res.status})`
+                    : `Sheet trả về dữ liệu lạ (mã ${res.status})${chiTietTrangLoi(text)}`
             )
           );
         },
@@ -5407,6 +5421,24 @@
 
   let loiDongBoCuoi = '';
 
+  // v9.61: dong bo loi (Google 403/429, mat mang...) thi TAM NGHI tang dan 10s -> 20s -> ... toi da 3 phut thay vi
+  // dap lai Google moi 10s (de lam het han muc hon). Luu trong kho chung nen MOI tab / MOI trinh duyet cung nghi.
+  // Nguoi dung bam "Dong bo ngay" hoac vua bam Publish (batBuoc) van thu ngay.
+  const KHOA_DANH_DAU_TAM_NGHI = 'etsy_auto_danh_dau_tam_nghi_v1';
+  const TAM_NGHI_TOI_DA = 180000;
+  function dangTamNghiDongBo() {
+    return Date.now() < Number(docJsonLuu(KHOA_DANH_DAU_TAM_NGHI, {}).den || 0);
+  }
+  function ghiKetQuaDongBo(thanhCong) {
+    if (thanhCong) {
+      if (docJsonLuu(KHOA_DANH_DAU_TAM_NGHI, null)) luuGiaTri(KHOA_DANH_DAU_TAM_NGHI, JSON.stringify({ n: 0, den: 0 }));
+      return;
+    }
+    const n = (Number(docJsonLuu(KHOA_DANH_DAU_TAM_NGHI, {}).n) || 0) + 1;
+    const nghi = Math.min(CHU_KY_DONG_BO_DANH_DAU * Math.pow(2, n - 1), TAM_NGHI_TOI_DA);
+    luuGiaTri(KHOA_DANH_DAU_TAM_NGHI, JSON.stringify({ n, den: Date.now() + nghi }));
+  }
+
   // Khoa dong bo: "<id trang>|<thoi diem>". Tab khac thay khoa cua trang KHAC con moi (< HAN_KHOA_DONG_BO) thi bo
   // qua lan dong bo nay. v9.59: khoa co chu so huu va duoc GIAI PHONG khi roi trang (pagehide) — truoc day
   // chuyen trang giua luc dang dong bo de lai khoa 20s chan lan dong bo o trang ke tiep.
@@ -5426,6 +5458,7 @@
       return { boQua: true };
     }
     const [chuKhoa, lucKhoa] = String(docGiaTriLuu(KHOA_DANH_DAU_DANG_DONG_BO) || '').split('|');
+    if (!batBuoc && dangTamNghiDongBo()) return { boQua: true };
     if (!batBuoc && chuKhoa && chuKhoa !== ID_TRANG_DANH_DAU && Date.now() - Number(lucKhoa) < HAN_KHOA_DONG_BO) {
       return { boQua: true };
     }
@@ -5452,10 +5485,12 @@
       }
       luuGiaTri(KHOA_DANH_DAU_CON_TRO, JSON.stringify({ dong: Number(kq.dongCuoi) || conTro.dong, luc: Date.now() }));
       loiDongBoCuoi = '';
+      ghiKetQuaDongBo(true);
       if (ds.length) veLaiDanhDau();
       return { daGui: choGui.length, daNhan: ds.length };
     } catch (loi) {
       loiDongBoCuoi = loi.message;
+      ghiKetQuaDongBo(false);
       throw loi;
     } finally {
       dangDongBoTrangNay = false;
