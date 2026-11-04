@@ -819,6 +819,13 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Sheet chỉ ghi "đã đăng", cột B là link sản phẩm (v9.65)
+
+- **📋 "đã lấy" cũng chỉ lưu ở máy này** (giống 👁 từ v9.64). Google Sheet giờ chỉ nhận ✅ "đã đăng" — thứ duy nhất cần chia sẻ giữa các máy. Sự kiện xem/lấy còn trong hàng chờ từ bản cũ được bỏ.
+- **Cột B ghi link sản phẩm** `https://www.etsy.com/listing/<id>` thay vì chỉ số ID (bấm vào là mở listing). Script đọc được cả dòng cũ (số ID) lẫn dòng mới (link).
+- **Cần cập nhật mã Apps Script** (chỉ 1 lần): 🏷️ Đánh dấu listing → **📋 Copy mã Apps Script** → dán đè toàn bộ mã trong Apps Script → Lưu → Triển khai → Quản lý các bản triển khai → ✏️ → Phiên bản: **Phiên bản mới** → Triển khai (giữ nguyên URL). Chưa cập nhật thì Sheet vẫn chạy như cũ (cột B là số ID).
+- **Đổi các dòng cũ thành link** (tuỳ chọn): trong trình soạn thảo Apps Script chọn hàm `doiIdThanhLink` → **Chạy** 1 lần.
+
 ### Sheet gọn hơn, ít gọi Google hơn: không gửi "đã xem", đọc thưa khi ngồi yên (v9.64)
 
 - **👁 "đã xem" chỉ lưu ở máy này**, không gửi lên Google Sheet nữa (chiếm phần lớn số dòng mà chỉ có ích ở máy nguồn). 📋 "đã lấy" và ✅ "đã đăng" vẫn gửi như cũ. Sự kiện "xem" còn sót trong hàng chờ từ bản cũ được bỏ, không gửi. Các dòng "xem" đã có trên Sheet vẫn đọc bình thường.

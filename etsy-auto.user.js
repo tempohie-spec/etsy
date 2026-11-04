@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.64
+// @version      9.65
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.64';
+  const PHIEN_BAN = '9.65';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -5208,14 +5208,14 @@
     apSuKienDanhDau(kho, sk);
     ghiKhoDanhDau(kho);
     console.log(`[Etsy Auto] Đánh dấu listing ${sk.id}: ${loai}${loai === 'dang' ? ` (${sk.nhan || 'chưa đặt nhãn máy'})` : ''}`);
-    // v9.64: 👁 "da xem" chi giu o MAY NAY, khong gui len Sheet (chiem phan lon so dong ma chi co ich o may nguon)
-    if (loai !== 'xem' && coSheetDanhDau(caiDat)) {
+    // v9.64-9.65: 👁 "da xem" va 📋 "da lay" chi giu o MAY NAY — Sheet chi nhan ✅ "da dang" (thu duy nhat
+    // can chia se giua cac may)
+    if (loai === 'dang' && coSheetDanhDau(caiDat)) {
       const hangCho = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []);
       hangCho.push(sk);
       luuGiaTri(KHOA_DANH_DAU_CHO_GUI, JSON.stringify(hangCho.slice(-5000)));
-      // "Da dang" gui NGAY (Etsy chuyen trang ngay sau khi bam Publish nen hen gio 1,5s se bi dut); xem/lay thi gom 1,5s
-      if (loai === 'dang') dongBoDanhDau({ batBuoc: true }).catch((loi) => console.warn('[Etsy Auto] Đồng bộ đánh dấu lỗi:', loi.message));
-      else henDongBoDanhDau(1500);
+      // Gui NGAY (Etsy chuyen trang ngay sau khi bam Publish nen hen gio se bi dut)
+      dongBoDanhDau({ batBuoc: true }).catch((loi) => console.warn('[Etsy Auto] Đồng bộ đánh dấu lỗi:', loi.message));
     }
     veLaiDanhDau();
   }
@@ -5509,13 +5509,15 @@
     dangDongBoTrangNay = true;
     luuGiaTri(KHOA_DANH_DAU_DANG_DONG_BO, `${ID_TRANG_DANH_DAU}|${Date.now()}`);
     try {
-      // Su kien "xem" con sot trong hang cho tu ban cu (truoc v9.64) -> bo, khong gui
-      const choGui = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).filter((s) => s.loai !== 'xem');
+      // Su kien "xem"/"lay" con sot trong hang cho tu ban cu (truoc v9.65) -> bo, khong gui
+      const hangChoGoc = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []);
+      const choGui = hangChoGoc.filter((s) => s.loai === 'dang');
+      if (choGui.length !== hangChoGoc.length) luuGiaTri(KHOA_DANH_DAU_CHO_GUI, JSON.stringify(choGui));
       if (choGui.length) {
         await goiSheetDanhDau('POST', c.urlSheet, { biMat: c.biMat, suKien: choGui });
         const daGui = new Set(choGui.map((s) => `${s.t}|${s.loai}|${s.id}|${s.nhan}`));
         const conLai = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).filter(
-          (s) => s.loai !== 'xem' && !daGui.has(`${s.t}|${s.loai}|${s.id}|${s.nhan}`)
+          (s) => s.loai === 'dang' && !daGui.has(`${s.t}|${s.loai}|${s.id}|${s.nhan}`)
         );
         luuGiaTri(KHOA_DANH_DAU_CHO_GUI, JSON.stringify(conLai));
       }
@@ -5690,14 +5692,35 @@
 // Doi BI_MAT thanh dung "Mã bí mật" da nhap trong script tren MOI may.
 const BI_MAT = '__BI_MAT__';
 
+const LINK_LISTING = 'https://www.etsy.com/listing/';
+
 function laySheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName('DanhDau');
   if (!sh) {
     sh = ss.insertSheet('DanhDau');
-    sh.appendRow(['Thời điểm (ms)', 'Listing ID', 'Loại (xem/lay/dang)', 'Máy / tài khoản', 'Thời gian']);
+    sh.appendRow(['Thời điểm (ms)', 'Link sản phẩm', 'Loại (xem/lay/dang)', 'Máy / tài khoản', 'Thời gian']);
   }
   return sh;
+}
+
+// Cot B: dong moi ghi link "https://www.etsy.com/listing/<id>", dong cu co the chi la so id -> doc ca 2
+function layId_(v) {
+  const m = String(v).match(/listing\\/(\\d+)/) || String(v).match(/^(\\d+)$/);
+  return m ? m[1] : '';
+}
+
+// Chay 1 LAN trong trinh soan thao (chon ham doiIdThanhLink -> Chay) de doi cac dong CU (chi co so id) thanh link
+function doiIdThanhLink() {
+  const sh = laySheet_();
+  sh.getRange(1, 2).setValue('Link sản phẩm');
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return;
+  const o = sh.getRange(2, 2, n, 1);
+  o.setValues(o.getValues().map(function (r) {
+    const id = layId_(r[0]);
+    return [id ? LINK_LISTING + id : r[0]];
+  }));
 }
 
 function traVe_(o) {
@@ -5716,7 +5739,7 @@ function doPost(e) {
     const sh = laySheet_();
     if (ds.length) {
       sh.getRange(sh.getLastRow() + 1, 1, ds.length, 5).setValues(ds.map(function (s) {
-        return [Number(s.t), String(s.id), s.loai, String(s.nhan || ''), new Date(Number(s.t))];
+        return [Number(s.t), LINK_LISTING + String(s.id), s.loai, String(s.nhan || ''), new Date(Number(s.t))];
       }));
     }
   } finally {
@@ -5736,7 +5759,7 @@ function doGet(e) {
   return traVe_({
     ok: true,
     dongCuoi: dongCuoi,
-    suKien: vals.map(function (r) { return { t: Number(r[0]), id: String(r[1]), loai: r[2], nhan: r[3] }; }),
+    suKien: vals.map(function (r) { return { t: Number(r[0]), id: layId_(r[1]), loai: r[2], nhan: r[3] }; }),
   });
 }
 `;
@@ -5767,7 +5790,7 @@ function doGet(e) {
     lop.innerHTML = `
       <div style="background:#fff;border-radius:12px;padding:16px 18px;width:min(560px,94vw);max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;color:#111827;">
         <div style="font-weight:bold;font-size:15px;margin-bottom:6px;">🏷️ Đánh dấu listing</div>
-        <div style="color:#6B7280;margin-bottom:10px;line-height:1.5;">Nhãn ở góc ảnh: 👁 đã xem · 📋 đã lấy dữ liệu (Alt+G/Alt+C) · ✅ đã đăng ở máy nào (bấm Publish sau khi dán dữ liệu). Để các máy (kể cả máy ảo) thấy chung, cài 1 Google Sheet bên dưới và nhập cùng URL + mã bí mật trên mọi máy.</div>
+        <div style="color:#6B7280;margin-bottom:10px;line-height:1.5;">Nhãn ở góc ảnh: 👁 đã xem · 📋 đã lấy dữ liệu (Alt+G/Alt+C) · ✅ đã đăng ở máy nào (bấm Publish sau khi dán dữ liệu). 👁 và 📋 chỉ lưu ở máy này; để các máy (kể cả máy ảo) thấy chung ✅ đã đăng, cài 1 Google Sheet bên dưới và nhập cùng URL + mã bí mật trên mọi máy.</div>
         <label style="display:block;font-weight:bold;">Nhãn máy này
           <input id="ea-dd-nhan" style="${oNhap}" placeholder="VD: VM1 – LitbyArt" value="">
         </label>
