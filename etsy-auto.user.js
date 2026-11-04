@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.61
+// @version      9.62
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.61';
+  const PHIEN_BAN = '9.62';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -5161,10 +5161,42 @@
     luuGiaTri(KHOA_DANH_DAU, JSON.stringify(kho));
   }
 
+  // v9.62: ghi xem/lay/dang ma may nay CHUA DAT NHAN thi hien pop-up canh bao (khong chan thao tac, bam X hoac
+  // "Dat nhan ngay" de tat). Cac lan ghi lien tiep chi cap nhat noi dung pop-up dang co, khong chong nhieu cai.
+  const ID_POPUP_CHUA_DAT_NHAN = 'ea-popup-chua-dat-nhan';
+  function canhBaoChuaDatNhan(loai) {
+    const ten = { xem: '👁 xem', lay: '📋 lấy dữ liệu', dang: '✅ đăng' }[loai] || loai;
+    let hop = document.getElementById(ID_POPUP_CHUA_DAT_NHAN);
+    if (!hop) {
+      hop = document.createElement('div');
+      hop.id = ID_POPUP_CHUA_DAT_NHAN;
+      hop.style.cssText =
+        'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:1000001;width:min(440px,92vw);' +
+        'background:#FEF3C7;border:2px solid #F59E0B;border-radius:10px;padding:12px 14px;font:13px/1.5 sans-serif;' +
+        'color:#78350F;box-shadow:0 8px 28px rgba(0,0,0,.35);';
+      hop.innerHTML =
+        '<div style="font-weight:bold;font-size:14px;margin-bottom:4px;">⚠️ Máy này CHƯA ĐẶT NHÃN</div>' +
+        '<div data-noi-dung></div>' +
+        '<div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;">' +
+        '<button data-dong style="padding:6px 12px;border:1px solid #D97706;border-radius:6px;background:#fff;cursor:pointer;">Đóng</button>' +
+        '<button data-dat style="padding:6px 12px;border:0;border-radius:6px;background:#D97706;color:#fff;font-weight:bold;cursor:pointer;">🏷️ Đặt nhãn ngay</button></div>';
+      hop.querySelector('[data-dong]').onclick = () => hop.remove();
+      hop.querySelector('[data-dat]').onclick = () => {
+        hop.remove();
+        moCaiDatDanhDau();
+      };
+      document.body.appendChild(hop);
+    }
+    hop.querySelector('[data-noi-dung]').textContent =
+      `Vừa ghi nhận ${ten} nhưng chưa có tên máy/tài khoản, nên nhãn ✅ trên các máy khác sẽ không biết là máy nào. ` +
+      'Đặt nhãn trong 🏷️ Đánh dấu listing (mỗi máy ảo 1 tên riêng).';
+  }
+
   // Ghi 1 su kien: vao kho ngay (hien nhan tuc thi) + xep hang gui len Sheet (neu da cai)
   function ghiDanhDau(loai, id, nhanRieng) {
     if (!/^\d+$/.test(String(id || ''))) return;
     const caiDat = docCaiDatDanhDau();
+    if (!caiDat.nhanMay && !nhanRieng) canhBaoChuaDatNhan(loai);
     const sk = { id: String(id), loai, nhan: nhanRieng || caiDat.nhanMay || '', t: Date.now() };
     const kho = docKhoDanhDau();
     apSuKienDanhDau(kho, sk);
@@ -5559,10 +5591,6 @@
         if (!nguon || !nguon.id || Date.now() - nguon.t > HAN_NGUON_DANG_SOAN) return;
         ghiDanhDau('dang', nguon.id);
         luuNguonDangSoan(null); // 1 lan dan = 1 lan dang, khong danh dau trung
-        const nhan = docCaiDatDanhDau().nhanMay;
-        if (!nhan) {
-          hienThongBao('🏷️ Đã ghi "đã đăng" nhưng máy này CHƯA ĐẶT NHÃN — mở 🏷️ Đánh dấu listing trên panel để đặt tên máy/tài khoản.', '#F59E0B', 8000);
-        }
       },
       true
     );

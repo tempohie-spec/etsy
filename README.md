@@ -819,6 +819,14 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Pop-up cảnh báo khi máy chưa đặt nhãn (v9.62)
+
+Mỗi lần ghi nhận **xem / lấy dữ liệu / đăng** mà máy này chưa đặt "Nhãn máy" trong 🏷️ Đánh dấu listing, trên cùng màn hình hiện pop-up vàng **"⚠️ Máy này CHƯA ĐẶT NHÃN"** (nói rõ vừa ghi nhận hành động nào).
+
+- Có nút **🏷️ Đặt nhãn ngay** (mở thẳng hộp cài đặt) và **Đóng**; pop-up không chặn thao tác, ghi nhận liên tiếp chỉ cập nhật nội dung chứ không chồng nhiều cái.
+- Thay cho thông báo nhỏ 8 giây trước đây (chỉ hiện khi bấm Publish).
+- Đã đặt nhãn thì không hiện.
+
 ### Lỗi đồng bộ Sheet (403): hiện lý do thật + tự giãn nhịp (v9.61)
 
 Khi Google trả về trang HTML thay vì JSON (403/429...), thông báo lỗi giờ kèm **đoạn chữ đầu trang lỗi của Google** (vd "Google nói: ...vượt quá hạn mức...") và ghi ra Console, để biết đúng nguyên nhân thay vì chỉ "dữ liệu lạ".
