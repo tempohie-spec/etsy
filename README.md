@@ -1521,7 +1521,7 @@ Chạy 24/7, **không cần mở Sheet**:
 - Đơn chưa có mã RX (AD trống): mỗi store 1 request `search/v3` lấy 100 đơn mới nhất, ghi mã RX vào AD rồi
   tra tracking theo lô 50 đơn/request; chỉ đơn không có trong 100 đơn đó mới tra từng đơn.
 - Tối ưu mỗi lần chạy: tra tracking song song 6 đơn/lần; đơn cũ tra trước; bỏ qua đơn fulfill
-  hôm nay (chưa thể có tracking); số dư lưu 1 giờ;
+  hôm nay (chưa thể có tracking); số dư lưu 4 giờ (`THOI_GIAN_LUU_SO_DU`, store lỗi thì lấy lại ngay lần sau);
   hạn mức request tính trước nên không bao giờ vượt 50. Muốn cập nhật nhanh hơn: đặt lịch
   `*/15 * * * *` (15 phút/lần, Telegram 96 tin/ngày).
 - Miễn phí trên gói Free của Cloudflare. Giới hạn: tối đa 50 request ra ngoài mỗi lần chạy, nên

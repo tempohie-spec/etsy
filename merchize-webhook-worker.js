@@ -34,6 +34,8 @@ const SO_NGAY_CAP_NHAT = 10;
 const GIOI_HAN_REQUEST = 45;
 // Canh bao khi so du store duoi muc nay (USD).
 const NGUONG_SO_DU = 50;
+// Thoi gian luu so du (giay): lich 2 tieng/lan thi cu 2 lan chay moi lay lai 1 lan.
+const THOI_GIAN_LUU_SO_DU = 4 * 3600;
 
 // Vi tri cot (0-based) - giong userscript merchize-order-sender.user.js.
 const COL = {
@@ -990,13 +992,13 @@ async function chayLich(env, event) {
   // Chua lai request cho: ghi Sheet (2), Telegram (1), so du moi store (1/store).
   // Don cu hon truoc (de co tracking hon), roi xoay vong tiep noi lan truoc.
   donLe.sort((a, b) => a.ngay - b.ngay);
-  // So du luu KV 1 gio (chi luu so lay duoc): store nao da co thi khong goi lai; store loi (vd 403)
+  // So du luu KV 4 gio (THOI_GIAN_LUU_SO_DU, chi luu so lay duoc): store nao da co thi khong goi lai; store loi (vd 403)
   // thi lan chay sau goi lai ngay, khong phai doi het 1 gio.
   let soDuCu = {};
   let lucSoDu = Date.now();
   try {
     const v = JSON.parse((await env.EVENTS.get('sodu')) || 'null');
-    if (v && v.luc && Date.now() - v.luc < 3600000) { soDuCu = v.giaTri || {}; lucSoDu = v.luc; }
+    if (v && v.luc && Date.now() - v.luc < THOI_GIAN_LUU_SO_DU * 1000) { soDuCu = v.giaTri || {}; lucSoDu = v.luc; }
   } catch (e) { /* ban luu cu, lay lai */ }
   const canLaySoDu = tabs.filter((t) => typeof soDuCu[t] !== 'number');
   const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - canLaySoDu.length - dem.n);
@@ -1066,7 +1068,7 @@ async function chayLich(env, event) {
     const giaTri = {};
     Object.keys(soDu).forEach((t) => { if (typeof soDu[t] === 'number') giaTri[t] = soDu[t]; });
     if (Object.keys(giaTri).length) {
-      await env.EVENTS.put('sodu', JSON.stringify({ luc: lucSoDu, giaTri }), { expirationTtl: 3600 });
+      await env.EVENTS.put('sodu', JSON.stringify({ luc: lucSoDu, giaTri }), { expirationTtl: THOI_GIAN_LUU_SO_DU });
     }
   }
   const dongSoDu = Object.keys(soDu).map((tab) => {
