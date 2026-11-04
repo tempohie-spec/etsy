@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.32
+// @version      2.33
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -227,7 +227,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.32';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.33';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -900,8 +900,21 @@
   // hoac nhan ESC) truoc khi xu ly don tiep theo - neu khong overlay se giu nguyen don dau
   // tien va moi lan doc Earnings sau do deu ra cung 1 so tien (dinh vao tat ca cac don).
 
+  // So khop CHINH XAC tham so "order_id" trong URL (phan tich bang URLSearchParams), KHONG
+  // dung bo loc CSS kieu "chua chuoi con" (a[href*="order_id=123"]) - cach do co the bam NHAM
+  // sang 1 don KHAC co ma don dai hon nhung TRUNG TIEN TO voi ma don can tim (vd tim "414220878"
+  // van khop nham voi href chua "order_id=4142208787", vi "414220878" la 9 ky tu dau cua
+  // "4142208787"). Bam nham don se lam Earnings bi gan cho SAI don, dung loi da gap truoc day.
   function findOrderLinkByOrderId(orderId) {
-    return document.querySelector(`a[href*="order_id=${orderId}"]`);
+    const maDon = String(orderId);
+    const candidates = document.querySelectorAll('a[href*="order_id="]');
+    for (const a of candidates) {
+      try {
+        const url = new URL(a.href, location.origin);
+        if (url.searchParams.get('order_id') === maDon) return a;
+      } catch (e) { /* noop */ }
+    }
+    return null;
   }
 
   // Tim phan tu co the bam duoc, khop CHINH XAC theo noi dung chu (uu tien phan tu la LA -

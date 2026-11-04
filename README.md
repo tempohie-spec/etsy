@@ -1314,6 +1314,17 @@ bước GẦN cuối (chưa phải số cuối cùng) vẫn có thể đứng y�
 script chấp nhận nhầm. Đã tăng thời gian chờ ổn định lên **1 giây (1000ms)** để chắc chắn hiệu
 ứng đã chạy xong hẳn — chậm hơn một chút nhưng đáng tin cậy hơn nhiều cho dữ liệu tiền bạc.
 
+## Sửa lỗi bấm nhầm sang đơn khác khi lấy Earnings
+
+Khi tìm link để bấm vào 1 mã đơn cụ thể, script trước đây lọc theo kiểu "href có CHỨA chuỗi
+`order_id=<mã đơn>`" — cách này có thể **bấm nhầm sang đơn khác** nếu mã đơn cần tìm trùng với
+**tiền tố** của 1 mã đơn khác dài hơn (vd tìm mã đơn `414220878` vẫn khớp nhầm với href chứa
+`order_id=4142208787`, vì `414220878` đúng là 9 ký tự đầu của `4142208787`). Bấm nhầm đơn như
+vậy sẽ khiến Earnings bị gán cho SAI đơn — cùng dạng lỗi đã từng gặp trước đây.
+
+Đã sửa: giờ script phân tích đúng tham số `order_id` trong URL (qua `URLSearchParams`) và so
+khớp **chính xác tuyệt đối**, không còn dựa vào kiểu so khớp "chứa chuỗi con" nữa.
+
 ## Nút Dừng
 
 Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),
