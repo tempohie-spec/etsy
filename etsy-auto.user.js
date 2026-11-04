@@ -12,6 +12,8 @@
 // @connect      i.etsystatic.com
 // @connect      openapi.etsy.com
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto.user.js
+// @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto.user.js
 // ==/UserScript==
 
 (function () {

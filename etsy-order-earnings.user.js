@@ -10,6 +10,8 @@
 // @grant        GM_setClipboard
 // @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js
+// @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js
 // ==/UserScript==
 
 (function () {
