@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      4.6
+// @version      4.7
 // @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
 // @grant        GM_setValue
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '4.6';
+  const SCRIPT_VERSION = '4.7';
 
   // Manual overrides if the automatic substring match picks the wrong
   // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -276,10 +276,19 @@
       return t && t !== 'other' && t !== 'select shipping carrier';
     });
 
-    return options.find((o) => {
+    // Exact match wins; otherwise a substring match only counts when the
+    // shorter side is at least 3 chars (avoids a tiny option like "US"
+    // matching inside an unrelated carrier), preferring the longest option.
+    const exact = options.find((o) => o.textContent.trim().toLowerCase() === carrierNorm);
+    if (exact) return exact;
+
+    const partial = options.filter((o) => {
       const t = o.textContent.trim().toLowerCase();
+      if (Math.min(t.length, carrierNorm.length) < 3) return false;
       return carrierNorm.includes(t) || t.includes(carrierNorm);
     });
+    partial.sort((a, b) => b.textContent.trim().length - a.textContent.trim().length);
+    return partial[0];
   }
 
   async function setClgTextInputValue(clgEl, value) {
@@ -378,7 +387,6 @@
 
   let sheetMap = null; // orderId -> { tracking, carrier }
   let sheetMapByName = null; // normalized customer name -> { tracking, carrier } (fallback)
-  let sheetOrder = null; // order ids, in the order they appear in the sheet
 
   function extractSheetIdAndGid(url) {
     const idMatch = (url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -387,7 +395,7 @@
     return { sheetId: idMatch[1], gid: gidMatch ? gidMatch[1] : '0' };
   }
 
-  function gmFetchText(url) {
+  function gmFetchTextOnce(url) {
     return new Promise((resolve, reject) => {
       GM_xmlhttpRequest({
         method: 'GET',
@@ -401,6 +409,18 @@
         ontimeout: () => reject(new Error('timeout')),
       });
     });
+  }
+
+  // One retry on a transient failure (network blip / timeout / 5xx); a 4xx
+  // (e.g. 403/404) won't get better by retrying, so it fails immediately.
+  async function gmFetchText(url) {
+    try {
+      return await gmFetchTextOnce(url);
+    } catch (e) {
+      if (/^HTTP 4/.test(e.message)) throw e;
+      await sleep(1500);
+      return gmFetchTextOnce(url);
+    }
   }
 
   // Minimal RFC4180-ish CSV parser: handles quoted fields with embedded
@@ -611,6 +631,11 @@
     }
     log(result.byName ? '  found (by customer name):' : '  found:', result.tracking, '/', result.carrier);
 
+    if (!result.carrier) {
+      log('  ERROR: có tracking nhưng thiếu DVVC (carrier) trong Sheet -> skipped (no modal opened)');
+      return false;
+    }
+
     const opened = await openCompleteOrderModal(row, orderId);
     if (!opened) {
       log('  no "Complete order" action available on this row -> skipped');
@@ -780,10 +805,13 @@
       return { ok: false, error: `thiếu cột ${missing.join(', ')}` };
     }
     if (result.count === 0) {
-      const reason =
-        result.skippedOld > 0
-          ? `${result.skippedOld} đơn có tracking nhưng đều cũ hơn ${RECENT_DAYS_LIMIT} ngày`
-          : `đọc được ${result.rowCount} dòng nhưng không đơn nào có TRACKING`;
+      const parts = [];
+      if (result.skippedOld > 0) parts.push(`${result.skippedOld} đơn có tracking nhưng cũ hơn ${RECENT_DAYS_LIMIT} ngày`);
+      if (result.skippedNotTracking > 0)
+        parts.push(`${result.skippedNotTracking} dòng ghi chú không phải mã tracking (VD: "NGOÀI US", "Priority")`);
+      const reason = parts.length
+        ? parts.join('; ')
+        : `đọc được ${result.rowCount} dòng nhưng không đơn nào có TRACKING`;
       return { ok: false, error: reason };
     }
     return result;
@@ -846,7 +874,6 @@
 
     sheetMap = combinedMap;
     sheetMapByName = combinedMapByName;
-    sheetOrder = combinedOrder;
     localStorage.setItem('at_sheet_urls', urlsText);
 
     let msg = `Đã tải ${combinedOrder.length} đơn từ ${okCount}/${urls.length} link.`;
