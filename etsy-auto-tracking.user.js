@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      4.8
+// @version      4.7
 // @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
 // @grant        GM_setValue
