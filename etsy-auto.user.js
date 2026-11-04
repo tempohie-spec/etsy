@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.62
+// @version      9.63
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -20,7 +20,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.62';
+  const PHIEN_BAN = '9.63';
 
   // Ky tu dung de noi Tieu de va Tag lai thanh 1 chuoi duy nhat khi luu vao clipboard
   const NGAN_CACH = '|||TAGS|||';
@@ -641,11 +641,14 @@
 
   // Lam sach ten file (bo cac ky tu khong hop le tren Windows/Mac)
   function lamSachTenFile(ten) {
+    // v9.63: bo ca dau "\" va ky tu dieu khien (Windows cam), va dau cham / khoang trang o CUOI ten
+    // (Windows tu cat -> "Abc." thanh "Abc", co the trung file khac)
     return (ten || 'etsy-images')
-      .replace(/[\/:*?"<>|]/g, '')
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 100) || 'etsy-images';
+      .slice(0, 100)
+      .replace(/[.\s]+$/, '') || 'etsy-images';
   }
 
   // Tai THANG tu URL goc bang GM_download (khong tu fetch du lieu truoc).
@@ -5430,6 +5433,8 @@
                 ? `Web app đòi đăng nhập (mã ${res.status}) — Triển khai → Quản lý các bản triển khai → ✏️ → Người có quyền truy cập: "Bất kỳ ai" → Phiên bản mới`
                 : /\/macros\/u\/\d+\//.test(cuoi)
                   ? `Google chuyển nhầm tài khoản (mã ${res.status}) — đặt quyền truy cập web app thành "Bất kỳ ai"`
+                  : /Access Denied|You need access|cần có quyền truy cập|Bạn cần quyền/i.test(text.slice(0, 5000))
+                    ? `Google chặn truy cập web app (mã ${res.status}) — Triển khai → Quản lý các bản triển khai → ✏️ → Thực thi: "Tôi", Người có quyền truy cập: "Bất kỳ ai" → Phiên bản mới → Triển khai`
                   : res.status === 404
                     ? 'Không tìm thấy web app (mã 404) — kiểm tra URL copy từ ô "URL ứng dụng web" (đuôi /exec) và bản triển khai còn hoạt động'
                     : `Sheet trả về dữ liệu lạ (mã ${res.status})${chiTietTrangLoi(text)}`
@@ -5453,11 +5458,12 @@
 
   let loiDongBoCuoi = '';
 
-  // v9.61: dong bo loi (Google 403/429, mat mang...) thi TAM NGHI tang dan 10s -> 20s -> ... toi da 3 phut thay vi
+  // v9.61: dong bo loi (Google 403/429, mat mang...) thi TAM NGHI tang dan (xem ghiKetQuaDongBo) toi da 3 phut thay vi
   // dap lai Google moi 10s (de lam het han muc hon). Luu trong kho chung nen MOI tab / MOI trinh duyet cung nghi.
   // Nguoi dung bam "Dong bo ngay" hoac vua bam Publish (batBuoc) van thu ngay.
   const KHOA_DANH_DAU_TAM_NGHI = 'etsy_auto_danh_dau_tam_nghi_v1';
   const TAM_NGHI_TOI_DA = 180000;
+  let dangRoiTrangDanhDau = false;
   function dangTamNghiDongBo() {
     return Date.now() < Number(docJsonLuu(KHOA_DANH_DAU_TAM_NGHI, {}).den || 0);
   }
@@ -5466,8 +5472,10 @@
       if (docJsonLuu(KHOA_DANH_DAU_TAM_NGHI, null)) luuGiaTri(KHOA_DANH_DAU_TAM_NGHI, JSON.stringify({ n: 0, den: 0 }));
       return;
     }
+    if (dangRoiTrangDanhDau) return; // request bi huy vi chuyen trang — khong phai Google loi, khong bat trang sau phai nghi
     const n = (Number(docJsonLuu(KHOA_DANH_DAU_TAM_NGHI, {}).n) || 0) + 1;
-    const nghi = Math.min(CHU_KY_DONG_BO_DANH_DAU * Math.pow(2, n - 1), TAM_NGHI_TOI_DA);
+    // v9.63: loi LAN DAU chua nghi (co the chi la chap chon mang), tu lan 2 moi nghi 20s -> 40s -> ... -> 3 phut
+    const nghi = n < 2 ? 0 : Math.min(CHU_KY_DONG_BO_DANH_DAU * Math.pow(2, n - 1), TAM_NGHI_TOI_DA);
     luuGiaTri(KHOA_DANH_DAU_TAM_NGHI, JSON.stringify({ n, den: Date.now() + nghi }));
   }
 
@@ -5644,6 +5652,7 @@
       document.addEventListener('visibilitychange', dongBoKhiQuayLai);
       window.addEventListener('focus', dongBoKhiQuayLai);
       window.addEventListener('pagehide', () => {
+        dangRoiTrangDanhDau = true;
         if (khoaDongBoDangGiu()) luuGiaTri(KHOA_DANH_DAU_DANG_DONG_BO, '0');
       });
       (async () => {
@@ -6607,7 +6616,8 @@ function doGet(e) {
   }
 
   function timAnhChinhListing() {
-    const thumb = timKhoiCarousel();
+    // Chi dung selector nhanh: ham nay chay moi 500ms, khong duoc goi nhanh du phong quet MOI phan tu cua timKhoiCarousel()
+    const thumb = document.querySelector('[data-carousel-pagination-list]');
     let tot = null;
     let diemTot = 0;
     for (const img of document.querySelectorAll('img')) {
@@ -6652,6 +6662,7 @@ function doGet(e) {
   }
 
   function capNhatNutTaiAnhHienTai() {
+    if (document.visibilityState === 'hidden') return; // tab an: khong can tinh lai vi tri
     let nut = document.getElementById(ID_NUT_TAI_ANH_HIEN_TAI);
     const kq = layListingId() ? timAnhChinhListing() : null;
     if (!kq) { if (nut) nut.style.display = 'none'; return; }

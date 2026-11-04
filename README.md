@@ -819,6 +819,13 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
    lần nhồi script kiểm tra listing còn đủ chỗ cho cả lô không — thiếu chỗ thì dừng luôn, tải phần ảnh
    còn thiếu xuống máy như phương án dự phòng và nhắc kiểm tra ảnh bị trùng.
 
+### Rà lỗi: tạm nghỉ đồng bộ, tên file, nút tải ảnh (v9.63)
+
+- **Tạm nghỉ đồng bộ (v9.61) không còn phạt nhầm:** request bị huỷ vì chuyển trang không bị tính là lỗi nữa (trước đó trang kế tiếp có thể phải chờ tới 10s mới đồng bộ). Lỗi lần đầu chưa nghỉ; từ lần 2 mới nghỉ 20s → 40s → … tối đa 3 phút.
+- **Lỗi 403 "Access Denied / You need access"** giờ báo thẳng cách sửa: Triển khai → Quản lý các bản triển khai → ✏️ → Thực thi "Tôi", truy cập "Bất kỳ ai" → Phiên bản mới.
+- **Tên file:** bỏ thêm dấu `\`, ký tự điều khiển và dấu chấm/khoảng trắng ở cuối tên (Windows không cho), áp dụng cho mọi lần tải ảnh.
+- **Nút ⬇ tải ảnh:** không quét toàn bộ trang mỗi 500ms khi trang không có dải thumbnail, và không tính lại vị trí khi tab đang ẩn.
+
 ### Pop-up cảnh báo khi máy chưa đặt nhãn (v9.62)
 
 Mỗi lần ghi nhận **xem / lấy dữ liệu / đăng** mà máy này chưa đặt "Nhãn máy" trong 🏷️ Đánh dấu listing, trên cùng màn hình hiện pop-up vàng **"⚠️ Máy này CHƯA ĐẶT NHÃN"** (nói rõ vừa ghi nhận hành động nào).
