@@ -11,6 +11,8 @@
 // @grant        GM_addValueChangeListener
 // @grant        GM_addStyle
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto-tracking-merchize.user.js
+// @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto-tracking-merchize.user.js
 // ==/UserScript==
 
 (function () {

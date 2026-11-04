@@ -11,6 +11,8 @@
 // @connect      docs.google.com
 // @connect      accounts.google.com
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto-tracking.user.js
+// @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto-tracking.user.js
 // ==/UserScript==
 
 (function () {
