@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.33
+// @version      2.34
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -229,7 +229,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.33';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.34';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -256,8 +256,6 @@
     // o input tim kiem don hang (dua vao aria-label "Search your orders") - chi dung cho
     // chuc nang "Lay Earnings theo danh sach ma don nhap tay"
     searchInput: 'input[aria-label="Search your orders"]',
-    // nut submit trong form tim kiem
-    searchSubmitBtn: 'button[type="submit"]',
     // dong chu "You earned $xx.xx on this order" -> lay so trong <span>
     earningsAmountSelector: 'span.wt-text-title-large',
     // tab "Earnings" trong bang order details - tim theo text vi class hay doi
@@ -283,19 +281,46 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // Khi nguoi dung chuyen sang tab khac, trinh duyet LAM CHAM timer (>=1s/lan, co khi dong bang
+  // han) va ngung ve/animation cua trang. Neu van tinh thoi gian cho nhu binh thuong thi
+  // waitFor se bao Timeout oan (hoac doc nham so tien dang dung hinh) - nen: (1) khi tab an
+  // thi KHONG kiem tra va KHONG tinh vao thoi gian cho, (2) neu giua 2 lan chay timer co khoang
+  // trong bat thuong (>2.5s, do bi dong bang/may ngu) thi cung bu lai vao thoi gian cho.
   function waitFor(checkFn, timeout = WAIT_TIMEOUT, label = '') {
     return new Promise((resolve, reject) => {
-      const start = Date.now();
+      let start = Date.now();
+      let lastTick = start;
       const interval = setInterval(() => {
+        const now = Date.now();
+        const gap = now - lastTick;
+        lastTick = now;
+        if (document.hidden || gap > 2500) start += gap;
+        if (document.hidden) return;
         const result = checkFn();
         if (result) {
           clearInterval(interval);
           resolve(result);
-        } else if (Date.now() - start > timeout) {
+        } else if (now - start > timeout) {
           clearInterval(interval);
           reject(new Error(label ? `Timeout cho phan tu: ${label}` : 'Timeout cho phan tu'));
         }
       }, 100);
+    });
+  }
+
+  // Dung hang cho toi khi tab Etsy hien thi lai (neu dang bi an) - goi o dau moi don trong
+  // vong lap lay Earnings de tam dung gon gang thay vi chay tiep luc trinh duyet dang bop
+  // nghet tab an (de bi loi/Timeout), tu dong chay tiep ngay khi nguoi dung quay lai tab.
+  function choTabHienThi() {
+    if (!document.hidden) return Promise.resolve();
+    hienThongBao('⏸ Tab Etsy đang bị ẩn — quay lại tab này để tiếp tục lấy Earnings...', '#F59E0B');
+    return new Promise((resolve) => {
+      const onVis = () => {
+        if (document.hidden) return;
+        document.removeEventListener('visibilitychange', onVis);
+        resolve();
+      };
+      document.addEventListener('visibilitychange', onVis);
     });
   }
 
@@ -877,7 +902,13 @@
     const start = Date.now();
     let stableText = null;
     let stableSince = 0;
+    let lanKiemTraCuoi = start;
     const raw = await waitFor(() => {
+      // Giua 2 lan kiem tra ma bi bo lo > 1.5s (tab tung bi an/dong bang) thi hieu ung dem
+      // chay co the da dung hinh o 1 so trung gian -> bat dau dem lai "on dinh" tu dau.
+      const bayGio = Date.now();
+      if (bayGio - lanKiemTraCuoi > 1500) stableText = null;
+      lanKiemTraCuoi = bayGio;
       const text = findCandidateEarningsSpan(previousAmountText, start);
       if (!text) {
         stableText = null;
@@ -963,17 +994,36 @@
     await waitFor(() => !findCloseOrderDetailButton(), 6000).catch(() => {});
   }
 
-  async function getEarningsByClickingOrder(orderId, previousAmountText) {
-    // 1. Bam truc tiep vao ma don (link) de mo bang order details, khong dung o tim kiem
-    const link = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId}`);
-    link.click();
+  // Bam vao ma don de mo bang order details roi bam sang tab "Earnings". DAM BAO bang that su
+  // mo ra truoc khi di tiep: moi lan bam xong cho toi da 4s cho bang (nut dong "Close") VA tab
+  // "Earnings" cung xuat hien; neu khong thi tim lai link va bam lai (toi da 3 lan) - 1 cu bam
+  // co the bi "nuot" khi React ve lai danh sach dung luc do (link cu bi thay bang link moi),
+  // day la nguyen nhan hay gay Timeout "khong mo duoc don" truoc day.
+  async function moBangDonVaChonTabEarnings(orderId, linkTimeout = WAIT_TIMEOUT) {
+    const SO_LAN_THU = 3;
+    let loiCuoi;
+    for (let lan = 1; lan <= SO_LAN_THU; lan++) {
+      const link = await waitFor(() => findOrderLinkByOrderId(orderId), linkTimeout, `link don #${orderId}`);
+      link.click();
+      try {
+        // Tab "Order details" la tab mac dinh, noi dung "Earnings" bi an cho toi khi bam tab nay.
+        const tab = await waitFor(
+          () => (findCloseOrderDetailButton() ? findClickableByText(SEL.earningsTabText) : null),
+          4000,
+          `bang chi tiet/tab Earnings (don #${orderId}, lan ${lan})`
+        );
+        tab.click();
+        return;
+      } catch (err) {
+        loiCuoi = err;
+      }
+    }
+    throw loiCuoi;
+  }
 
-    // 2. Bam sang tab "Earnings" trong bang order details de dam bao noi dung tab nay dang
-    // HIEN THI - tab "Order details" moi la tab mac dinh khi vua mo bang, nen span Earnings
-    // co the van con AN (khong hien thi) neu khong bam qua tab nay. KHONG can sleep co dinh
-    // truoc waitFor: waitFor tu poll cho toi khi tab xuat hien, nhanh bao nhieu lay bay nhieu.
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
-    earningsTab.click();
+  async function getEarningsByClickingOrder(orderId, previousAmountText) {
+    // 1+2. Bam vao ma don (link) de mo bang order details roi bam sang tab "Earnings"
+    await moBangDonVaChonTabEarnings(orderId);
 
     // 3. Lay so tien
     const amount = await waitForEarningsAmount(previousAmountText);
@@ -1009,6 +1059,7 @@
         break;
       }
       const orderId = uniqueOrderNumbers[i];
+      await choTabHienThi();
       if (typeof onProgress === 'function') {
         onProgress(`⏳ (${i + 1}/${uniqueOrderNumbers.length}) Đang lấy Earnings đơn #${orderId}...`);
       }
@@ -1022,7 +1073,7 @@
       }
       // Nghi ngan giua cac don, tranh gui request qua nhanh lien tuc, khong can lau nhu truoc
       // vi cac buoc trong getEarningsByClickingOrder da tu doi (waitFor) du roi.
-      await sleep(200);
+      await sleep(100);
     }
 
     console.log('[Etsy Scraper] Bảng Earnings theo mã đơn:', Object.fromEntries(earningsByOrder));
@@ -1047,42 +1098,72 @@
   // Dung rieng cho chuc nang "Lay Earnings theo danh sach ma don nhap tay", vi cac ma don
   // nay co the KHONG nam trong danh sach dang hien thi tren trang, nen phai tim kiem.
 
-  async function getEarningsForOrderBySearch(orderId, previousAmountText) {
-    // 1. Tim o search, nhap ma don
+  // Gui lenh tim kiem cho o "Search your orders". Nut submit PHAI la nut THUOC CUNG form/khoi
+  // voi o tim kiem - truoc day dung document.querySelector('button[type="submit"]') tren CA
+  // TRANG nen de bam nham sang 1 nut submit khac (bo loc, menu...), tim kiem khong chay, khong
+  // co ket qua nao hien ra -> Timeout "khong mo duoc don".
+  function guiTimKiem(input) {
+    const form = input.closest('form');
+    let btn = form ? form.querySelector('button[type="submit"], input[type="submit"]') : null;
+    if (!btn) {
+      let anc = input.parentElement;
+      for (let i = 0; i < 5 && anc && !btn; i++, anc = anc.parentElement) {
+        btn = anc.querySelector('button[type="submit"], button[aria-label*="earch" i]');
+      }
+    }
+    if (btn) {
+      btn.click();
+      return;
+    }
+    if (form && typeof form.requestSubmit === 'function') {
+      form.requestSubmit();
+      return;
+    }
+    const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true };
+    input.dispatchEvent(new KeyboardEvent('keydown', opts));
+    input.dispatchEvent(new KeyboardEvent('keypress', opts));
+    input.dispatchEvent(new KeyboardEvent('keyup', opts));
+  }
+
+  async function timKiemMaDon(orderId) {
     const input = await waitFor(() => document.querySelector(SEL.searchInput), WAIT_TIMEOUT, 'o tim kiem don hang');
     input.focus();
     setNativeValue(input, orderId);
-    await sleep(300);
+    // Su kien "input" cua React xu ly dong bo nen khong can nghi truoc khi gui (truoc day nghi 300ms).
+    guiTimKiem(input);
+  }
 
-    // 2. Submit tim kiem (thu bam nut submit, neu khong co thi bam Enter)
-    const submitBtn = document.querySelector(SEL.searchSubmitBtn);
-    if (submitBtn) {
-      submitBtn.click();
-    } else {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  // Toi da 2 lan thu cho moi ma don: lan 2 tim kiem lai tu dau (sau khi dong bang dang mo do
+  // neu co) - nhieu loi Timeout chi la do 1 lan tim kiem/bam khong an, thu lai la duoc.
+  async function getEarningsForOrderBySearch(orderId, previousAmountText) {
+    const SO_LAN_THU = 2;
+    let loiCuoi;
+    for (let lan = 1; lan <= SO_LAN_THU; lan++) {
+      try {
+        // 1. Neu ma don DA co san tren trang (vd dang nam trong danh sach/ket qua hien tai) thi
+        // bo qua buoc tim kiem cho nhanh; con lai thi nhap ma don vao o tim kiem va gui.
+        if (!findOrderLinkByOrderId(orderId)) {
+          await timKiemMaDon(orderId);
+        }
+
+        // 2. Doi ket qua hien ra (tim theo href order_id CHINH XAC, khong theo chu "#<ma don>"
+        // vi de bam nham vao the bao ngoai), bam vao ma don mo bang order details, bam tab Earnings.
+        await moBangDonVaChonTabEarnings(orderId, 10000);
+
+        // 3. Lay so tien
+        const amount = await waitForEarningsAmount(previousAmountText);
+
+        // 4. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
+        await closeOrderDetailPanel();
+
+        return amount;
+      } catch (err) {
+        loiCuoi = err;
+        console.warn(`[Etsy Scraper] Lan ${lan}/${SO_LAN_THU} lay Earnings don #${orderId} that bai:`, err.message);
+        await closeOrderDetailPanel();
+      }
     }
-
-    // 3. Doi ket qua xuat hien, bam vao ma don de mo bang order details. KHONG can sleep co
-    // dinh truoc waitFor - waitFor tu poll cho toi khi ket qua xuat hien.
-    // Dung findOrderLinkByOrderId (khop theo href chua order_id, giong CACH 1) thay vi tim
-    // theo NOI DUNG CHU "#<ma don>": tim theo chu de bam nham vao 1 the <div>/<span> BAO NGOAI
-    // ca khoi ket qua tim kiem (vi no cung "chua" doan chu do), khong phai chinh the <a> co
-    // the bam duoc - bam vao do khong co tac dung gi, lam buoc sau (doc Earnings) bi timeout.
-    const orderLink = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId} trong ket qua tim kiem`);
-    orderLink.click();
-
-    // 4. Bam sang tab "Earnings" - tab "Order details" moi la tab mac dinh, span Earnings
-    // co the con dang AN neu khong bam qua tab nay.
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
-    earningsTab.click();
-
-    // 5. Lay so tien
-    const amount = await waitForEarningsAmount(previousAmountText);
-
-    // 6. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
-    await closeOrderDetailPanel();
-
-    return amount;
+    throw loiCuoi;
   }
 
   // ====== CHUC NANG 1 + 2: QUET DON (CO HOAC KHONG LAY EARNINGS) ROI XUAT EXCEL ======
@@ -1198,6 +1279,7 @@
         }
         daXuLyMaDon.add(id);
 
+        await choTabHienThi();
         hienThongBao(`⏳ (${i + 1}/${ids.length}) Đang lấy Earnings đơn #${id}...`, '#2563EB');
         try {
           const result = await getEarningsForOrderBySearch(id, previousRaw);
@@ -1208,7 +1290,7 @@
           results.push({ 'Mã đơn': id, Earnings: 'LỖI: ' + err.message });
         }
         // Xem ghi chu o fillEarningsForRowsByClick - cac buoc ben trong da tu doi du roi.
-        await sleep(200);
+        await sleep(100);
       }
 
       if (results.length === 0) {
