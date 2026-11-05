@@ -2293,3 +2293,22 @@ in Date + số tiền ra Console và cho tải CSV.
 - Hỗ trợ thêm tên tháng đầy đủ ("August 3, 2026") và số tiền kiểu EU ("1.234,56").
 - Sửa lỗi CSV lệch cột do ngày có dấu phẩy ("Aug 3, 2026"); thêm cột Date ISO và BOM cho Excel.
 - Chỉ tìm nút phân trang trong khung phân trang thật (không bấm nhầm thanh điều hướng của Etsy).
+
+## v1.8: sửa lỗi quét thiếu, dừng sớm ở giữa tháng
+
+Thực tế: sao kê tháng 10 có 34 trang, script dừng ở khoảng trang 10 với log "Không tải thêm được
+dữ liệu", bỏ sót khoản deposit ngày Oct 5 ở các trang sau. Nguyên nhân và cách sửa:
+
+- Bước "Load more" bắt cả chữ "Show more" (nút mở rộng mô tả trong từng dòng). Bấm nhầm nút này
+  làm đổi nội dung bảng, khiến script tưởng đã sang trang. Giờ chỉ bắt nút "Load more" thật nằm
+  ngoài bảng.
+- Chữ ký nhận biết "đã sang trang" chỉ dựa vào 80 ký tự đầu của dòng đầu, dễ nhận nhầm. Giờ băm
+  toàn bộ nội dung bảng.
+- Bấm sang trang mà bảng không đổi trong 8s là bỏ cuộc, rồi coi như hết tháng. Giờ chờ tới 15s,
+  thử lại 3 lần; nếu vẫn không được thì dừng và báo CẢNH BÁO "kết quả có thể thiếu" thay vì báo
+  hoàn tất.
+- Đọc số trang đang active từ DOM (nếu xác định được) để bộ đếm trang không bị lệch.
+- Trang có thanh phân trang thì không cuộn trang nữa (không có tác dụng, chỉ tốn thời gian).
+- Dừng sớm dựa trên ngày của MỌI dòng (không chỉ dòng Deposit), nên khoảng ngày giữa tháng quét
+  nhanh hơn.
+- Console in thêm `Đã sang trang N (x dòng, ngày A -> ngày B)` cho từng trang để dễ kiểm tra.

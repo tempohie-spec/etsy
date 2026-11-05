@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Deposit Tracker
 // @namespace    etsy-deposit-tracker
-// @version      1.7
+// @version      1.8
 // @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, hỗ trợ nhiều định dạng ngày tuỳ locale ("Aug 3, 2026", "10 Aug, 2026", "August 3, 2026"), tự tải thêm dữ liệu (Load more / phân trang số / cuộn từng đoạn nhỏ), chờ nội dung ổn định trước khi quét, tự chuyển tháng, in kết quả (Date + Số tiền) ra Console, xuất CSV. Tự cập nhật từ GitHub.
 // @match        https://www.etsy.com/your/account/payments/monthly-statement*
 // @grant        GM_setValue
@@ -19,9 +19,9 @@
   const STATE_KEY = 'etsyDepositTrackerState_v1';
   const UPDATE_URL = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-deposit-tracker.user.js';
   // Đọc thẳng từ @version (GM_info luôn có sẵn, không cần @grant) để không phải sửa 2 chỗ
-  // mỗi lần tăng phiên bản. '1.7' chỉ là giá trị dự phòng.
+  // mỗi lần tăng phiên bản. '1.8' chỉ là giá trị dự phòng.
   const SCRIPT_VERSION =
-    (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.7';
+    (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.8';
   const LOG = '[Etsy Deposit]';
 
   // ---------- Tiện ích chung ----------
@@ -117,9 +117,24 @@
 
   const getRows = () => Array.from(document.querySelectorAll('table tbody tr'));
 
+  // Chữ ký của TOÀN BỘ nội dung bảng (băm nhanh), thay vì chỉ 80 ký tự đầu của dòng đầu:
+  // trước đây 2 trang có dòng đầu giống nhau, hoặc dòng đầu bị đổi do bấm "Show more",
+  // làm script tưởng nhầm đã sang trang / chưa sang trang.
   function getRowsSignature() {
     const rows = getRows();
-    return rows.length ? rows[0].innerText.slice(0, 80) + '|' + rows.length : '';
+    if (!rows.length) return '';
+    const text = rows.map((r) => r.innerText).join('\n');
+    let h = 0;
+    for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
+    return `${rows.length}:${text.length}:${h}`;
+  }
+
+  // Khoảng ngày của trang hiện tại, chỉ để ghi log theo dõi.
+  function pageDateRange() {
+    const dates = getRows()
+      .map((r) => findDateInText(r.innerText))
+      .filter(Boolean);
+    return dates.length ? `${dates[0].text} -> ${dates[dates.length - 1].text}` : '(không đọc được ngày)';
   }
 
   // Chờ tới khi cond() trả về true hoặc hết giờ.
@@ -169,6 +184,18 @@
 
     for (const tr of getRows()) {
       const rowText = tr.innerText;
+
+      // Ngày của MỌI dòng (không chỉ dòng Deposit) dùng để biết đã đi qua ngày bắt đầu chưa,
+      // nhờ vậy dừng sớm được mà không phải quét hết các trang còn lại.
+      const found = findDateInText(rowText);
+      if (!found) continue;
+      const rowDate = found.date;
+      if (rowDate < startDate) {
+        sawOlderThanStart = true; // đã ra ngoài khoảng ngày (quá cũ)
+        continue;
+      }
+      if (rowDate > endDate) continue; // quá mới -> bỏ qua, vẫn quét tiếp
+
       if (!/\bDeposit\b/i.test(rowText)) continue;
 
       const descEl = tr.querySelector(
@@ -178,16 +205,6 @@
 
       const sentMatch = primaryText.match(/sent to your (bank account|payoneer wallet)/i);
       if (!sentMatch) continue;
-
-      const found = findDateInText(rowText);
-      if (!found) continue;
-      const rowDate = found.date;
-
-      if (rowDate < startDate) {
-        sawOlderThanStart = true; // đã ra ngoài khoảng ngày (quá cũ)
-        continue;
-      }
-      if (rowDate > endDate) continue; // quá mới -> bỏ qua, vẫn quét tiếp
 
       const key = found.text + '|' + primaryText;
       if (seenKeys.has(key)) continue;
@@ -215,8 +232,8 @@
   }
 
   // ---------- Điều khiển phân trang (tự động) ----------
-  // Không dựa vào DOM để biết "đang ở trang mấy" (Etsy không đánh dấu đáng tin cậy),
-  // script tự đếm qua state.currentPage.
+  // Ưu tiên đọc trang đang active từ DOM (aria-current / class selected / ?page= trên URL);
+  // nếu không đọc được thì dùng bộ đếm state.currentPage.
   const isOwnUi = (el) => !!el.closest('#edt-panel');
 
   function isNumericButton(el, num) {
@@ -253,6 +270,24 @@
     clickables(container).find((el) => isNumericButton(el, num)) || null;
   const findNextControl = (container) => clickables(container).find(isNextControl) || null;
 
+  function getActivePageFromDom(nav) {
+    const matches = clickables(nav).filter((b) => {
+      if (!isNumericButton(b)) return false;
+      const cur = b.getAttribute('aria-current');
+      const cls = b.getAttribute('class') || '';
+      return (
+        cur === 'page' || cur === 'true' ||
+        b.getAttribute('aria-pressed') === 'true' ||
+        b.getAttribute('aria-selected') === 'true' ||
+        /\b(wt-is-selected|is-selected|is-active|selected|active)\b/i.test(cls)
+      );
+    });
+    // Chỉ tin khi đúng 1 nút khớp; nhiều nút khớp nghĩa là class chung, không phải "đang chọn".
+    if (matches.length === 1) return parseInt(matches[0].textContent.trim(), 10);
+    const p = parseInt(new URLSearchParams(location.search).get('page'), 10);
+    return p > 0 ? p : null;
+  }
+
   function isControlDisabled(el) {
     return (
       !el ||
@@ -273,20 +308,51 @@
     await sleep(300);
   }
 
+  // Sang trang kế tiếp bằng thanh phân trang, thử lại tối đa 3 lần.
+  // Trả về 'ok' | 'end' (không còn trang sau) | 'failed' (có nút trang sau nhưng bảng không đổi).
+  async function goToNextPage(state) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const nav = getPaginationNav();
+      const domPage = getActivePageFromDom(nav);
+      if (domPage) state.currentPage = domPage;
+      const nextPageNum = (state.currentPage || 1) + 1;
+
+      // Có khung phân trang thì chỉ tìm trong đó, không bấm nhầm nút "Next" của carousel khác.
+      const target = nav
+        ? findClickableByPageNumber(nav, nextPageNum) || findNextControl(nav)
+        : findClickableByPageNumber(document, nextPageNum) || findNextControl(document);
+      if (isControlDisabled(target)) return 'end';
+
+      const oldSig = getRowsSignature();
+      target.click();
+      if (await waitForPageChange(oldSig, 15000)) {
+        await waitForContentStable(10000, 3, 300);
+        state.currentPage = getActivePageFromDom(getPaginationNav()) || nextPageNum;
+        console.log(`${LOG} Đã sang trang ${state.currentPage} (${getRows().length} dòng, ${pageDateRange()})`);
+        return 'ok';
+      }
+      console.warn(`${LOG} Bấm sang trang ${nextPageNum} nhưng bảng không đổi (lần ${attempt}/3), thử lại...`);
+      await sleep(1500);
+    }
+    return 'failed';
+  }
+
   // Tải "phần dữ liệu" kế tiếp, thử lần lượt: (1) nút Load more, (2) phân trang số/Next,
-  // (3) cuộn từng đoạn nhỏ và quét lại sau mỗi đoạn (an toàn với virtualized list).
+  // (3) cuộn từng đoạn nhỏ (chỉ khi trang KHÔNG có phân trang).
   // scanFn() quét DOM hiện tại, trả về { sawOlderThanStart }.
-  // Trả về { advanced, hitOlder, stopped }.
+  // Trả về { advanced, hitOlder, stopped, failed }.
   async function advanceToNextBatch(state, scanFn) {
     const nextPageNum = (state.currentPage || 1) + 1;
-    const oldSig = getRowsSignature();
     const oldCount = getRows().length;
 
-    // Cách 1: nút "Load more" / "Show more" / "Xem thêm" / "Tải thêm"
-    const moreBtn = clickables(document).find((el) =>
-      /load more|show more|xem thêm|tải thêm|more results|more activities/.test(
-        (el.textContent || '').trim().toLowerCase()
-      )
+    // Cách 1: nút "Load more" thật (nằm NGOÀI bảng). Không bắt "Show more" vì đó thường là
+    // nút mở rộng mô tả trong từng dòng; bấm nó làm đổi nội dung bảng và gây nhận nhầm trang.
+    const moreBtn = clickables(document).find(
+      (el) =>
+        !el.closest('table') &&
+        /^(load more|xem thêm|tải thêm|more results|more activities)\b/.test(
+          (el.textContent || '').trim().toLowerCase()
+        )
     );
     if (!isControlDisabled(moreBtn)) {
       moreBtn.click();
@@ -297,18 +363,10 @@
       }
     }
 
-    // Cách 2: nút phân trang dạng số hoặc "Next"
-    const nav = getPaginationNav();
-    const pageTarget =
-      findClickableByPageNumber(nav, nextPageNum) ||
-      findNextControl(nav) ||
-      findClickableByPageNumber(document, nextPageNum) ||
-      findNextControl(document);
-    if (!isControlDisabled(pageTarget)) {
-      pageTarget.click();
-      if (await waitForPageChange(oldSig, 8000)) {
-        state.currentPage = nextPageNum;
-        await waitForContentStable();
+    // Cách 2: thanh phân trang dạng số / Next
+    if (getPaginationNav()) {
+      const r = await goToNextPage(state);
+      if (r === 'ok') {
         let { sawOlderThanStart } = scanFn();
         if (!sawOlderThanStart) {
           await sleep(500); // quét bổ sung phòng dữ liệu tải muộn
@@ -316,6 +374,11 @@
         }
         return { advanced: true, hitOlder: sawOlderThanStart };
       }
+      if (r === 'end') {
+        console.log(`${LOG} Đã tới trang cuối (trang ${state.currentPage}) của tháng này.`);
+        return { advanced: false, hitOlder: false };
+      }
+      return { advanced: false, hitOlder: false, failed: true };
     }
 
     // Cách 3: cuộn từng đoạn nhỏ, quét lại sau mỗi đoạn.
@@ -647,12 +710,23 @@
         return finish(results, state);
       }
 
-      const { advanced, hitOlder, stopped } = await advanceToNextBatch(state, scanFn);
+      const { advanced, hitOlder, stopped, failed } = await advanceToNextBatch(state, scanFn);
       if (stopped) {
         updateStatus('Đã dừng.');
         return;
       }
       persist();
+
+      if (failed) {
+        // Không được coi là "hết tháng" (như trước đây) vì sẽ âm thầm bỏ sót các trang sau.
+        console.warn(`${LOG} Không sang được trang ${state.currentPage + 1} sau 3 lần thử -> dừng, kết quả có thể THIẾU.`);
+        finish(results, state);
+        updateStatus(
+          `CẢNH BÁO: không sang được trang ${state.currentPage + 1} (tháng ${state.currentMonth}/${state.currentYear}), ` +
+            `kết quả có thể thiếu. Đã tìm thấy ${results.length} khoản. Hãy bấm Bắt đầu để quét lại.`
+        );
+        return;
+      }
 
       if (hitOlder) {
         console.log(`${LOG} Gặp DATE trước ${state.startDate} trong lúc tải thêm -> dừng quét.`);
@@ -661,8 +735,8 @@
       if (!advanced) break;
 
       state.iterations = (state.iterations || 0) + 1;
-      if (state.iterations > 300) {
-        updateStatus('Đã dừng để tránh vòng lặp quá dài (vượt quá 300 lần).');
+      if (state.iterations > 1000) {
+        updateStatus('Đã dừng để tránh vòng lặp quá dài (vượt quá 1000 lần).');
         return finish(results, state);
       }
     }
