@@ -2270,3 +2270,26 @@ khớp **chính xác tuyệt đối**, không còn dựa vào kiểu so khớp "
 Khi đang chạy bất kỳ chức năng nào (quét + Earnings, hoặc lấy Earnings theo danh sách mã đơn),
 panel sẽ hiện thêm nút **"⏹ Dừng"**. Bấm nút này để dừng giữa chừng — script sẽ dừng sau khi xử
 lý xong đơn hiện tại, rồi vẫn xuất file Excel với dữ liệu đã lấy được đến thời điểm đó.
+
+# Etsy Deposit Tracker
+
+Userscript cho trang sao kê `https://www.etsy.com/your/account/payments/monthly-statement*`.
+
+- File script: [`etsy-deposit-tracker.user.js`](etsy-deposit-tracker.user.js)
+- Cài đặt: mở link raw của file trên GitHub (hoặc bấm "Cập nhật" trên panel), Violentmonkey/Tampermonkey
+  sẽ hỏi cài đặt. Cài theo cách này thì script **tự cập nhật** nhờ `@updateURL`/`@downloadURL` trỏ về
+  nhánh `main`.
+
+Chọn khoảng ngày rồi bấm **Bắt đầu**: script quét các dòng Deposit "sent to your bank account" /
+"sent to your Payoneer Wallet", tự tải thêm dữ liệu (Load more / phân trang / cuộn), tự lùi tháng,
+in Date + số tiền ra Console và cho tải CSV.
+
+## v1.7: tự cập nhật + tối ưu
+
+- Thêm `@updateURL`/`@downloadURL` và link "Cập nhật" trên panel. Số phiên bản đọc từ `GM_info`.
+- Nếu tháng đang mở mới hơn tháng của "Đến ngày", nhảy thẳng tới tháng đó thay vì quét từng tháng.
+- Nút **Dừng** có tác dụng ngay cả khi đang cuộn tải thêm; chặn bấm **Bắt đầu** 2 lần.
+- Chỉ ghi storage và vẽ lại bảng khi có dòng mới; tra trùng bằng `Set`.
+- Hỗ trợ thêm tên tháng đầy đủ ("August 3, 2026") và số tiền kiểu EU ("1.234,56").
+- Sửa lỗi CSV lệch cột do ngày có dấu phẩy ("Aug 3, 2026"); thêm cột Date ISO và BOM cho Excel.
+- Chỉ tìm nút phân trang trong khung phân trang thật (không bấm nhầm thanh điều hướng của Etsy).
