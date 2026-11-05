@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto Tracking (from Google Sheet)
 // @namespace    etsy-auto-tracking
-// @version      4.7
+// @version      4.8
 // @description  Auto complete Etsy orders with tracking number + carrier loaded from a Google Sheets link
 // @match        https://www.etsy.com/your/orders/sold*
 // @grant        GM_setValue
@@ -18,7 +18,11 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '4.7';
+  const SCRIPT_VERSION = '4.8';
+
+  // Install link of the latest version on GitHub (same URL as @updateURL/@downloadURL).
+  // Opening it makes Violentmonkey show its Install/Update dialog.
+  const UPDATE_URL = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto-tracking.user.js';
 
   // Manual overrides if the automatic substring match picks the wrong
   // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -726,6 +730,7 @@
     #at-panel .start{background:#16a34a;color:#fff}
     #at-panel .pause{background:#d97706;color:#fff}
     #at-panel .stop{background:#dc2626;color:#fff}
+    #at-panel .update{background:#374151;color:#fff;font-size:12px}
     #at-status{font:12px monospace;opacity:.8;margin-top:4px}
     #at-sheet-import textarea{width:100%;box-sizing:border-box;margin-top:4px;
       font:11px monospace;background:#1a1a1a;color:#e5e7eb;resize:vertical;
@@ -748,6 +753,7 @@
     <button class="start" id="at-start">Start</button>
     <button class="pause" id="at-pause">Pause</button>
     <button class="stop" id="at-stop">Stop</button>
+    <button class="update" id="at-update" title="Mở link cài đặt để cập nhật lên bản mới nhất trên GitHub">⟳ Cập nhật</button>
     <div id="at-sheet-import">
       <label class="at-sheet-url-label">Link Google Sheet (mỗi link 1 dòng, share "Anyone with the link" — Viewer)</label>
       <textarea id="at-sheet-url" rows="3" placeholder="https://docs.google.com/spreadsheets/d/...&#10;https://docs.google.com/spreadsheets/d/..."></textarea>
@@ -771,6 +777,12 @@
     const collapsed = localStorage.getItem(PANEL_COLLAPSED_KEY) === '1';
     localStorage.setItem(PANEL_COLLAPSED_KEY, collapsed ? '0' : '1');
     applyCollapsedUI();
+  });
+
+  // "Cập nhật": open the latest install link (Violentmonkey shows the update dialog).
+  document.getElementById('at-update').addEventListener('click', () => {
+    window.open(UPDATE_URL, '_blank', 'noopener');
+    uiLog('Đã mở trang cập nhật. Bấm "Cài đặt/Xác nhận" trong hộp thoại Violentmonkey, rồi tải lại trang (F5).');
   });
 
   function setStatus(text) {
