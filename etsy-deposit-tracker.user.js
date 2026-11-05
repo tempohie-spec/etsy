@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Deposit Tracker
 // @namespace    etsy-deposit-tracker
-// @version      1.8
+// @version      1.9
 // @description  Tự động quét các khoản "Deposit" (sent to your bank account / sent to your Payoneer Wallet) trên trang sao kê Etsy theo khoảng ngày do bạn chọn, hỗ trợ nhiều định dạng ngày tuỳ locale ("Aug 3, 2026", "10 Aug, 2026", "August 3, 2026"), tự tải thêm dữ liệu (Load more / phân trang số / cuộn từng đoạn nhỏ), chờ nội dung ổn định trước khi quét, tự chuyển tháng, in kết quả (Date + Số tiền) ra Console, xuất CSV. Tự cập nhật từ GitHub.
 // @match        https://www.etsy.com/your/account/payments/monthly-statement*
 // @grant        GM_setValue
@@ -17,11 +17,12 @@
   'use strict';
 
   const STATE_KEY = 'etsyDepositTrackerState_v1';
+  const COLLAPSED_KEY = 'etsyDepositTrackerCollapsed';
   const UPDATE_URL = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-deposit-tracker.user.js';
   // Đọc thẳng từ @version (GM_info luôn có sẵn, không cần @grant) để không phải sửa 2 chỗ
-  // mỗi lần tăng phiên bản. '1.8' chỉ là giá trị dự phòng.
+  // mỗi lần tăng phiên bản. '1.9' chỉ là giá trị dự phòng.
   const SCRIPT_VERSION =
-    (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.8';
+    (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.9';
   const LOG = '[Etsy Deposit]';
 
   // ---------- Tiện ích chung ----------
@@ -433,6 +434,10 @@
     }
     #edt-panel h3 { margin: 0; padding: 10px 12px; background: #f5f2ea; border-bottom: 1px solid #ddd; font-size: 14px; }
     #edt-panel h3 a { font-weight: normal; font-size: 11px; margin-left: 6px; color: #f56400; }
+    #edt-panel h3 { cursor: pointer; user-select: none; }
+    #edt-panel.edt-collapsed { width: auto; }
+    #edt-panel.edt-collapsed h3 { border-bottom: none; }
+    #edt-panel.edt-collapsed #edt-body { display: none; }
     #edt-body { padding: 10px 12px; }
     #edt-panel label { display: block; margin: 6px 0 2px; font-weight: bold; }
     #edt-panel input[type=date] { width: 100%; box-sizing: border-box; padding: 4px; margin-bottom: 6px; }
@@ -453,7 +458,7 @@
     const panel = document.createElement('div');
     panel.id = 'edt-panel';
     panel.innerHTML = `
-      <h3>Etsy Deposit Tracker <span style="font-weight:normal;color:#888;">v${SCRIPT_VERSION}</span>
+      <h3 id="edt-title" title="Bấm để Ẩn/Hiện"><span id="edt-caret">▾</span> Etsy Deposit Tracker <span style="font-weight:normal;color:#888;">v${SCRIPT_VERSION}</span>
         <a href="${UPDATE_URL}" target="_blank" rel="noopener" title="Mở link cài đặt để cập nhật ngay bản mới nhất">Cập nhật</a>
       </h3>
       <div id="edt-body">
@@ -478,6 +483,19 @@
     $('edt-stop-btn').addEventListener('click', onStopClick);
     $('edt-clear-btn').addEventListener('click', onClearClick);
     $('edt-csv-btn').addEventListener('click', downloadCsv);
+
+    // Bấm vào tên tool để Ẩn/Hiện phần thân panel; trạng thái được nhớ qua các lần tải trang.
+    $('edt-title').addEventListener('click', (e) => {
+      if (e.target.closest('a')) return; // bấm link "Cập nhật" thì không ẩn/hiện
+      setCollapsed(!GM_getValue(COLLAPSED_KEY, false));
+    });
+    setCollapsed(GM_getValue(COLLAPSED_KEY, false));
+  }
+
+  function setCollapsed(collapsed) {
+    GM_setValue(COLLAPSED_KEY, collapsed);
+    $('edt-panel').classList.toggle('edt-collapsed', collapsed);
+    $('edt-caret').textContent = collapsed ? '▸' : '▾';
   }
 
   function updateStatus(text) {

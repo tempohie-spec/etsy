@@ -2312,3 +2312,9 @@ dữ liệu", bỏ sót khoản deposit ngày Oct 5 ở các trang sau. Nguyên 
 - Dừng sớm dựa trên ngày của MỌI dòng (không chỉ dòng Deposit), nên khoảng ngày giữa tháng quét
   nhanh hơn.
 - Console in thêm `Đã sang trang N (x dòng, ngày A -> ngày B)` cho từng trang để dễ kiểm tra.
+
+## v1.9: bấm tên tool để Ẩn/Hiện
+
+Bấm vào thanh tiêu đề "Etsy Deposit Tracker" để thu gọn/mở rộng panel (mũi tên ▾/▸ cho biết
+trạng thái). Trạng thái được nhớ qua `GM_setValue`, tải lại trang hay chuyển tháng vẫn giữ nguyên.
+Bấm link "Cập nhật" không làm ẩn/hiện panel. Khi thu gọn, script vẫn chạy bình thường.
