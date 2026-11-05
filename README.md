@@ -2048,6 +2048,11 @@ Panel giờ hiện số phiên bản đang chạy (vd `v2.13`) ở cả 2 dạng
 và cạnh tiêu đề "Order Scraper" khi mở rộng — để biết đang chạy đúng bản mới nhất mà không cần
 mở Violentmonkey ra kiểm tra `@version`.
 
+**Nút "⟳ Cập nhật"** nằm ngay cạnh số phiên bản ở thanh tiêu đề (khi panel mở rộng). Bấm vào sẽ
+mở link cài đặt bản mới nhất trên GitHub (`@updateURL`/`@downloadURL`, nhánh `main`); Violentmonkey
+tự hiện hộp thoại **Cài đặt/Cập nhật** kèm số phiên bản mới — bấm xác nhận rồi tải lại trang (F5).
+Bản mới chỉ có trên link này **sau khi đã merge vào `main`**.
+
 ## Tối ưu tốc độ quét/lấy Earnings
 
 Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overlay...) đều có 1 khoảng nghỉ CỐ ĐỊNH

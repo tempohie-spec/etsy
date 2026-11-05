@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.34
+// @version      2.35
 // @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -229,7 +229,11 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.34';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.35';
+
+  // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
+  // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
+  const UPDATE_URL = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -1588,11 +1592,18 @@
       padding:8px 10px; cursor:grab; font-weight:bold; font-size:13px;
     `;
     thanhTieuDe.innerHTML = `
-      <span>📦 Order Scraper <small style="font-weight:normal; opacity:.8;">v${SCRIPT_VERSION}</small></span>
+      <span style="display:flex; align-items:center; gap:5px; min-width:0;">
+        <span style="white-space:nowrap;">📦 Order Scraper <small style="font-weight:normal; opacity:.8;">v${SCRIPT_VERSION}</small></span>
+        <button id="eos-btn-update" title="Mở link cài đặt để cập nhật lên bản mới nhất trên GitHub" style="
+          background:rgba(255,255,255,.25); border:none; color:#fff; white-space:nowrap;
+          padding:2px 6px; border-radius:6px; cursor:pointer;
+          font-weight:bold; line-height:1.3; font-size:10px;
+        ">⟳ Cập nhật</button>
+      </span>
       <button id="eos-btn-minimize" title="Thu nhỏ" style="
         background:rgba(255,255,255,.25); border:none; color:#fff;
         width:22px; height:22px; border-radius:6px; cursor:pointer;
-        font-weight:bold; line-height:1; font-size:14px;
+        font-weight:bold; line-height:1; font-size:14px; flex:none;
       ">–</button>
     `;
     khungMoRong.appendChild(thanhTieuDe);
@@ -1736,6 +1747,16 @@
     document.getElementById('eos-btn-minimize').onclick = (e) => {
       e.stopPropagation();
       hienThiThuNho();
+    };
+
+    // Bam "Cap nhat": mo link cai dat ban moi nhat (Violentmonkey tu bat hop thoai cap nhat).
+    // Chan mousedown de bam nut khong bi tinh la bat dau keo panel.
+    const nutCapNhat = document.getElementById('eos-btn-update');
+    nutCapNhat.addEventListener('mousedown', (e) => e.stopPropagation());
+    nutCapNhat.onclick = (e) => {
+      e.stopPropagation();
+      window.open(UPDATE_URL, '_blank', 'noopener');
+      hienThongBao('🔄 Đã mở trang cập nhật — bấm "Cài đặt/Xác nhận" trong hộp thoại Violentmonkey, rồi tải lại trang (F5).', '#2563EB');
     };
 
     updatePanelCount();
