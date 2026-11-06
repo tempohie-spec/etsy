@@ -2318,3 +2318,9 @@ dữ liệu", bỏ sót khoản deposit ngày Oct 5 ở các trang sau. Nguyên 
 Bấm vào thanh tiêu đề "Etsy Deposit Tracker" để thu gọn/mở rộng panel (mũi tên ▾/▸ cho biết
 trạng thái). Trạng thái được nhớ qua `GM_setValue`, tải lại trang hay chuyển tháng vẫn giữ nguyên.
 Bấm link "Cập nhật" không làm ẩn/hiện panel. Khi thu gọn, script vẫn chạy bình thường.
+
+## v2.0: kéo thả panel
+
+Giữ chuột vào thanh tiêu đề rồi kéo để đưa panel ra chỗ khác. Bấm nhanh (không di chuột) vẫn là
+Ẩn/Hiện; kéo xong không bị ẩn/hiện nhầm (ngưỡng 5px). Vị trí được nhớ qua `GM_setValue`, và panel
+luôn được giữ trong màn hình khi thu nhỏ cửa sổ.
