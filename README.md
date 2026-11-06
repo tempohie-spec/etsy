@@ -2048,6 +2048,11 @@ Panel giờ hiện số phiên bản đang chạy (vd `v2.13`) ở cả 2 dạng
 và cạnh tiêu đề "Order Scraper" khi mở rộng — để biết đang chạy đúng bản mới nhất mà không cần
 mở Violentmonkey ra kiểm tra `@version`.
 
+**Nút "⟳ Cập nhật"** nằm ngay cạnh số phiên bản ở thanh tiêu đề (khi panel mở rộng). Bấm vào sẽ
+mở link cài đặt bản mới nhất trên GitHub (`@updateURL`/`@downloadURL`, nhánh `main`); Violentmonkey
+tự hiện hộp thoại **Cài đặt/Cập nhật** kèm số phiên bản mới — bấm xác nhận rồi tải lại trang (F5).
+Bản mới chỉ có trên link này **sau khi đã merge vào `main`**.
+
 ## Tối ưu tốc độ quét/lấy Earnings
 
 Trước đây mỗi bước (bấm mã đơn, bấm tab Earnings, đóng overlay...) đều có 1 khoảng nghỉ CỐ ĐỊNH
@@ -2264,6 +2269,30 @@ vậy sẽ khiến Earnings bị gán cho SAI đơn — cùng dạng lỗi đã 
 
 Đã sửa: giờ script phân tích đúng tham số `order_id` trong URL (qua `URLSearchParams`) và so
 khớp **chính xác tuyệt đối**, không còn dựa vào kiểu so khớp "chứa chuỗi con" nữa.
+
+## Lấy Earnings theo mã đơn: bớt Timeout, chịu được chuyển tab, nhanh hơn
+
+**Hay bị Timeout "không mở được đơn"** (`Timeout cho phan tu: link don #... trong ket qua tim kiem`):
+
+- Nút gửi tìm kiếm trước đây lấy bằng `document.querySelector('button[type="submit"]')` trên
+  **cả trang** → dễ bấm nhầm sang 1 nút submit khác (menu, bộ lọc...) đứng trước ô tìm kiếm,
+  tìm kiếm không chạy, không có đơn nào hiện ra. Giờ chỉ bấm nút **thuộc cùng form/khối** với ô
+  "Search your orders" (hoặc `form.requestSubmit()` / Enter nếu không có nút).
+- Mỗi lần bấm vào mã đơn, script chờ tối đa 4 giây cho bảng chi tiết **thật sự mở ra** (có nút
+  Close + tab Earnings); không mở thì tìm lại link và bấm lại (tối đa 3 lần) — 1 cú bấm có thể bị
+  "nuốt" khi Etsy vẽ lại danh sách đúng lúc đó.
+- Mỗi mã đơn được thử tối đa 2 lần (tìm kiếm lại từ đầu ở lần 2) trước khi ghi `LỖI: ...`.
+  Lỗi vẫn nêu rõ **bước nào** bị timeout để dễ chẩn đoán.
+
+**Bị dừng khi chuyển sang tab khác**: trình duyệt làm chậm hẳn timer và ngưng vẽ/animation của
+tab bị ẩn nên trước đây script báo Timeout oan hoặc đọc nhầm số đang dừng hình. Giờ khi tab bị ẩn
+script **tạm dừng và không tính vào thời gian chờ**, hiện thông báo "⏸ Tab Etsy đang bị ẩn", và tự
+chạy tiếp (đếm lại "số ổn định" từ đầu) ngay khi bạn quay lại tab. Lưu ý đây là giới hạn của
+trình duyệt: để **chạy liên tục không phải chờ**, hãy kéo tab Etsy ra thành **cửa sổ riêng** đặt
+cạnh cửa sổ đang làm việc (không bị che hoàn toàn/thu nhỏ) thay vì để chung 1 cửa sổ rồi đổi tab.
+
+**Nhanh hơn**: bỏ khoảng nghỉ 300ms trước khi gửi tìm kiếm, giảm nghỉ giữa các đơn 200ms → 100ms,
+và **bỏ qua bước tìm kiếm** nếu mã đơn đã có sẵn trên trang.
 
 ## Nút Dừng
 
