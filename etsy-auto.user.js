@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.68
+// @version      9.69
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.68';
+  const PHIEN_BAN = '9.69';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -5252,11 +5252,14 @@
   }
 
   // Ghi 1 su kien: vao kho ngay (hien nhan tuc thi) + xep hang gui len Sheet (neu da cai)
-  function ghiDanhDau(loai, id, nhanRieng) {
+  function ghiDanhDau(loai, id, nhanRieng, tenSanPham) {
     if (!/^\d+$/.test(String(id || ''))) return;
     const caiDat = docCaiDatDanhDau();
     if (!caiDat.nhanMay && !nhanRieng) canhBaoChuaDatNhan(loai);
     const sk = { id: String(id), loai, nhan: nhanRieng || caiDat.nhanMay || '', t: Date.now() };
+    // v9.69: kem TEN SAN PHAM (tieu de luc dan) de Sheet co cot "Ten san pham"; chi gui len Sheet nen chi can voi 'dang'
+    const ten = String(tenSanPham || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (loai === 'dang' && ten) sk.ten = ten;
     const kho = docKhoDanhDau();
     apSuKienDanhDau(kho, sk);
     ghiKhoDanhDau(kho);
@@ -5659,7 +5662,7 @@
         if (nut.textContent.trim().toLowerCase() !== 'publish') return;
         const nguon = docNguonDangSoan();
         if (!nguon || !nguon.id || Date.now() - nguon.t > HAN_NGUON_DANG_SOAN) return;
-        ghiDanhDau('dang', nguon.id);
+        ghiDanhDau('dang', nguon.id, undefined, nguon.tieuDe);
         luuNguonDangSoan(null); // 1 lan dan = 1 lan dang, khong danh dau trung
       },
       true
@@ -5752,9 +5755,17 @@ function laySheet_() {
   let sh = ss.getSheetByName('DanhDau');
   if (!sh) {
     sh = ss.insertSheet('DanhDau');
-    sh.appendRow(['Thời điểm (ms)', 'Link sản phẩm', 'Loại (xem/lay/dang)', 'Máy / tài khoản', 'Thời gian']);
+    sh.appendRow(['Thời điểm (ms)', 'Link sản phẩm', 'Loại (xem/lay/dang)', 'Máy / tài khoản', 'Thời gian', 'Tên sản phẩm']);
+  } else if (!sh.getRange(1, 6).getValue()) {
+    sh.getRange(1, 6).setValue('Tên sản phẩm'); // sheet cu (5 cot) -> them tieu de cot F
   }
   return sh;
+}
+
+// Ten bat dau bang = + - @ se bi Google Sheets hieu la cong thuc -> them dau ' phia truoc de luon la chu
+function tenAnToan_(v) {
+  const t = String(v || '').slice(0, 300);
+  return /^[=+\\-@]/.test(t) ? "'" + t : t;
 }
 
 // Cot B: dong moi ghi link "https://www.etsy.com/listing/<id>", dong cu co the chi la so id -> doc ca 2
@@ -5791,8 +5802,8 @@ function doPost(e) {
   try {
     const sh = laySheet_();
     if (ds.length) {
-      sh.getRange(sh.getLastRow() + 1, 1, ds.length, 5).setValues(ds.map(function (s) {
-        return [Number(s.t), LINK_LISTING + String(s.id), s.loai, String(s.nhan || ''), new Date(Number(s.t))];
+      sh.getRange(sh.getLastRow() + 1, 1, ds.length, 6).setValues(ds.map(function (s) {
+        return [Number(s.t), LINK_LISTING + String(s.id), s.loai, String(s.nhan || ''), new Date(Number(s.t)), tenAnToan_(s.ten)];
       }));
     }
   } finally {

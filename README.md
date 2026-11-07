@@ -828,6 +828,13 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Thêm cột "Tên sản phẩm" vào Sheet (v9.69)
+
+- Mỗi dòng ✅ "đã đăng" ghi thêm **cột F: Tên sản phẩm** (tiêu đề listing lúc dán, gọn khoảng trắng, tối đa 300 ký tự). Các cột A–E giữ nguyên nên script đọc Sheet không bị ảnh hưởng.
+- Tên bắt đầu bằng `=`, `+`, `-` hoặc `@` được thêm dấu `'` phía trước để Google Sheets không hiểu nhầm là công thức.
+- **Cần cập nhật mã Apps Script** (1 lần): 🏷️ Đánh dấu listing → **📋 Copy mã Apps Script** → dán đè mã cũ → Lưu → Triển khai → Quản lý các bản triển khai → ✏️ → Phiên bản mới → Triển khai (giữ nguyên URL). Mã mới tự thêm tiêu đề "Tên sản phẩm" vào ô F1 của Sheet đang có.
+- Các dòng đã ghi trước đó **không có tên** (script không biết tên của chúng); chỉ các lần đăng từ bản 9.69 trở đi mới có. Chưa cập nhật mã Apps Script thì Sheet vẫn chạy như cũ, chỉ thiếu cột F.
+
 ### Sheet chỉ ghi "đã đăng", cột B là link sản phẩm (v9.65)
 
 - **📋 "đã lấy" cũng chỉ lưu ở máy này** (giống 👁 từ v9.64). Google Sheet giờ chỉ nhận ✅ "đã đăng" — thứ duy nhất cần chia sẻ giữa các máy. Sự kiện xem/lấy còn trong hàng chờ từ bản cũ được bỏ.
