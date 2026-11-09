@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.53
+// @version      1.54
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -13,8 +13,8 @@
 // @connect      workers.dev
 // @connect      merchize.store
 // @connect      raw.githubusercontent.com
-// @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/claude/fervent-davinci-tv3f3q/merchize-order-sender.user.js
-// @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/claude/fervent-davinci-tv3f3q/merchize-order-sender.user.js
+// @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js
+// @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js
 // @grant        GM_openInTab
 // @run-at       document-idle
 // ==/UserScript==
@@ -23,10 +23,10 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.53';
-  // Link ban moi nhat tren GitHub (nhanh chua file nay). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
+  const SCRIPT_VERSION = '1.54';
+  // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
-  const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/claude/fervent-davinci-tv3f3q/merchize-order-sender.user.js';
+  const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
