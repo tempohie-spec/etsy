@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.52
+// @version      1.53
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -12,6 +12,10 @@
 // @connect      merchize.com
 // @connect      workers.dev
 // @connect      merchize.store
+// @connect      raw.githubusercontent.com
+// @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/claude/fervent-davinci-tv3f3q/merchize-order-sender.user.js
+// @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/claude/fervent-davinci-tv3f3q/merchize-order-sender.user.js
+// @grant        GM_openInTab
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -19,7 +23,10 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.52';
+  const SCRIPT_VERSION = '1.53';
+  // Link ban moi nhat tren GitHub (nhanh chua file nay). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
+  // @updateURL / @downloadURL o dau file.
+  const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/claude/fervent-davinci-tv3f3q/merchize-order-sender.user.js';
   // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
   const SO_DONG_CUOI = 100;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
@@ -315,6 +322,38 @@
   }
   function canDongBo(title) {
     return !!docWorker() && !!layStore(title) && docDaDongBo()[getSpreadsheetId() + '|' + title] !== chuKyTab(title);
+  }
+
+  // So sanh "1.53" voi "1.9": theo tung so.
+  function banMoiHon(a, b) {
+    const x = String(a).split('.').map(Number);
+    const y = String(b).split('.').map(Number);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+      if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    }
+    return false;
+  }
+
+  // Nut Cap nhat: doc ban moi nhat tren GitHub, moi hon thi mo link de Violentmonkey hien hop cai dat.
+  function kiemTraCapNhat() {
+    return new Promise((resolve, reject) => {
+      const url = `${LINK_CAP_NHAT}?_=${Date.now()}`;
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url,
+        timeout: 30000,
+        onload: (res) => {
+          const m = String(res.responseText || '').match(/@version\s+([0-9.]+)/);
+          if (res.status !== 200 || !m) { reject(new Error(`Không đọc được bản mới trên GitHub (mã ${res.status}).`)); return; }
+          const moi = m[1];
+          if (!banMoiHon(moi, SCRIPT_VERSION)) { resolve(`Đang dùng bản mới nhất (v${SCRIPT_VERSION}).`); return; }
+          try { GM_openInTab(url, { active: true }); } catch (e) { W.open(url, '_blank'); }
+          resolve(`Có bản mới v${moi} (đang dùng v${SCRIPT_VERSION}). Một tab mới đã mở: bấm "Xác nhận cài đặt" / "Confirm installation" của Violentmonkey rồi tải lại trang Google Sheet. Nếu không thấy tab mới, hãy cho phép cửa sổ bật lên.`);
+        },
+        onerror: () => reject(new Error('Không kết nối được tới GitHub.')),
+        ontimeout: () => reject(new Error('GitHub không phản hồi.'))
+      });
+    });
   }
 
   async function caiWorker() {
@@ -1108,6 +1147,12 @@
       }
       const zooSkus = bangZoo ? zootopSkuCuaDon(d, bangZoo) : null;
       return { ...d, zooSkus, tebSku: zooSkus ? '' : tebSkuCuaDon(d, title, bangPhu) };
+    }).map((d) => {
+      // Don nao cung khong duoc day (ZooTop / Teb / Merchize) neu co dong thieu link design (ca front lan back).
+      if (!d.zooSkus && !d.tebSku) return d;
+      const thieu = d.rows.map(({ r }, i) => (!laLink(cell(r, COL.designFront)) && !laLink(cell(r, COL.designBack)) ? i + 1 : 0)).filter(Boolean);
+      if (!thieu.length) return d;
+      return { ...d, zooSkus: null, tebSku: '', loiChiDinh: 'thiếu link design' + (d.rows.length > 1 ? ` (dòng ${thieu.join(', ')})` : '') };
     });
     const dsZoo = tatCa.filter((d) => d.zooSkus);
     const dsTeb = tatCa.filter((d) => d.tebSku);
@@ -1490,11 +1535,12 @@
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
     const sendBtn = nut('3. Gửi đơn (ZooTop / Merchize)', '#4CAF50');
     const workerBtn = nut('Cài Worker (link + key, 1 lần)', '#455a64');
+    const capNhatBtn = nut(`Cập nhật script (đang dùng v${SCRIPT_VERSION})`, '#5d4037');
 
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [storeInfo, storeBox, tebInfo, tebBox, zooInfo, zooBox, catalogInfo, catalogBtn, catalogBox, checkBtn, sendBtn, workerBtn, statusEl]
+    [storeInfo, storeBox, tebInfo, tebBox, zooInfo, zooBox, catalogInfo, catalogBtn, catalogBox, checkBtn, sendBtn, capNhatBtn, workerBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
 
@@ -1514,6 +1560,11 @@
     window.addEventListener('resize', giuNutTrongManHinh);
     try {
       GM_registerMenuCommand('Hiện lại nút Merchize (góc phải dưới)', datLaiViTriNut);
+      GM_registerMenuCommand('Cập nhật script từ GitHub', () => {
+        panel.style.display = 'block';
+        repositionPanel();
+        chay(kiemTraCapNhat);
+      });
       GM_registerMenuCommand('Cài / đổi Worker (link + key)', () => {
         panel.style.display = 'block';
         repositionPanel();
@@ -1581,7 +1632,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, boStoreBtn, tebBtn, zooBtn, catalogBtn, taiCatalogBtn, checkBtn, sendBtn, workerBtn];
+    const tatCaNut = [saveTokenBtn, boStoreBtn, tebBtn, zooBtn, catalogBtn, taiCatalogBtn, checkBtn, sendBtn, capNhatBtn, workerBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1781,6 +1832,7 @@
       return kq;
     };
     workerBtn.addEventListener('click', () => chay(caiWorkerVaHien));
+    capNhatBtn.addEventListener('click', () => chay(kiemTraCapNhat));
   }
 
   function safeInit() {
