@@ -103,13 +103,21 @@
   // Nguoi dung van co the tu sua rieng tung shop o panel (nut "🎨 Sua quy doi mau"), nhung ban sua
   // rieng do se bi THAY bang bang nay moi khi BI_DANH_VERSION doi.
   const DEFAULT_BI_DANH = {
-    comfort_adult: { 'orange': 'Burnt Orange' },
+    comfort_adult: { 'orange': 'Burnt Orange', 'yam/orange': 'Yam' },
     comfort_youth: {},
     bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue' },
-    bella_youth: { 'dark heather': 'Dark Grey Heather' },
-    toddler: { 'violet': 'Lavender', 'dark heather': 'Vintage Smoke', 'blossom/light pink': 'Pink' },
+    bella_youth: { 'dark heather': 'Dark Grey Heather', 'blossom/light pink': 'Pink' },
+    toddler: {
+      'violet': 'Lavender',
+      'dark heather': 'Vintage Smoke',
+      'blue': 'Light Blue',
+      'blossom/light pink': 'Pink',
+      'pepper/dark heather': 'Vintage Smoke',
+      'moss/military green': 'Military Green'
+    },
     sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' }
   };
+
 
   // TANG so nay moi khi sua DEFAULT_BI_DANH. Ban da luu tren trinh duyet co so khac (hoac chua
   // co so - ban cu truoc khi co co che nay) se bi bo va thay bang DEFAULT_BI_DANH hien tai.

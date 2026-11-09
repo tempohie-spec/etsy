@@ -2194,7 +2194,12 @@ Các bí danh trong **bảng chuẩn** hiện tại (bản 1):
 | Bella Canvas Youth | `Dark Heather` | `Dark Grey Heather` |
 | Toddler | `Violet` | `Lavender` |
 | Toddler | `Dark Heather` | `Vintage Smoke` |
+| Toddler | `Blue` | `Light Blue` |
 | Toddler | `Blossom/Light Pink` (cả tổ hợp) | `Pink` |
+| Toddler | `Pepper/Dark Heather` (cả tổ hợp) | `Vintage Smoke` |
+| Toddler | `Moss/Military Green` (cả tổ hợp) | `Military Green` |
+| Comfort Colors Adult | `Yam/Orange` (cả tổ hợp) | `Yam` |
+| Bella Canvas Youth | `Blossom/Light Pink` (cả tổ hợp) | `Pink` |
 | Sweatshirt/Hoodie | `Blue` | `Light Blue` |
 | Sweatshirt/Hoodie | `Pink` | `Light Pink` |
 
