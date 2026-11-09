@@ -2184,7 +2184,7 @@ Phần "Tên Etsy" của 1 dòng có thể là:
   nên nếu vừa có bí danh cho cả tổ hợp vừa có bí danh cho từng mảnh riêng, bí danh cho **cả tổ
   hợp** sẽ được ưu tiên dùng.
 
-Các bí danh mặc định (dùng làm giá trị khởi tạo lần đầu, trước khi bạn tự sửa):
+Các bí danh trong **bảng chuẩn** hiện tại (bản 1):
 
 | Loại áo | Etsy ghi | Điền ra |
 |---|---|---|
@@ -2194,11 +2194,30 @@ Các bí danh mặc định (dùng làm giá trị khởi tạo lần đầu, tr
 | Bella Canvas Youth | `Dark Heather` | `Dark Grey Heather` |
 | Toddler | `Violet` | `Lavender` |
 | Toddler | `Dark Heather` | `Vintage Smoke` |
+| Toddler | `Blue` | `Light Blue` |
+| Toddler | `Blossom/Light Pink` (cả tổ hợp) | `Pink` |
+| Toddler | `Pepper/Dark Heather` (cả tổ hợp) | `Vintage Smoke` |
+| Toddler | `Moss/Military Green` (cả tổ hợp) | `Military Green` |
+| Comfort Colors Adult | `Yam/Orange` (cả tổ hợp) | `Yam` |
+| Bella Canvas Youth | `Blossom/Light Pink` (cả tổ hợp) | `Pink` |
 | Sweatshirt/Hoodie | `Blue` | `Light Blue` |
 | Sweatshirt/Hoodie | `Pink` | `Light Pink` |
 
-Gặp thêm trường hợp tương tự (tên Etsy ghi khác tên chính thức) thì mở panel, thêm 1 dòng vào
-đúng ô của loại áo đó rồi bấm Lưu — không cần sửa code.
+### Dùng chung 1 bảng cho nhiều shop (mỗi shop 1 trình duyệt)
+
+Bảng quy đổi màu lưu **riêng từng trình duyệt**, nên để mọi shop dùng giống nhau, bảng chuẩn được
+đặt cứng trong code (`DEFAULT_BI_DANH`) kèm 1 số phiên bản bảng (`BI_DANH_VERSION`):
+
+1. Cần đổi quy đổi màu cho **tất cả shop**: sửa `DEFAULT_BI_DANH`, **tăng `BI_DANH_VERSION`** (và
+   `@version`), merge vào `main`.
+2. Ở **mỗi shop** bấm **"⟳ Cập nhật"** (hoặc đợi Violentmonkey tự kiểm tra) → xác nhận → F5.
+3. Khi mở panel, nếu bảng đã lưu của shop đó có phiên bản khác `BI_DANH_VERSION` (kể cả bản cũ
+   chưa có phiên bản), nó bị **bỏ và thay bằng bảng chuẩn mới**; panel báo
+   "🎨 Bảng quy đổi màu đã cập nhật lên bản chuẩn N". Số phiên bản trên panel giúp kiểm tra shop
+   nào chưa cập nhật.
+
+⚠️ Chỉnh sửa riêng trong hộp thoại "🎨 Sửa quy đổi màu" vẫn dùng được cho từng shop, nhưng sẽ **mất**
+mỗi khi `BI_DANH_VERSION` tăng. Muốn giữ lâu dài thì đưa vào `DEFAULT_BI_DANH`.
 
 ## Tự động copy dữ liệu vào clipboard
 

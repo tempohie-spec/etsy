@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.0
+// @version      3.1
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -97,18 +97,31 @@
   // value la ten CHINH THUC dung trong bang mau tuong ung ben tren - dien ra se dung ten CHINH
   // THUC (value), khong dung nguyen van manh doc duoc tren Etsy (key).
   //
-  // Day CHI LA GIA TRI MAC DINH (dung lam "hat giong" lan dau va cho nut "Khoi phuc mac dinh"
-  // trong panel) - nguoi dung co the tu sua danh sach nay ngay tren panel (nut "🎨 Sua quy doi
-  // mau") ma khong can sua code. Gia tri THAT SU dang dung nam trong bien biDanhHienTai o duoi,
-  // duoc doc/ghi qua GM_getValue/GM_setValue.
+  // BANG NAY LA "NGUON CHINH THUC" DUNG CHUNG CHO MOI SHOP: khi can sua quy doi mau cho TAT CA
+  // cac shop, sua bang nay roi TANG BI_DANH_VERSION (va @version) - moi shop bam "Cap nhat" se
+  // tu bo ban sua rieng cu va dung dung bang moi nay (xem docBiDanhDaLuu).
+  // Nguoi dung van co the tu sua rieng tung shop o panel (nut "🎨 Sua quy doi mau"), nhung ban sua
+  // rieng do se bi THAY bang bang nay moi khi BI_DANH_VERSION doi.
   const DEFAULT_BI_DANH = {
-    comfort_adult: { 'orange': 'Burnt Orange' },
+    comfort_adult: { 'orange': 'Burnt Orange', 'yam/orange': 'Yam' },
     comfort_youth: {},
     bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue' },
-    bella_youth: { 'dark heather': 'Dark Grey Heather' },
-    toddler: { 'violet': 'Lavender', 'dark heather': 'Vintage Smoke' },
+    bella_youth: { 'dark heather': 'Dark Grey Heather', 'blossom/light pink': 'Pink' },
+    toddler: {
+      'violet': 'Lavender',
+      'dark heather': 'Vintage Smoke',
+      'blue': 'Light Blue',
+      'blossom/light pink': 'Pink',
+      'pepper/dark heather': 'Vintage Smoke',
+      'moss/military green': 'Military Green'
+    },
     sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' }
   };
+
+
+  // TANG so nay moi khi sua DEFAULT_BI_DANH. Ban da luu tren trinh duyet co so khac (hoac chua
+  // co so - ban cu truoc khi co co che nay) se bi bo va thay bang DEFAULT_BI_DANH hien tai.
+  const BI_DANH_VERSION = 1;
 
   // Ten hien thi cho tung loai ao tren panel (dung khi dung nut "🎨 Sua quy doi mau").
   const TEN_HIEN_THI_LOAI_AO = {
@@ -125,15 +138,25 @@
   // Doc bang bi danh dang luu (GM_setValue) - neu chua co (lan dau chay) hoac loi thi dung
   // DEFAULT_BI_DANH lam gia tri khoi tao. Day la bien MUTABLE, duoc cap nhat truc tiep moi khi
   // nguoi dung bam Luu trong panel "🎨 Sua quy doi mau" (khong can tai lai trang de ap dung).
+  // Co bao "bang cua shop nay vua bi thay bang ban moi" - de hien thong bao 1 lan khi panel mo.
+  let biDanhVuaDuocCapNhat = false;
+
   function docBiDanhDaLuu() {
+    const macDinh = () => JSON.parse(JSON.stringify(DEFAULT_BI_DANH));
     try {
       const raw = GM_getValue(COLOR_ALIAS_STORAGE_KEY, null);
-      if (!raw) return JSON.parse(JSON.stringify(DEFAULT_BI_DANH));
+      if (!raw) return macDinh();
       const parsed = JSON.parse(raw);
-      // Dam bao du 6 loai ao (phong khi ban cu chua co du key, hoac them loai ao moi sau nay).
-      return Object.assign(JSON.parse(JSON.stringify(DEFAULT_BI_DANH)), parsed);
+      // Dinh dang luu: { ver, data }. Ban cu (truoc khi co co che phien ban) la object tran khong
+      // co "ver" -> coi nhu khac phien ban. Khac BI_DANH_VERSION => bo ban cu, dung bang moi.
+      if (!parsed || parsed.ver !== BI_DANH_VERSION || typeof parsed.data !== 'object' || !parsed.data) {
+        biDanhVuaDuocCapNhat = true;
+        return macDinh();
+      }
+      // Dam bao du 6 loai ao (phong khi them loai ao moi sau nay).
+      return Object.assign(macDinh(), parsed.data);
     } catch (e) {
-      return JSON.parse(JSON.stringify(DEFAULT_BI_DANH));
+      return macDinh();
     }
   }
 
@@ -232,7 +255,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.0';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.1';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1423,6 +1446,10 @@
         Mỗi dòng 1 quy đổi, dạng <code>Tên Etsy=Tên chính thức</code>. Ví dụ:
         <code>Dark Heather=Dark Grey Heather</code>. Dòng trống hoặc không có dấu "=" sẽ bị bỏ qua.
       </div>
+      <div style="font-size:11px; color:#b45309; margin-bottom:10px;">
+        ⚠️ Chỉnh sửa ở đây chỉ áp dụng cho shop/trình duyệt này và sẽ bị thay bằng bảng chuẩn mỗi khi
+        script cập nhật sang bảng quy đổi màu mới (bảng chuẩn hiện tại: bản ${BI_DANH_VERSION}).
+      </div>
     `;
     hop.appendChild(tieuDe);
 
@@ -1462,7 +1489,7 @@
         moi[key] = bienDoiVanBanThanhBiDanh(cacTextarea[key].value);
       });
       biDanhHienTai = moi;
-      GM_setValue(COLOR_ALIAS_STORAGE_KEY, JSON.stringify(moi));
+      GM_setValue(COLOR_ALIAS_STORAGE_KEY, JSON.stringify({ ver: BI_DANH_VERSION, data: moi }));
       // KHONG dong cua so sau khi luu - de nguoi dung tiep tuc sua/kiem tra ngay trong hop thoai.
       hienThongBao('✅ Đã lưu quy đổi màu.', '#16A34A');
     };
@@ -2678,6 +2705,9 @@
     };
 
     updatePanelCount();
+    if (biDanhVuaDuocCapNhat) {
+      hienThongBao(`🎨 Bảng quy đổi màu đã cập nhật lên bản chuẩn ${BI_DANH_VERSION} (chỉnh sửa riêng cũ của shop này đã được thay).`, '#2563EB');
+    }
   }
 
   // Chi hien panel tren cac trang thuoc "/your/orders" (vd trang mac dinh cua Etsy la
