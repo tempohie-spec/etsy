@@ -1394,6 +1394,15 @@ mở tab. Nếu script báo `⚠️ Worker chưa vào được file`: share file
 thông báo (Sheet đơn: Editor, file Teb: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
 ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
 
+## Cập nhật script và chặn đơn thiếu link design (v1.53)
+
+- Nút **Cập nhật script (đang dùng vX)** (cũng có trong menu Violentmonkey): đọc bản mới nhất trên GitHub
+  (`LINK_CAP_NHAT`, nhánh `claude/fervent-davinci-tv3f3q`); mới hơn thì mở tab cài đặt của Violentmonkey, bấm xác
+  nhận rồi tải lại trang Sheet. Script cũng có `@updateURL` / `@downloadURL` nên Violentmonkey tự kiểm tra định kỳ.
+  Worker không tự cập nhật: dán code mới vào Cloudflare rồi Deploy.
+- Đơn nào cũng không được đẩy (ZooTop, Teb, Merchize) nếu có dòng thiếu cả design front lẫn design back: bị ghi
+  `Lỗi: thiếu link design (dòng N)`. Trước đây đơn ZooTop không bị kiểm tra này.
+
 ## Chỉ định nhà cung cấp cho từng đơn (v1.47)
 
 Gõ `@ZooTop`, `@Teb` hoặc `@Merchize` (không phân biệt hoa thường) vào cột AC của đơn trước khi bấm Kiểm tra / Gửi
