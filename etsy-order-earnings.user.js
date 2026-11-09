@@ -1,15 +1,20 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      2.22
-// @description  Quet don hang Etsy, co the lay them Earnings tung don (bang cach bam vao ma don de mo bang order details, khong bi mat trang danh sach), tu dong xoa du lieu cu va xuat ra file Excel (khong header). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
+// @version      3.0
+// @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @grant        GM_setClipboard
+// @grant        GM_xmlhttpRequest
+// @connect      docs.google.com
+// @connect      accounts.google.com
 // @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js
+// @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js
 // ==/UserScript==
 
 (function () {
@@ -46,8 +51,8 @@
   // Cap nhat bang mau: copy dung chinh ta tu anh bang mau cua nha cung cap (khong phan biet
   // hoa/thuong, khoang trang du khi so khop). Them 1 gia tri vao mang tuong ung la du, khong
   // can sua ham resolveColorForGarment ben duoi. Neu Etsy hien ten mau KHAC voi ten chinh
-  // thuc trong bang mau (vd "Dark Heather" thay vi "Dark Grey Heather"), them vao bang
-  // BI_DANH_MAU_... tuong ung ben duoi thay vi sua bang mau chinh.
+  // thuc trong bang mau (vd "Dark Heather" thay vi "Dark Grey Heather"), sua trong bang
+  // DEFAULT_BI_DANH ben duoi (hoac tren panel "🎨 Sua quy doi mau" - xem giai thich duoi day).
   const BANG_MAU_COMFORT_ADULT = [
     'White', 'Ivory', 'Banana', 'Butter', 'Mustard', 'Grey', 'Granite', 'Pepper', 'Orange',
     'Yam', 'Bay', 'Moss', 'Light Green', 'Island Reef', 'Khaki', 'Chambray', 'Espresso',
@@ -91,41 +96,78 @@
   // Khai bao bi danh (alias) o day: key la ten XUAT HIEN TREN ETSY (khong phan biet hoa/thuong),
   // value la ten CHINH THUC dung trong bang mau tuong ung ben tren - dien ra se dung ten CHINH
   // THUC (value), khong dung nguyen van manh doc duoc tren Etsy (key).
-  const BI_DANH_MAU_BELLA_ADULT = {
-    'dark heather': 'Dark Grey Heather'
+  //
+  // Day CHI LA GIA TRI MAC DINH (dung lam "hat giong" lan dau va cho nut "Khoi phuc mac dinh"
+  // trong panel) - nguoi dung co the tu sua danh sach nay ngay tren panel (nut "🎨 Sua quy doi
+  // mau") ma khong can sua code. Gia tri THAT SU dang dung nam trong bien biDanhHienTai o duoi,
+  // duoc doc/ghi qua GM_getValue/GM_setValue.
+  const DEFAULT_BI_DANH = {
+    comfort_adult: { 'orange': 'Burnt Orange' },
+    comfort_youth: {},
+    bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue' },
+    bella_youth: { 'dark heather': 'Dark Grey Heather' },
+    toddler: { 'violet': 'Lavender', 'dark heather': 'Vintage Smoke' },
+    sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' }
   };
-  const BI_DANH_MAU_BELLA_YOUTH = {};
-  const BI_DANH_MAU_COMFORT_ADULT = {};
-  const BI_DANH_MAU_COMFORT_YOUTH = {};
-  const BI_DANH_MAU_TODDLER = {};
-  const BI_DANH_MAU_SWEATSHIRT_HOODIE = {};
+
+  // Ten hien thi cho tung loai ao tren panel (dung khi dung nut "🎨 Sua quy doi mau").
+  const TEN_HIEN_THI_LOAI_AO = {
+    comfort_adult: 'Comfort Colors Adult',
+    comfort_youth: 'Comfort Colors Youth',
+    bella_adult: 'Bella Canvas Adult',
+    bella_youth: 'Bella Canvas Youth',
+    toddler: 'Toddler',
+    sweatshirt_hoodie: 'Sweatshirt / Hoodie'
+  };
+
+  const COLOR_ALIAS_STORAGE_KEY = 'etsy_scraper_color_aliases_v1';
+
+  // Doc bang bi danh dang luu (GM_setValue) - neu chua co (lan dau chay) hoac loi thi dung
+  // DEFAULT_BI_DANH lam gia tri khoi tao. Day la bien MUTABLE, duoc cap nhat truc tiep moi khi
+  // nguoi dung bam Luu trong panel "🎨 Sua quy doi mau" (khong can tai lai trang de ap dung).
+  function docBiDanhDaLuu() {
+    try {
+      const raw = GM_getValue(COLOR_ALIAS_STORAGE_KEY, null);
+      if (!raw) return JSON.parse(JSON.stringify(DEFAULT_BI_DANH));
+      const parsed = JSON.parse(raw);
+      // Dam bao du 6 loai ao (phong khi ban cu chua co du key, hoac them loai ao moi sau nay).
+      return Object.assign(JSON.parse(JSON.stringify(DEFAULT_BI_DANH)), parsed);
+    } catch (e) {
+      return JSON.parse(JSON.stringify(DEFAULT_BI_DANH));
+    }
+  }
+
+  let biDanhHienTai = docBiDanhDaLuu();
 
   // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
   // "Bella-Youth Tee", "Toddler Tee", "Sweatshirt-Adult", "Hoodie-Adult"...) de chon dung
   // bang mau + bang bi danh tuong ung. Tra ve null neu khong nhan ra loai ao nao ben duoi.
   function xacDinhBangMauTheoAo(title) {
     const t = (title || '').toLowerCase();
-    if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: BI_DANH_MAU_TODDLER };
+    if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: biDanhHienTai.toddler };
     if (t.includes('sweatshirt') || t.includes('hoodie')) {
-      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU_SWEATSHIRT_HOODIE };
+      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: biDanhHienTai.sweatshirt_hoodie };
     }
     if (t.includes('comfort') && t.includes('youth')) {
-      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU_COMFORT_YOUTH };
+      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: biDanhHienTai.comfort_youth };
     }
     if (t.includes('comfort') && t.includes('adult')) {
-      return { mau: BANG_MAU_COMFORT_ADULT, biDanh: BI_DANH_MAU_COMFORT_ADULT };
+      return { mau: BANG_MAU_COMFORT_ADULT, biDanh: biDanhHienTai.comfort_adult };
     }
     if (t.includes('bella') && t.includes('youth')) {
-      return { mau: BANG_MAU_BELLA_YOUTH, biDanh: BI_DANH_MAU_BELLA_YOUTH };
+      return { mau: BANG_MAU_BELLA_YOUTH, biDanh: biDanhHienTai.bella_youth };
     }
     if (t.includes('bella') && t.includes('adult')) {
-      return { mau: BANG_MAU_BELLA_ADULT, biDanh: BI_DANH_MAU_BELLA_ADULT };
+      return { mau: BANG_MAU_BELLA_ADULT, biDanh: biDanhHienTai.bella_adult };
     }
     return null;
   }
 
+  // Chuan hoa: bo khoang trang dau/cuoi, ve chu thuong, VA don khoang trang quanh dau "/"
+  // (vd "Blossom / Light Pink" -> "blossom/light pink") - can thiet de bi danh CA TO HOP nhieu
+  // mau (xem ben duoi) so khop duoc du Etsy co chen khoang trang quanh dau "/" hay khong.
   function chuanHoaTenMau(s) {
-    return String(s || '').trim().toLowerCase();
+    return String(s || '').trim().toLowerCase().replace(/\s*\/\s*/g, '/');
   }
 
   // Quy doi 1 chuoi Color (co the la mau ghep "A/B/C" hoac mau don) thanh mau THAT SU can
@@ -137,10 +179,18 @@
     if (!thongTinAo) return colorRaw;
     const { mau: bangMau, biDanh } = thongTinAo;
 
-    const boMauHopLe = new Set(bangMau.map(chuanHoaTenMau));
     const biDanhChuanHoa = {};
     Object.keys(biDanh).forEach((k) => { biDanhChuanHoa[chuanHoaTenMau(k)] = biDanh[k]; });
 
+    // Uu tien so bi danh cho CA CHUOI GOC truoc khi tach theo dau "/" - cho phep dinh nghia
+    // rieng cho ca 1 to hop nhieu mau (vd "Blossom/Light Pink" -> "Pink"), khong chi tung
+    // manh rieng le nhu ben duoi.
+    const chuanCaChuoi = chuanHoaTenMau(colorRaw);
+    if (biDanhChuanHoa[chuanCaChuoi] !== undefined) {
+      return biDanhChuanHoa[chuanCaChuoi];
+    }
+
+    const boMauHopLe = new Set(bangMau.map(chuanHoaTenMau));
     const parts = colorRaw.split('/').map((s) => s.trim());
     const khop = [];
     parts.forEach((p) => {
@@ -157,13 +207,15 @@
   }
 
   // ====== XAC DINH PHUONG PHAP IN (COT "PrintingMethod") ======
-  // Mac dinh moi san pham la DTF. Rieng "Comfort Youth" va "Bella Adult" la DTG (theo
-  // tu khoa trong "title", giong cach nhan dien loai ao o tren - khong phan biet hoa/thuong).
+  // Mac dinh moi san pham la DTF. La DTG neu roi vao 1 trong 2 truong hop:
+  //   - Title la "Comfort Youth" hoac "Bella Adult" (theo tu khoa, khong phan biet hoa/thuong).
+  //   - Don KHONG giao o United States (dia chi "country" khac "United States").
   // Neu 1 don co NHIEU san pham ma co IT NHAT 1 san pham la DTG, thi TAT CA san pham con
-  // lai trong CUNG DON DO cung phai in DTG (xu ly rieng, xem ham resolvePrintingMethodForOrder
+  // lai trong CUNG DON DO cung phai in DTG (xu ly rieng, xem ham apDungPhuongPhapInChungChoDon
   // ben duoi, ap dung SAU KHI da xac dinh tung san pham rieng le).
-  function xacDinhPhuongPhapInTheoTitle(title) {
+  function xacDinhPhuongPhapInTheoTitle(title, country) {
     const t = (title || '').toLowerCase();
+    if (country && country.trim().toLowerCase() !== 'united states') return 'DTG';
     if (t.includes('comfort') && t.includes('youth')) return 'DTG';
     if (t.includes('bella') && t.includes('adult')) return 'DTG';
     return 'DTF';
@@ -180,7 +232,11 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '2.22';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.0';
+
+  // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
+  // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
+  const UPDATE_URL = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js';
 
   const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
@@ -207,8 +263,6 @@
     // o input tim kiem don hang (dua vao aria-label "Search your orders") - chi dung cho
     // chuc nang "Lay Earnings theo danh sach ma don nhap tay"
     searchInput: 'input[aria-label="Search your orders"]',
-    // nut submit trong form tim kiem
-    searchSubmitBtn: 'button[type="submit"]',
     // dong chu "You earned $xx.xx on this order" -> lay so trong <span>
     earningsAmountSelector: 'span.wt-text-title-large',
     // tab "Earnings" trong bang order details - tim theo text vi class hay doi
@@ -234,19 +288,46 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // Khi nguoi dung chuyen sang tab khac, trinh duyet LAM CHAM timer (>=1s/lan, co khi dong bang
+  // han) va ngung ve/animation cua trang. Neu van tinh thoi gian cho nhu binh thuong thi
+  // waitFor se bao Timeout oan (hoac doc nham so tien dang dung hinh) - nen: (1) khi tab an
+  // thi KHONG kiem tra va KHONG tinh vao thoi gian cho, (2) neu giua 2 lan chay timer co khoang
+  // trong bat thuong (>2.5s, do bi dong bang/may ngu) thi cung bu lai vao thoi gian cho.
   function waitFor(checkFn, timeout = WAIT_TIMEOUT, label = '') {
     return new Promise((resolve, reject) => {
-      const start = Date.now();
+      let start = Date.now();
+      let lastTick = start;
       const interval = setInterval(() => {
+        const now = Date.now();
+        const gap = now - lastTick;
+        lastTick = now;
+        if (document.hidden || gap > 2500) start += gap;
+        if (document.hidden) return;
         const result = checkFn();
         if (result) {
           clearInterval(interval);
           resolve(result);
-        } else if (Date.now() - start > timeout) {
+        } else if (now - start > timeout) {
           clearInterval(interval);
           reject(new Error(label ? `Timeout cho phan tu: ${label}` : 'Timeout cho phan tu'));
         }
       }, 100);
+    });
+  }
+
+  // Dung hang cho toi khi tab Etsy hien thi lai (neu dang bi an) - goi o dau moi don trong
+  // vong lap lay Earnings de tam dung gon gang thay vi chay tiep luc trinh duyet dang bop
+  // nghet tab an (de bi loi/Timeout), tu dong chay tiep ngay khi nguoi dung quay lai tab.
+  function choTabHienThi() {
+    if (!document.hidden) return Promise.resolve();
+    hienThongBao('⏸ Tab Etsy đang bị ẩn — quay lại tab này để tiếp tục lấy Earnings...', '#F59E0B');
+    return new Promise((resolve) => {
+      const onVis = () => {
+        if (document.hidden) return;
+        document.removeEventListener('visibilitychange', onVis);
+        resolve();
+      };
+      document.addEventListener('visibilitychange', onVis);
     });
   }
 
@@ -646,7 +727,7 @@
       // Xac dinh phuong phap in TUNG san pham truoc, roi ep CA DON ve DTG neu co it nhat
       // 1 san pham la DTG (xem giai thich o ham apDungPhuongPhapInChungChoDon).
       items.forEach((item) => {
-        item.printingMethod = xacDinhPhuongPhapInTheoTitle(item.title);
+        item.printingMethod = xacDinhPhuongPhapInTheoTitle(item.title, addr.country);
       });
       apDungPhuongPhapInChungChoDon(items);
 
@@ -725,6 +806,19 @@
     });
     // skipHeader: true -> khong ghi dong header vao file Excel
     const ws = XLSX.utils.json_to_sheet(cleanData, { header: HEADERS, skipHeader: true });
+    // Ep dinh dang cot "postalCode" thanh Text ('@') - zipcode cua US doi khi co so 0 o dau
+    // (vd "01234"). Ban than gia tri da la chuoi ("s") nen Excel se hien dung "01234" ngay tu
+    // dau, nhung neu KHONG dat dinh dang Text san, sau nay nguoi dung SUA lai o do (go tay) se
+    // bi Excel tu doi ve dang so va mat so 0 dau ngay lap tuc. Dat san dinh dang Text de tranh
+    // rui ro nay ve sau, khong chi luc moi xuat file.
+    const postalCodeCol = HEADERS.indexOf('postalCode');
+    if (postalCodeCol !== -1 && ws['!ref']) {
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        const addr = XLSX.utils.encode_cell({ r, c: postalCodeCol });
+        if (ws[addr]) ws[addr].z = '@';
+      }
+    }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Orders');
     const filename = `etsy_orders_${getTodayFileDateStr()}.xlsx`;
@@ -735,6 +829,20 @@
     // khong can mo file .xlsx vua tai ra.
     copyDataToClipboard(cleanData);
   }
+
+  // GHI CHU VE ZIPCODE MAT SO 0 DAU KHI DAN (Ctrl+V) VAO GOOGLE SHEETS:
+  // Da THU them dau nhay don "'" truoc zipcode de ep hieu la van ban (meo pho bien voi Excel),
+  // nhung Google Sheets KHONG an dau nhay nay khi dan van ban thuan tu ngoai vao (chi an duoc
+  // khi tu tay go truc tiep vao o) - dau nhay lai HIEN RA truoc so, gay roi hon. Da BO meo nay.
+  //
+  // Day la gioi han cua Google Sheets (khong doc duoc kieu o tu clipboard van ban thuan/HTML
+  // ben ngoai, luon tu doan kieu theo hinh thuc gia tri), khong the sua tu phia script. Cach
+  // xu ly dung: dat SAN cot postalCode trong Google Sheet ve dinh dang "Van ban thuan" (chon
+  // cot -> Format > Number > Plain text) MOT LAN - sau do moi lan dan (kieu gi cung duoc,
+  // khong rieng tu script nay) Sheets se giu nguyen chuoi, khong tu doi thanh so nua.
+  //
+  // Rieng file .xlsx tai ve VAN duoc giu dung nguyen so 0 dau (xem exportToExcelFile), vi gia
+  // tri da luu dung la chuoi "s" va cot postalCode da duoc dat san dinh dang Text trong file.
 
   // Chuyen du lieu thanh chuoi TSV (tab-separated) roi ghi vao clipboard qua GM_setClipboard.
   // Thay tab/xuong dong CO SAN trong tung o bang khoang trang, tranh lam le cot khi dan.
@@ -792,12 +900,22 @@
   // 1-2 CENT so voi so tien that su. Vi vay bat buoc gia tri phai GIU NGUYEN ON DINH lien tuc
   // trong STABLE_WINDOW_MS roi moi chap nhan la gia tri cuoi cung (tinh theo THOI GIAN THUC,
   // khong theo so lan poll, de doi poll nhanh hon van dam bao du "on dinh").
-  const STABLE_WINDOW_MS = 300;
+  // 300ms van khong du: hieu ung dem chay co ease-out (cham dan ve cuoi), nen mot vai buoc GAN
+  // CUOI (chua phai gia tri that) van co the dung yen du 300ms roi moi nhay tiep, khien script
+  // chap nhan nham 1 so NHO HON so that su. Tang len 1000ms (1 giay) de chac chan hieu ung da
+  // chay xong hoan toan truoc khi chap nhan.
+  const STABLE_WINDOW_MS = 1000;
   async function waitForEarningsAmount(previousAmountText) {
     const start = Date.now();
     let stableText = null;
     let stableSince = 0;
+    let lanKiemTraCuoi = start;
     const raw = await waitFor(() => {
+      // Giua 2 lan kiem tra ma bi bo lo > 1.5s (tab tung bi an/dong bang) thi hieu ung dem
+      // chay co the da dung hinh o 1 so trung gian -> bat dau dem lai "on dinh" tu dau.
+      const bayGio = Date.now();
+      if (bayGio - lanKiemTraCuoi > 1500) stableText = null;
+      lanKiemTraCuoi = bayGio;
       const text = findCandidateEarningsSpan(previousAmountText, start);
       if (!text) {
         stableText = null;
@@ -822,8 +940,21 @@
   // hoac nhan ESC) truoc khi xu ly don tiep theo - neu khong overlay se giu nguyen don dau
   // tien va moi lan doc Earnings sau do deu ra cung 1 so tien (dinh vao tat ca cac don).
 
+  // So khop CHINH XAC tham so "order_id" trong URL (phan tich bang URLSearchParams), KHONG
+  // dung bo loc CSS kieu "chua chuoi con" (a[href*="order_id=123"]) - cach do co the bam NHAM
+  // sang 1 don KHAC co ma don dai hon nhung TRUNG TIEN TO voi ma don can tim (vd tim "414220878"
+  // van khop nham voi href chua "order_id=4142208787", vi "414220878" la 9 ky tu dau cua
+  // "4142208787"). Bam nham don se lam Earnings bi gan cho SAI don, dung loi da gap truoc day.
   function findOrderLinkByOrderId(orderId) {
-    return document.querySelector(`a[href*="order_id=${orderId}"]`);
+    const maDon = String(orderId);
+    const candidates = document.querySelectorAll('a[href*="order_id="]');
+    for (const a of candidates) {
+      try {
+        const url = new URL(a.href, location.origin);
+        if (url.searchParams.get('order_id') === maDon) return a;
+      } catch (e) { /* noop */ }
+    }
+    return null;
   }
 
   // Tim phan tu co the bam duoc, khop CHINH XAC theo noi dung chu (uu tien phan tu la LA -
@@ -870,17 +1001,36 @@
     await waitFor(() => !findCloseOrderDetailButton(), 6000).catch(() => {});
   }
 
-  async function getEarningsByClickingOrder(orderId, previousAmountText) {
-    // 1. Bam truc tiep vao ma don (link) de mo bang order details, khong dung o tim kiem
-    const link = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId}`);
-    link.click();
+  // Bam vao ma don de mo bang order details roi bam sang tab "Earnings". DAM BAO bang that su
+  // mo ra truoc khi di tiep: moi lan bam xong cho toi da 4s cho bang (nut dong "Close") VA tab
+  // "Earnings" cung xuat hien; neu khong thi tim lai link va bam lai (toi da 3 lan) - 1 cu bam
+  // co the bi "nuot" khi React ve lai danh sach dung luc do (link cu bi thay bang link moi),
+  // day la nguyen nhan hay gay Timeout "khong mo duoc don" truoc day.
+  async function moBangDonVaChonTabEarnings(orderId, linkTimeout = WAIT_TIMEOUT) {
+    const SO_LAN_THU = 3;
+    let loiCuoi;
+    for (let lan = 1; lan <= SO_LAN_THU; lan++) {
+      const link = await waitFor(() => findOrderLinkByOrderId(orderId), linkTimeout, `link don #${orderId}`);
+      link.click();
+      try {
+        // Tab "Order details" la tab mac dinh, noi dung "Earnings" bi an cho toi khi bam tab nay.
+        const tab = await waitFor(
+          () => (findCloseOrderDetailButton() ? findClickableByText(SEL.earningsTabText) : null),
+          4000,
+          `bang chi tiet/tab Earnings (don #${orderId}, lan ${lan})`
+        );
+        tab.click();
+        return;
+      } catch (err) {
+        loiCuoi = err;
+      }
+    }
+    throw loiCuoi;
+  }
 
-    // 2. Bam sang tab "Earnings" trong bang order details de dam bao noi dung tab nay dang
-    // HIEN THI - tab "Order details" moi la tab mac dinh khi vua mo bang, nen span Earnings
-    // co the van con AN (khong hien thi) neu khong bam qua tab nay. KHONG can sleep co dinh
-    // truoc waitFor: waitFor tu poll cho toi khi tab xuat hien, nhanh bao nhieu lay bay nhieu.
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
-    earningsTab.click();
+  async function getEarningsByClickingOrder(orderId, previousAmountText) {
+    // 1+2. Bam vao ma don (link) de mo bang order details roi bam sang tab "Earnings"
+    await moBangDonVaChonTabEarnings(orderId);
 
     // 3. Lay so tien
     const amount = await waitForEarningsAmount(previousAmountText);
@@ -916,6 +1066,7 @@
         break;
       }
       const orderId = uniqueOrderNumbers[i];
+      await choTabHienThi();
       if (typeof onProgress === 'function') {
         onProgress(`⏳ (${i + 1}/${uniqueOrderNumbers.length}) Đang lấy Earnings đơn #${orderId}...`);
       }
@@ -929,7 +1080,7 @@
       }
       // Nghi ngan giua cac don, tranh gui request qua nhanh lien tuc, khong can lau nhu truoc
       // vi cac buoc trong getEarningsByClickingOrder da tu doi (waitFor) du roi.
-      await sleep(200);
+      await sleep(100);
     }
 
     console.log('[Etsy Scraper] Bảng Earnings theo mã đơn:', Object.fromEntries(earningsByOrder));
@@ -954,42 +1105,72 @@
   // Dung rieng cho chuc nang "Lay Earnings theo danh sach ma don nhap tay", vi cac ma don
   // nay co the KHONG nam trong danh sach dang hien thi tren trang, nen phai tim kiem.
 
-  async function getEarningsForOrderBySearch(orderId, previousAmountText) {
-    // 1. Tim o search, nhap ma don
+  // Gui lenh tim kiem cho o "Search your orders". Nut submit PHAI la nut THUOC CUNG form/khoi
+  // voi o tim kiem - truoc day dung document.querySelector('button[type="submit"]') tren CA
+  // TRANG nen de bam nham sang 1 nut submit khac (bo loc, menu...), tim kiem khong chay, khong
+  // co ket qua nao hien ra -> Timeout "khong mo duoc don".
+  function guiTimKiem(input) {
+    const form = input.closest('form');
+    let btn = form ? form.querySelector('button[type="submit"], input[type="submit"]') : null;
+    if (!btn) {
+      let anc = input.parentElement;
+      for (let i = 0; i < 5 && anc && !btn; i++, anc = anc.parentElement) {
+        btn = anc.querySelector('button[type="submit"], button[aria-label*="earch" i]');
+      }
+    }
+    if (btn) {
+      btn.click();
+      return;
+    }
+    if (form && typeof form.requestSubmit === 'function') {
+      form.requestSubmit();
+      return;
+    }
+    const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true };
+    input.dispatchEvent(new KeyboardEvent('keydown', opts));
+    input.dispatchEvent(new KeyboardEvent('keypress', opts));
+    input.dispatchEvent(new KeyboardEvent('keyup', opts));
+  }
+
+  async function timKiemMaDon(orderId) {
     const input = await waitFor(() => document.querySelector(SEL.searchInput), WAIT_TIMEOUT, 'o tim kiem don hang');
     input.focus();
     setNativeValue(input, orderId);
-    await sleep(300);
+    // Su kien "input" cua React xu ly dong bo nen khong can nghi truoc khi gui (truoc day nghi 300ms).
+    guiTimKiem(input);
+  }
 
-    // 2. Submit tim kiem (thu bam nut submit, neu khong co thi bam Enter)
-    const submitBtn = document.querySelector(SEL.searchSubmitBtn);
-    if (submitBtn) {
-      submitBtn.click();
-    } else {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  // Toi da 2 lan thu cho moi ma don: lan 2 tim kiem lai tu dau (sau khi dong bang dang mo do
+  // neu co) - nhieu loi Timeout chi la do 1 lan tim kiem/bam khong an, thu lai la duoc.
+  async function getEarningsForOrderBySearch(orderId, previousAmountText) {
+    const SO_LAN_THU = 2;
+    let loiCuoi;
+    for (let lan = 1; lan <= SO_LAN_THU; lan++) {
+      try {
+        // 1. Neu ma don DA co san tren trang (vd dang nam trong danh sach/ket qua hien tai) thi
+        // bo qua buoc tim kiem cho nhanh; con lai thi nhap ma don vao o tim kiem va gui.
+        if (!findOrderLinkByOrderId(orderId)) {
+          await timKiemMaDon(orderId);
+        }
+
+        // 2. Doi ket qua hien ra (tim theo href order_id CHINH XAC, khong theo chu "#<ma don>"
+        // vi de bam nham vao the bao ngoai), bam vao ma don mo bang order details, bam tab Earnings.
+        await moBangDonVaChonTabEarnings(orderId, 10000);
+
+        // 3. Lay so tien
+        const amount = await waitForEarningsAmount(previousAmountText);
+
+        // 4. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
+        await closeOrderDetailPanel();
+
+        return amount;
+      } catch (err) {
+        loiCuoi = err;
+        console.warn(`[Etsy Scraper] Lan ${lan}/${SO_LAN_THU} lay Earnings don #${orderId} that bai:`, err.message);
+        await closeOrderDetailPanel();
+      }
     }
-
-    // 3. Doi ket qua xuat hien, bam vao ma don de mo bang order details. KHONG can sleep co
-    // dinh truoc waitFor - waitFor tu poll cho toi khi ket qua xuat hien.
-    // Dung findOrderLinkByOrderId (khop theo href chua order_id, giong CACH 1) thay vi tim
-    // theo NOI DUNG CHU "#<ma don>": tim theo chu de bam nham vao 1 the <div>/<span> BAO NGOAI
-    // ca khoi ket qua tim kiem (vi no cung "chua" doan chu do), khong phai chinh the <a> co
-    // the bam duoc - bam vao do khong co tac dung gi, lam buoc sau (doc Earnings) bi timeout.
-    const orderLink = await waitFor(() => findOrderLinkByOrderId(orderId), WAIT_TIMEOUT, `link don #${orderId} trong ket qua tim kiem`);
-    orderLink.click();
-
-    // 4. Bam sang tab "Earnings" - tab "Order details" moi la tab mac dinh, span Earnings
-    // co the con dang AN neu khong bam qua tab nay.
-    const earningsTab = await waitFor(() => findClickableByText(SEL.earningsTabText), WAIT_TIMEOUT, `tab Earnings (don #${orderId})`);
-    earningsTab.click();
-
-    // 5. Lay so tien
-    const amount = await waitForEarningsAmount(previousAmountText);
-
-    // 6. Dong bang order details lai (cung la 1 overlay) truoc khi tim ma don tiep theo
-    await closeOrderDetailPanel();
-
-    return amount;
+    throw loiCuoi;
   }
 
   // ====== CHUC NANG 1 + 2: QUET DON (CO HOAC KHONG LAY EARNINGS) ROI XUAT EXCEL ======
@@ -1105,6 +1286,7 @@
         }
         daXuLyMaDon.add(id);
 
+        await choTabHienThi();
         hienThongBao(`⏳ (${i + 1}/${ids.length}) Đang lấy Earnings đơn #${id}...`, '#2563EB');
         try {
           const result = await getEarningsForOrderBySearch(id, previousRaw);
@@ -1115,7 +1297,7 @@
           results.push({ 'Mã đơn': id, Earnings: 'LỖI: ' + err.message });
         }
         // Xem ghi chu o fillEarningsForRowsByClick - cac buoc ben trong da tu doi du roi.
-        await sleep(200);
+        await sleep(100);
       }
 
       if (results.length === 0) {
@@ -1194,6 +1376,111 @@
     }, 5000);
   }
 
+  // ====== GIAO DIEN SUA QUY DOI MAU (BI_DANH) NGAY TREN PANEL ======
+
+  // Doi 1 bang bi danh {key: value} thanh van ban nhieu dong "key=value" de hien trong textarea.
+  function bienDoiBiDanhThanhVanBan(obj) {
+    return Object.keys(obj || {}).map((k) => `${k}=${obj[k]}`).join('\n');
+  }
+
+  // Nguoc lai: doi van ban nhieu dong "Ten Etsy=Ten chinh thuc" thanh bang bi danh {key: value}.
+  // Bo qua dong trong/khong co dau "=". Key duoc chuan hoa ve chu thuong (khong phan biet
+  // hoa/thuong khi so khop, giong logic resolveColorForGarment).
+  function bienDoiVanBanThanhBiDanh(text) {
+    const out = {};
+    (text || '').split('\n').forEach((dong) => {
+      const idx = dong.indexOf('=');
+      if (idx === -1) return;
+      const key = dong.slice(0, idx).trim().toLowerCase();
+      const value = dong.slice(idx + 1).trim();
+      if (key && value) out[key] = value;
+    });
+    return out;
+  }
+
+  // Mo 1 hop thoai (overlay) cho phep xem/sua truc tiep bang bi danh mau cho ca 6 loai ao,
+  // khong can sua code. Luu qua GM_setValue (COLOR_ALIAS_STORAGE_KEY) va cap nhat ngay bien
+  // biDanhHienTai de ap dung tu lan quet tiep theo, khong can tai lai trang.
+  function moModalSuaQuyDoiMau() {
+    const overlay = document.createElement('div');
+    overlay.id = 'eos-color-alias-overlay';
+    overlay.style.cssText = `
+      position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1000000;
+      display:flex; align-items:center; justify-content:center; padding:20px;
+      font-family:sans-serif;
+    `;
+
+    const hop = document.createElement('div');
+    hop.style.cssText = `
+      background:#fff; border-radius:10px; width:100%; max-width:480px; max-height:85vh;
+      overflow-y:auto; padding:16px;
+    `;
+
+    const tieuDe = document.createElement('div');
+    tieuDe.innerHTML = `
+      <div style="font-weight:bold; font-size:15px; margin-bottom:4px;">🎨 Sửa quy đổi màu theo loại áo</div>
+      <div style="font-size:11px; color:#6b7280; margin-bottom:10px;">
+        Mỗi dòng 1 quy đổi, dạng <code>Tên Etsy=Tên chính thức</code>. Ví dụ:
+        <code>Dark Heather=Dark Grey Heather</code>. Dòng trống hoặc không có dấu "=" sẽ bị bỏ qua.
+      </div>
+    `;
+    hop.appendChild(tieuDe);
+
+    const cacTextarea = {};
+    Object.keys(TEN_HIEN_THI_LOAI_AO).forEach((key) => {
+      const nhan = document.createElement('div');
+      nhan.textContent = TEN_HIEN_THI_LOAI_AO[key];
+      nhan.style.cssText = 'font-weight:bold; font-size:12px; margin:10px 0 4px;';
+      hop.appendChild(nhan);
+
+      const ta = document.createElement('textarea');
+      ta.value = bienDoiBiDanhThanhVanBan(biDanhHienTai[key]);
+      ta.style.cssText = 'width:100%; height:56px; box-sizing:border-box; font-size:12px; resize:vertical;';
+      hop.appendChild(ta);
+      cacTextarea[key] = ta;
+    });
+
+    const dongNut = document.createElement('div');
+    dongNut.style.cssText = 'display:flex; gap:8px; margin-top:14px;';
+
+    const btnXoaHet = document.createElement('button');
+    btnXoaHet.textContent = '🗑️ Xoá hết';
+    btnXoaHet.title = 'Xoá trắng tất cả các ô bên trên, chưa lưu ngay - vẫn phải bấm Lưu';
+    btnXoaHet.style.cssText = 'flex:1; padding:8px 10px; background:#6b7280; color:#fff; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
+    btnXoaHet.onclick = () => {
+      Object.keys(cacTextarea).forEach((key) => {
+        cacTextarea[key].value = '';
+      });
+    };
+
+    const btnLuu = document.createElement('button');
+    btnLuu.textContent = '💾 Lưu';
+    btnLuu.style.cssText = 'flex:1; padding:8px 10px; background:#1a7f37; color:#fff; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
+    btnLuu.onclick = () => {
+      const moi = {};
+      Object.keys(cacTextarea).forEach((key) => {
+        moi[key] = bienDoiVanBanThanhBiDanh(cacTextarea[key].value);
+      });
+      biDanhHienTai = moi;
+      GM_setValue(COLOR_ALIAS_STORAGE_KEY, JSON.stringify(moi));
+      // KHONG dong cua so sau khi luu - de nguoi dung tiep tuc sua/kiem tra ngay trong hop thoai.
+      hienThongBao('✅ Đã lưu quy đổi màu.', '#16A34A');
+    };
+
+    const btnDong = document.createElement('button');
+    btnDong.textContent = 'Đóng';
+    btnDong.style.cssText = 'flex:1; padding:8px 10px; background:#e5e7eb; color:#111827; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
+    btnDong.onclick = () => document.body.removeChild(overlay);
+
+    dongNut.appendChild(btnXoaHet);
+    dongNut.appendChild(btnLuu);
+    dongNut.appendChild(btnDong);
+    hop.appendChild(dongNut);
+
+    overlay.appendChild(hop);
+    document.body.appendChild(overlay);
+  }
+
   function docTrangThaiPanel() {
     try {
       return JSON.parse(GM_getValue(PANEL_STATE_KEY, '{}')) || {};
@@ -1256,6 +1543,912 @@
     });
   }
 
+  // =====================================================================
+  // ====== AUTO TRACKING (gop tu script "Etsy Auto Tracking (from Google Sheet)") ======
+  // Dien tracking + hang van chuyen tu Google Sheet vao cac don tren trang
+  // /your/orders/sold. Toan bo code nam trong module rieng (tranh trung ten ham
+  // voi phan Order Scraper o tren); chi giao dien duoc dua vao panel Order Scraper.
+  // =====================================================================
+  const AutoTracking = (function () {
+    // Tham chieu toi cac phan tu giao dien (gan trong buildSection)
+    let logBoxEl = null;
+    let statusEl = null;
+    let pauseBtnEl = null;
+    let sheetInfoEl = null;
+    let sheetCountEl = null;
+    let sheetUrlInput = null;
+
+    // Manual overrides if the automatic substring match picks the wrong
+    // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
+    // appears in the sheet, value = exact text of the Etsy <option> to pick.
+    // Leave empty if the automatic matching (see matchCarrierOption) works
+    // fine for your shop.
+    const CARRIER_ALIASES = {
+      // 'dhl ecommerce': 'DHL',
+    };
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // Used by the order-code-first / customer-name-fallback order matching.
+    function normalizeName(s) {
+      return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
+    // Short log lines shown inside the on-page panel (kept separate from the
+    // full console log, which stays verbose for debugging).
+    const MAX_UI_LOG_LINES = 12;
+
+    function uiLog(text) {
+      const box = logBoxEl;
+      if (!box) return;
+      const time = new Date().toLocaleTimeString('vi-VN', { hour12: false });
+      const line = document.createElement('div');
+      line.style.cssText =
+        'white-space:pre-wrap; word-break:break-word; border-bottom:1px solid rgba(255,255,255,.06); padding:2px 0;';
+      line.textContent = `${time} ${text}`;
+      box.appendChild(line);
+      while (box.children.length > MAX_UI_LOG_LINES) box.removeChild(box.firstChild);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function log(...a) {
+      console.log('%c[AutoTrack]', 'color:#0ea5e9;font-weight:bold', ...a);
+      let text = a.map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ');
+      text = text.replace(/\s+/g, ' ').trim();
+      if (text.length > 90) text = text.slice(0, 87) + '...';
+      uiLog(text);
+    }
+
+    async function waitFor(fn, { timeout = 10000, interval = 200, desc = '' } = {}) {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const v = await fn();
+        if (v) return v;
+        await sleep(interval);
+      }
+      throw new Error('Timeout waiting for: ' + desc);
+    }
+
+    function setNativeValue(el, value) {
+      const proto = Object.getPrototypeOf(el);
+      const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+      desc.set.call(el, value);
+    }
+
+    const RUN_KEY = 'AT_RUNNING';
+    const PAUSE_KEY = 'AT_PAUSED';
+
+    function getOrderIds() {
+      return Array.from(document.querySelectorAll('a[href*="order_id="]'))
+        .map((a) => {
+          const m = a.href.match(/order_id=(\d+)/);
+          return m ? m[1] : null;
+        })
+        .filter((v, i, arr) => v && arr.indexOf(v) === i);
+    }
+
+    // Look the row up fresh by order id rather than keeping a DOM reference
+    // captured earlier — completing an order re-renders the list (the
+    // finished row disappears), which can leave previously-captured element
+    // references detached/stale, causing clicks on them to silently do
+    // nothing (symptom: "dropdown open" timeouts right after a completion).
+    function findRowByOrderId(orderId) {
+      const a = document.querySelector(`a[href*="order_id=${orderId}"]`);
+      return a ? a.closest('.panel-body-row') : null;
+    }
+
+    async function waitForRow(orderId, timeout = 4000) {
+      try {
+        return await waitFor(() => findRowByOrderId(orderId), {
+          timeout,
+          interval: 200,
+          desc: 'row for order ' + orderId,
+        });
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // Shipping recipient's name, used as a fallback match key when an order
+    // code doesn't turn up a match in the Sheet data (e.g. a cancelled order
+    // redone under a different code keeps the same shipping name).
+    function getOrderCustomerName(row) {
+      // Prefer the "Ship to" summary name (the actual shipping recipient) — a
+      // <div class="text-body-smaller strong"> beneath the Ship to accordion.
+      // Whether Etsy wraps the text in an extra
+      // <span data-test-id="unsanitize"> or not varies per order (confirmed:
+      // some orders render it as plain text with no such span at all), so
+      // just read the element's own text instead of depending on that span.
+      const shipToEl = row.querySelector('.text-body-smaller.strong');
+      if (shipToEl && shipToEl.textContent.trim()) return shipToEl.textContent.trim();
+
+      // Fallback: the buyer's account name shown at the top of the order (a
+      // dropdown-button holding the name + a chevron icon). The row has other
+      // dropdown buttons too (e.g. "Update progress"), so explicitly skip any
+      // whose container carries a clg-tooltip — only the action-menu ones do.
+      const dropdownButtons = row.querySelectorAll('[data-dropdown-button="true"]');
+      for (const btn of dropdownButtons) {
+        const container = btn.closest('[data-dropdown-container="true"]');
+        if (container && container.querySelector('clg-tooltip')) continue;
+        const text = btn.textContent.trim();
+        if (text) return text;
+      }
+      return '';
+    }
+
+    function findUpdateProgressTrigger(row) {
+      const groups = row.querySelectorAll('[data-dropdown-container="true"]');
+      for (const g of groups) {
+        const tip = g.querySelector('clg-tooltip');
+        if (tip && tip.textContent.includes('Update progress')) {
+          return g.querySelector('[data-dropdown-button="true"]');
+        }
+      }
+      return null;
+    }
+
+    async function openCompleteOrderModal(row, orderId) {
+      const trigger = findUpdateProgressTrigger(row);
+      if (!trigger) return false; // no "Update progress" action on this row -> skip
+
+      // Scroll the row into view first — some pages skip/deprioritise click
+      // handling on elements sitting outside the viewport.
+      row.scrollIntoView({ block: 'center' });
+      await sleep(150);
+
+      const container = trigger.closest('[data-dropdown-container="true"]');
+      const menu = container.querySelector('[data-dropdown-target="true"]');
+      // Check multiple signals (trigger's own aria-expanded as well as the
+      // menu's aria-hidden/class) since which one flips first can vary.
+      const isOpen = () =>
+        trigger.getAttribute('aria-expanded') === 'true' ||
+        menu.getAttribute('aria-hidden') === 'false' ||
+        !menu.classList.contains('is-closed');
+
+      trigger.click();
+      await sleep(250);
+
+      try {
+        await waitFor(isOpen, { timeout: 8000, desc: 'dropdown open for order ' + orderId });
+      } catch (e) {
+        // Dropdown never opened in time (page was busy/laggy). Try to close it
+        // again so it doesn't sit open and block clicks on the next order.
+        trigger.click();
+        throw e;
+      }
+
+      const completeBtn = Array.from(menu.querySelectorAll('button')).find((b) =>
+        b.textContent.trim().includes('Complete order')
+      );
+      if (!completeBtn) {
+        // No "Complete order" action (already shipped / cancelled / etc.) -> skip
+        trigger.click(); // close the dropdown again
+        return false;
+      }
+      completeBtn.click();
+
+      await waitFor(
+        () => document.querySelector(`select[name="carrierNameSelect-${orderId}"]`),
+        { timeout: 8000, desc: 'Complete order modal for ' + orderId }
+      );
+      return true;
+    }
+
+    function matchCarrierOption(select, carrierRaw) {
+      const carrierNorm = carrierRaw.trim().toLowerCase();
+
+      for (const key of Object.keys(CARRIER_ALIASES)) {
+        if (carrierNorm.includes(key)) {
+          const wanted = CARRIER_ALIASES[key].toLowerCase();
+          const opt = Array.from(select.querySelectorAll('option')).find(
+            (o) => o.textContent.trim().toLowerCase() === wanted
+          );
+          if (opt) return opt;
+        }
+      }
+
+      const options = Array.from(select.querySelectorAll('option')).filter((o) => {
+        const t = o.textContent.trim().toLowerCase();
+        return t && t !== 'other' && t !== 'select shipping carrier';
+      });
+
+      // Exact match wins; otherwise a substring match only counts when the
+      // shorter side is at least 3 chars (avoids a tiny option like "US"
+      // matching inside an unrelated carrier), preferring the longest option.
+      const exact = options.find((o) => o.textContent.trim().toLowerCase() === carrierNorm);
+      if (exact) return exact;
+
+      const partial = options.filter((o) => {
+        const t = o.textContent.trim().toLowerCase();
+        if (Math.min(t.length, carrierNorm.length) < 3) return false;
+        return carrierNorm.includes(t) || t.includes(carrierNorm);
+      });
+      partial.sort((a, b) => b.textContent.trim().length - a.textContent.trim().length);
+      return partial[0];
+    }
+
+    async function setClgTextInputValue(clgEl, value) {
+      const input = await waitFor(
+        () => clgEl.shadowRoot && clgEl.shadowRoot.querySelector('input'),
+        { timeout: 4000, desc: 'inner <input> of ' + (clgEl.getAttribute('name') || clgEl.tagName) }
+      );
+      const proto = Object.getPrototypeOf(input);
+      const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+      setter.call(input, value);
+      // Only 'input' + 'change' — dispatching 'blur' too has been seen to send
+      // this custom element (and Etsy's own React tree) into a heavy re-render
+      // loop that can hang/crash the tab, especially with DevTools open.
+      input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    }
+
+    async function fillAndSubmit(orderId, tracking, carrierRaw) {
+      const select = document.querySelector(`select[name="carrierNameSelect-${orderId}"]`);
+      if (!select) throw new Error('carrier select not found for ' + orderId);
+
+      const matched = matchCarrierOption(select, carrierRaw);
+
+      if (matched) {
+        log(`  carrier "${carrierRaw}" -> "${matched.textContent.trim()}"`);
+        setNativeValue(select, matched.value);
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        // Let Etsy's own React tree finish re-rendering around the select
+        // before we touch anything else in the modal.
+        await sleep(500);
+      } else {
+        const other = Array.from(select.querySelectorAll('option')).find(
+          (o) => o.textContent.trim().toLowerCase() === 'other'
+        );
+        if (!other) throw new Error('No "Other" option found in carrier select');
+        log(`  carrier "${carrierRaw}" -> Other (custom text)`);
+        setNativeValue(select, other.value);
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        // Selecting "Other" makes the custom carrier-name field appear/enable;
+        // give the app a moment to settle before we grab and fill it — doing
+        // this too fast back-to-back is what tends to freeze the tab.
+        await sleep(500);
+
+        const carrierInput = await waitFor(
+          () => document.querySelector(`clg-text-input[name="carrierName-${orderId}"]`),
+          { timeout: 3000, desc: 'custom carrier text input' }
+        );
+        await setClgTextInputValue(carrierInput, carrierRaw);
+        await sleep(300);
+      }
+
+      const trackingInput = await waitFor(
+        () => document.querySelector(`clg-text-input[name="trackingCode-${orderId}"]`),
+        { timeout: 3000, desc: 'tracking number input' }
+      );
+      await setClgTextInputValue(trackingInput, tracking);
+
+      await sleep(500);
+
+      // The modal's own footer button, not the dropdown menu item -> exclude
+      // anything still living inside a dropdown container.
+      const submitBtn = Array.from(document.querySelectorAll('button')).find(
+        (b) =>
+          b.textContent.trim() === 'Complete order' &&
+          !b.closest('[data-dropdown-target="true"]')
+      );
+      if (!submitBtn) throw new Error('Modal submit button not found');
+
+      await waitFor(() => !submitBtn.disabled, { timeout: 5000, desc: 'submit button enabled' });
+      submitBtn.click();
+
+      await waitFor(
+        () => !document.querySelector(`select[name="carrierNameSelect-${orderId}"]`),
+        { timeout: 8000, desc: 'modal closed for ' + orderId }
+      );
+    }
+
+    function closeModalIfOpen(orderId) {
+      const select = document.querySelector(`select[name="carrierNameSelect-${orderId}"]`);
+      if (!select) return;
+      const cancelBtn = Array.from(document.querySelectorAll('button')).find(
+        (b) => b.textContent.trim() === 'Cancel'
+      );
+      if (cancelBtn) cancelBtn.click();
+    }
+
+    // ---------------------------------------------------------------------
+    // Load tracking data straight from a Google Sheets link (no copy/paste),
+    // via the CSV export endpoint. Requires the sheet's sharing set to
+    // "Anyone with the link" (Viewer) — otherwise Google serves an HTML
+    // sign-in page instead of CSV, which is detected and reported. The CSV
+    // export always includes the real header row, so columns are matched by
+    // name (ORDER CODE / FULL NAME / TRACKING / DVVC) instead of guessing a
+    // fixed position.
+    // ---------------------------------------------------------------------
+
+    let sheetMap = null; // orderId -> { tracking, carrier }
+    let sheetMapByName = null; // normalized customer name -> { tracking, carrier } (fallback)
+
+    function extractSheetIdAndGid(url) {
+      const idMatch = (url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      if (!idMatch) return null;
+      const gidMatch = url.match(/[?&#]gid=(\d+)/);
+      return { sheetId: idMatch[1], gid: gidMatch ? gidMatch[1] : '0' };
+    }
+
+    function gmFetchTextOnce(url) {
+      return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: 'GET',
+          url,
+          timeout: 15000,
+          onload: (res) => {
+            if (res.status >= 200 && res.status < 300) resolve(res.responseText);
+            else reject(new Error('HTTP ' + res.status));
+          },
+          onerror: () => reject(new Error('network error')),
+          ontimeout: () => reject(new Error('timeout')),
+        });
+      });
+    }
+
+    // One retry on a transient failure (network blip / timeout / 5xx); a 4xx
+    // (e.g. 403/404) won't get better by retrying, so it fails immediately.
+    async function gmFetchText(url) {
+      try {
+        return await gmFetchTextOnce(url);
+      } catch (e) {
+        if (/^HTTP 4/.test(e.message)) throw e;
+        await sleep(1500);
+        return gmFetchTextOnce(url);
+      }
+    }
+
+    // Minimal RFC4180-ish CSV parser: handles quoted fields with embedded
+    // commas, real newlines, and escaped "" quotes — which is exactly how
+    // Google's CSV export represents a wrapped multi-line cell.
+    function parseCsv(text) {
+      const rows = [];
+      let row = [];
+      let field = '';
+      let inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQuotes) {
+          if (c === '"') {
+            if (text[i + 1] === '"') {
+              field += '"';
+              i++;
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            field += c;
+          }
+        } else if (c === '"') {
+          inQuotes = true;
+        } else if (c === ',') {
+          row.push(field);
+          field = '';
+        } else if (c === '\r') {
+          // ignore; \n (below) is what ends the row
+        } else if (c === '\n') {
+          row.push(field);
+          field = '';
+          rows.push(row);
+          row = [];
+        } else {
+          field += c;
+        }
+      }
+      if (field.length || row.length) {
+        row.push(field);
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    // Only orders placed within this many days are kept when loading a sheet —
+    // older rows are skipped entirely (not matched, not filled).
+    const RECENT_DAYS_LIMIT = 10;
+
+    // Parses "D/M/YY", "D/M/YYYY" (day-first, matching this sheet's ORDER DATE
+    // convention, e.g. "20/5/26") or an ISO "YYYY-MM-DD" date string. Returns
+    // null if it doesn't look like a date at all (in which case the row is
+    // kept rather than guessed away).
+    function parseSheetDate(str) {
+      const s = (str || '').trim();
+      if (!s) return null;
+
+      let m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+      if (m) {
+        const d = parseInt(m[1], 10);
+        const mo = parseInt(m[2], 10);
+        let y = parseInt(m[3], 10);
+        if (y < 100) y += 2000;
+        const dt = new Date(y, mo - 1, d);
+        return isNaN(dt.getTime()) ? null : dt;
+      }
+
+      m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (m) {
+        const dt = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+        return isNaN(dt.getTime()) ? null : dt;
+      }
+
+      return null;
+    }
+
+    function isWithinRecentDays(date, days) {
+      const cutoff = new Date();
+      cutoff.setHours(0, 0, 0, 0);
+      cutoff.setDate(cutoff.getDate() - days);
+      return date >= cutoff;
+    }
+
+    // The TRACKING column sometimes holds a free-text note instead of a real
+    // tracking code (e.g. "NGOÀI US", "Priority") — a placeholder meaning
+    // "not a trackable US shipment" rather than an actual tracking number.
+    // Reject anything that doesn't look like a real carrier tracking code:
+    // no whitespace, long enough, and containing at least some digits (a
+    // purely-alphabetic word like "Priority" is never a real tracking number).
+    function looksLikeTrackingNumber(str) {
+      const s = (str || '').trim();
+      if (s.length < 8) return false;
+      if (/\s/.test(s)) return false;
+      if (!/\d/.test(s)) return false;
+      return true;
+    }
+
+    // Finds a header column by trying keyword groups in priority order (all
+    // header cells checked against the first group before falling back to the
+    // next) — e.g. "ORDER DATE" contains the bare substring "ORDER", so a
+    // single flat keyword list risked matching the date column instead of the
+    // real "ORDER CODE" column whenever the date column came first.
+    function findColPriority(header, tiers) {
+      for (const tier of tiers) {
+        const idx = header.findIndex((h) => tier.some((k) => h.includes(k)));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    }
+
+    function parseSheetCsv(text) {
+      const rows = parseCsv(text).filter((r) => r.some((c) => c.trim() !== ''));
+      if (!rows.length) return { ok: false, rowCount: 0 };
+
+      const header = rows[0].map((h) => h.trim().toUpperCase());
+      const colOrder = findColPriority(header, [
+        ['ORDER CODE'],
+        ['ORDERNUMBER', 'ORDER NUMBER'],
+        ['ORDER ID'],
+        ['MA DON', 'MÃ ĐƠN'],
+        ['ORDER'],
+      ]);
+      const colName = findColPriority(header, [['FULL NAME'], ['NAME'], ['CUSTOMER']]);
+      const colTracking = findColPriority(header, [['TRACKING']]);
+      const colCarrier = findColPriority(header, [
+        ['DVVC'],
+        ['CARRIER'],
+        ['VAN CHUYEN', 'VẬN CHUYỂN'],
+      ]);
+      const colDate = findColPriority(header, [['ORDER DATE'], ['DATE', 'NGAY', 'NGÀY']]);
+
+      if (colOrder === -1 || colTracking === -1) {
+        return { ok: false, header, colOrder, colTracking };
+      }
+
+      const map = {};
+      const mapByName = {};
+      const order = [];
+      let count = 0;
+      let skippedOld = 0;
+      let skippedNotTracking = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const cells = rows[i];
+        const orderId = (cells[colOrder] || '').trim();
+        const tracking = (cells[colTracking] || '').trim();
+        const carrier = colCarrier !== -1 ? (cells[colCarrier] || '').trim() : '';
+        if (!orderId || !tracking) continue; // order not shipped yet -> skip
+        if (!looksLikeTrackingNumber(tracking)) {
+          // A note like "NGOÀI US" / "Priority" instead of a real tracking
+          // code -> not something we can fill into Etsy, skip it.
+          skippedNotTracking++;
+          continue;
+        }
+
+        if (colDate !== -1) {
+          const date = parseSheetDate(cells[colDate]);
+          if (date && !isWithinRecentDays(date, RECENT_DAYS_LIMIT)) {
+            skippedOld++;
+            continue;
+          }
+        }
+
+        if (!(orderId in map)) order.push(orderId);
+        map[orderId] = { tracking, carrier };
+        if (colName !== -1) {
+          const name = normalizeName(cells[colName]);
+          if (name) mapByName[name] = { tracking, carrier };
+        }
+        count++;
+      }
+      return { ok: true, map, mapByName, order, count, rowCount: rows.length - 1, skippedOld, skippedNotTracking };
+    }
+
+    function lookupTracking(orderId, customerName) {
+      if (!sheetMap) return { orderId, found: false };
+      let entry = sheetMap[orderId];
+      let byName = false;
+      if (!entry && customerName && sheetMapByName) {
+        entry = sheetMapByName[normalizeName(customerName)];
+        byName = !!entry;
+      }
+      return entry
+        ? { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName }
+        : { orderId, found: false };
+    }
+
+    // Returns true if a real "open modal / fill / submit" attempt happened
+    // (used by runAll to decide how long to pause before the next order —
+    // a quick skip shouldn't cost the same settle time as a real completion).
+    async function processOrder(orderId) {
+      // Fetch the row first — completing an order re-renders the list (see
+      // findRowByOrderId), and we also need the customer name off of it as a
+      // fallback match key in case the order code itself doesn't match.
+      const row = await waitForRow(orderId);
+      if (!row) {
+        return false; // order no longer on page -> skip silently
+      }
+      const customerName = getOrderCustomerName(row);
+
+      log('Checking order', orderId, customerName ? `(name: "${customerName}")` : '(no name found)', '...');
+
+      const result = lookupTracking(orderId, customerName);
+
+      if (!result.found) {
+        log('  not found in Sheet -> skipped (no modal opened)');
+        return false;
+      }
+      log(result.byName ? '  found (by customer name):' : '  found:', result.tracking, '/', result.carrier);
+
+      if (!result.carrier) {
+        log('  ERROR: có tracking nhưng thiếu DVVC (carrier) trong Sheet -> skipped (no modal opened)');
+        return false;
+      }
+
+      const opened = await openCompleteOrderModal(row, orderId);
+      if (!opened) {
+        log('  no "Complete order" action available on this row -> skipped');
+        return false;
+      }
+
+      try {
+        await fillAndSubmit(orderId, result.tracking, result.carrier);
+        log('  done:', result.tracking, '/', result.carrier);
+      } catch (e) {
+        log('  ERROR filling modal:', e.message);
+        closeModalIfOpen(orderId);
+      }
+      return true;
+    }
+
+    async function runAll() {
+      GM_setValue(RUN_KEY, true);
+      GM_setValue(PAUSE_KEY, false);
+      setStatus('Running...');
+
+      if (!sheetMap) {
+        log('Chưa có dữ liệu Sheet — dán link Google Sheet rồi bấm Start.');
+      }
+
+      // Always driven by the Etsy page: scan every order currently shown on
+      // this page first, then check each one against the loaded Sheet data.
+      const orderIds = getOrderIds();
+      log(`Found ${orderIds.length} order(s) on this page.`);
+
+      for (const orderId of orderIds) {
+        if (!GM_getValue(RUN_KEY)) {
+          log('Stopped by user.');
+          break;
+        }
+
+        // Pause: block right here (loop position/order id list is kept,
+        // nothing is re-scanned) until Resume is clicked or Stop cancels the run.
+        while (GM_getValue(PAUSE_KEY)) {
+          setStatus('Paused');
+          await sleep(300);
+          if (!GM_getValue(RUN_KEY)) break;
+        }
+        if (!GM_getValue(RUN_KEY)) {
+          log('Stopped by user.');
+          break;
+        }
+        setStatus('Running...');
+
+        let attempted = false;
+        try {
+          attempted = await processOrder(orderId);
+        } catch (e) {
+          log('ERROR processing row:', e.message);
+          // Best-effort cleanup: close any dropdown/modal left open by the
+          // failed step so it doesn't block clicks on the next order.
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          attempted = true;
+        }
+        // Only pay the full "let the page settle" pause after a real
+        // open-modal/fill/submit attempt; a quick non-match skip doesn't need it.
+        await sleep(attempted ? 2000 : 150);
+      }
+
+      GM_setValue(RUN_KEY, false);
+      GM_setValue(PAUSE_KEY, false);
+      setStatus('Idle');
+      setPauseButtonLabel();
+      log('All done.');
+    }
+
+    // Fetches + parses a single sheet URL. Returns { ok:true, ...parseSheetCsv
+    // result } or { ok:false, error } — never throws, so the caller can keep
+    // going through a list of URLs even if one of them fails.
+    async function fetchOneSheet(url) {
+      const parsed = extractSheetIdAndGid(url);
+      if (!parsed) {
+        return { ok: false, error: 'link không hợp lệ (cần dạng .../spreadsheets/d/<id>/...)' };
+      }
+
+      const exportUrl = `https://docs.google.com/spreadsheets/d/${parsed.sheetId}/export?format=csv&gid=${parsed.gid}`;
+      let text;
+      try {
+        text = await gmFetchText(exportUrl);
+      } catch (e) {
+        return { ok: false, error: `không tải được (${e.message})` };
+      }
+
+      if (/^\s*<(!DOCTYPE|html)/i.test(text)) {
+        return { ok: false, error: 'chưa share công khai (Share -> Anyone with the link -> Viewer)' };
+      }
+
+      const result = parseSheetCsv(text);
+      if (!result.ok) {
+        const missing = [];
+        if (result.colOrder === -1) missing.push('ORDER CODE');
+        if (result.colTracking === -1) missing.push('TRACKING');
+        return { ok: false, error: `thiếu cột ${missing.join(', ')}` };
+      }
+      if (result.count === 0) {
+        const parts = [];
+        if (result.skippedOld > 0) parts.push(`${result.skippedOld} đơn có tracking nhưng cũ hơn ${RECENT_DAYS_LIMIT} ngày`);
+        if (result.skippedNotTracking > 0)
+          parts.push(`${result.skippedNotTracking} dòng ghi chú không phải mã tracking (VD: "NGOÀI US", "Priority")`);
+        const reason = parts.length
+          ? parts.join('; ')
+          : `đọc được ${result.rowCount} dòng nhưng không đơn nào có TRACKING`;
+        return { ok: false, error: reason };
+      }
+      return result;
+    }
+
+    // Loads and merges sheet data from one or more Google Sheets links (one
+    // per line — see fetchOneSheet/parseSheetCsv above for the "Anyone with
+    // the link" requirement). A later sheet's entry for the same order code
+    // overwrites an earlier one; order ids are kept in first-appearance order
+    // across all sheets combined. Remembers the URLs in localStorage so Start
+    // can quietly re-fetch the latest data on every run without re-entering
+    // them. Keeps going through every URL even if some fail, and only reports
+    // total failure if NONE of them produced usable data.
+    async function loadSheetsFromUrls(urlsText) {
+      const info = sheetInfoEl;
+      const urls = (urlsText || '')
+        .split(/\r?\n/)
+        .map((u) => u.trim())
+        .filter(Boolean);
+
+      if (!urls.length) {
+        if (info) info.textContent = 'Dán ít nhất 1 link Google Sheet.';
+        return false;
+      }
+
+      if (info) info.textContent = `Đang tải dữ liệu từ ${urls.length} link Sheet...`;
+
+      const combinedMap = {};
+      const combinedMapByName = {};
+      const combinedOrder = [];
+      const errors = [];
+      let okCount = 0;
+      let totalSkippedOld = 0;
+      let totalSkippedNotTracking = 0;
+
+      for (const url of urls) {
+        log('Fetching Sheet:', url);
+        const result = await fetchOneSheet(url);
+        if (!result.ok) {
+          log('  failed:', result.error);
+          errors.push(`${url}\n  -> ${result.error}`);
+          continue;
+        }
+        okCount++;
+        totalSkippedOld += result.skippedOld || 0;
+        totalSkippedNotTracking += result.skippedNotTracking || 0;
+        log(`  loaded ${result.count} order(s).`);
+        for (const orderId of result.order) {
+          if (!(orderId in combinedMap)) combinedOrder.push(orderId);
+          combinedMap[orderId] = result.map[orderId];
+        }
+        Object.assign(combinedMapByName, result.mapByName);
+      }
+
+      if (!okCount) {
+        if (info) info.textContent = `Không tải được link nào.\n${errors.join('\n')}`;
+        log('All Sheet URLs failed to load.');
+        return false;
+      }
+
+      sheetMap = combinedMap;
+      sheetMapByName = combinedMapByName;
+      localStorage.setItem('at_sheet_urls', urlsText);
+
+      let msg = `Đã tải ${combinedOrder.length} đơn từ ${okCount}/${urls.length} link.`;
+      if (totalSkippedOld > 0) msg += ` (bỏ qua ${totalSkippedOld} đơn cũ hơn ${RECENT_DAYS_LIMIT} ngày)`;
+      if (totalSkippedNotTracking > 0)
+        msg += ` (bỏ qua ${totalSkippedNotTracking} dòng ghi chú không phải mã tracking, VD: "NGOÀI US", "Priority")`;
+      if (errors.length) msg += `\nLỗi:\n${errors.join('\n')}`;
+      if (info) info.textContent = msg;
+      log(
+        `Sheet URLs: loaded ${combinedOrder.length} order(s) from ${okCount}/${urls.length} link(s)`,
+        totalSkippedOld > 0 ? `(skipped ${totalSkippedOld} older than ${RECENT_DAYS_LIMIT}d)` : '',
+        totalSkippedNotTracking > 0 ? `(skipped ${totalSkippedNotTracking} non-tracking notes)` : ''
+      );
+      return true;
+    }
+
+    // --- giao dien (kieu Order Scraper) --------------------------------
+    function setStatus(text) {
+      if (statusEl) statusEl.textContent = text;
+    }
+
+    function setPauseButtonLabel() {
+      if (pauseBtnEl) pauseBtnEl.textContent = GM_getValue(PAUSE_KEY) ? '▶ Resume' : '⏸ Pause';
+    }
+
+    // Live line-count so it's obvious each pasted link actually landed on its
+    // own line (a paste that silently collapses everything onto one line
+    // would otherwise look identical to the eye) instead of needing to click
+    // a separate "load" button just to find out.
+    function updateSheetUrlCount() {
+      if (!sheetCountEl || !sheetUrlInput) return;
+      const lines = sheetUrlInput.value
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (!lines.length) {
+        sheetCountEl.textContent = '';
+        return;
+      }
+      const validCount = lines.filter((l) => extractSheetIdAndGid(l)).length;
+      let text = `${lines.length} dòng — ${validCount} link Sheet hợp lệ`;
+      if (validCount !== lines.length) text += `, ${lines.length - validCount} dòng không phải link Sheet`;
+      sheetCountEl.textContent = text;
+    }
+
+    function taoNut(nhan, mau) {
+      const btn = document.createElement('button');
+      btn.textContent = nhan;
+      btn.style.cssText = `
+        flex:1; padding:8px 4px; background:${mau}; color:#fff; border:none;
+        border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
+      `;
+      return btn;
+    }
+
+    // Tao khoi giao dien Auto Tracking de gan vao panel Order Scraper.
+    function buildSection() {
+      const khoi = document.createElement('div');
+      khoi.id = 'at-section';
+      khoi.style.cssText =
+        'display:flex; flex-direction:column; gap:8px; border-top:1px solid #E5E7EB; padding-top:10px; margin-top:2px;';
+
+      const tieuDe = document.createElement('div');
+      tieuDe.style.cssText = 'font-weight:bold; font-size:13px; color:#111;';
+      tieuDe.textContent = '🚚 Auto Tracking';
+      khoi.appendChild(tieuDe);
+
+      statusEl = document.createElement('div');
+      statusEl.id = 'at-status';
+      statusEl.style.cssText = 'color:#555; font-size:12px;';
+      statusEl.textContent = 'Idle';
+      khoi.appendChild(statusEl);
+
+      const hangNut = document.createElement('div');
+      hangNut.style.cssText = 'display:flex; gap:6px;';
+      const btnStart = taoNut('▶ Start', '#16a34a');
+      pauseBtnEl = taoNut('⏸ Pause', '#d97706');
+      const btnStop = taoNut('⏹ Stop', '#DC2626');
+      btnStart.id = 'at-start';
+      pauseBtnEl.id = 'at-pause';
+      btnStop.id = 'at-stop';
+      hangNut.appendChild(btnStart);
+      hangNut.appendChild(pauseBtnEl);
+      hangNut.appendChild(btnStop);
+      khoi.appendChild(hangNut);
+
+      const nhanLink = document.createElement('div');
+      nhanLink.style.cssText = 'color:#555; font-size:11px; line-height:1.4;';
+      nhanLink.textContent = 'Link Google Sheet (mỗi link 1 dòng, share "Anyone with the link" — Viewer)';
+      khoi.appendChild(nhanLink);
+
+      sheetUrlInput = document.createElement('textarea');
+      sheetUrlInput.id = 'at-sheet-url';
+      sheetUrlInput.placeholder = 'https://docs.google.com/spreadsheets/d/...\nhttps://docs.google.com/spreadsheets/d/...';
+      sheetUrlInput.style.cssText = 'width:100%; height:70px; box-sizing:border-box; font-size:12px; resize:vertical;';
+      sheetUrlInput.value = localStorage.getItem('at_sheet_urls') || localStorage.getItem('at_sheet_url') || '';
+      sheetUrlInput.addEventListener('input', updateSheetUrlCount);
+      khoi.appendChild(sheetUrlInput);
+
+      sheetCountEl = document.createElement('div');
+      sheetCountEl.id = 'at-sheet-url-count';
+      sheetCountEl.style.cssText = 'color:#555; font-size:11px;';
+      khoi.appendChild(sheetCountEl);
+
+      sheetInfoEl = document.createElement('div');
+      sheetInfoEl.id = 'at-sheet-info';
+      sheetInfoEl.style.cssText = 'color:#555; font:11px monospace; white-space:pre-wrap;';
+      khoi.appendChild(sheetInfoEl);
+
+      logBoxEl = document.createElement('div');
+      logBoxEl.id = 'at-log';
+      logBoxEl.style.cssText =
+        'max-height:150px; overflow-y:auto; background:#111827; border-radius:6px; padding:6px; font:11px/1.4 monospace; color:#9ca3af;';
+      khoi.appendChild(logBoxEl);
+
+      updateSheetUrlCount();
+      setPauseButtonLabel();
+
+      // Start: begins a brand-new run (fresh scan of the current order list) if
+      // idle, or resumes if currently paused. Always re-fetches the latest data
+      // from the Sheet link first (so tracking added since the last run is
+      // picked up automatically). Pause: temporarily halts the loop in place —
+      // same in-progress list, same position, nothing re-scanned. Stop: cancels
+      // the run entirely; the next Start rescans from the top.
+      btnStart.addEventListener('click', async () => {
+        if (GM_getValue(RUN_KEY)) {
+          if (GM_getValue(PAUSE_KEY)) {
+            GM_setValue(PAUSE_KEY, false);
+            setPauseButtonLabel();
+            log('Resumed by user.');
+          }
+          return;
+        }
+        const urlsText = sheetUrlInput ? sheetUrlInput.value : '';
+        if (!urlsText.trim()) {
+          log('Chưa có link Google Sheet — dán link vào ô rồi bấm Start lại.');
+          return;
+        }
+        if (!(await loadSheetsFromUrls(urlsText))) {
+          return;
+        }
+        runAll();
+      });
+      pauseBtnEl.addEventListener('click', () => {
+        if (!GM_getValue(RUN_KEY)) return; // nothing running to pause
+        const nowPaused = !GM_getValue(PAUSE_KEY);
+        GM_setValue(PAUSE_KEY, nowPaused);
+        setPauseButtonLabel();
+        log(nowPaused ? 'Paused by user.' : 'Resumed by user.');
+      });
+      btnStop.addEventListener('click', () => {
+        GM_setValue(RUN_KEY, false);
+        GM_setValue(PAUSE_KEY, false);
+        setPauseButtonLabel();
+        setStatus('Stopping...');
+
+        // Wipe the on-page log per earlier request (the Sheet link itself is
+        // kept, same as before, so Start doesn't need it re-entered).
+        if (logBoxEl) logBoxEl.innerHTML = '';
+      });
+
+      log('Etsy helper loaded. Dán link Google Sheet rồi bấm Start.');
+      return khoi;
+    }
+
+    return { buildSection };
+  })();
+
   function buildPanel() {
     const trangThai = docTrangThaiPanel();
 
@@ -1308,11 +2501,18 @@
       padding:8px 10px; cursor:grab; font-weight:bold; font-size:13px;
     `;
     thanhTieuDe.innerHTML = `
-      <span>📦 Order Scraper <small style="font-weight:normal; opacity:.8;">v${SCRIPT_VERSION}</small></span>
+      <span style="display:flex; align-items:center; gap:5px; min-width:0;">
+        <span style="white-space:nowrap;">📦 Order Scraper <small style="font-weight:normal; opacity:.8;">v${SCRIPT_VERSION}</small></span>
+        <button id="eos-btn-update" title="Mở link cài đặt để cập nhật lên bản mới nhất trên GitHub" style="
+          background:rgba(255,255,255,.25); border:none; color:#fff; white-space:nowrap;
+          padding:2px 6px; border-radius:6px; cursor:pointer;
+          font-weight:bold; line-height:1.3; font-size:10px;
+        ">⟳ Cập nhật</button>
+      </span>
       <button id="eos-btn-minimize" title="Thu nhỏ" style="
         background:rgba(255,255,255,.25); border:none; color:#fff;
         width:22px; height:22px; border-radius:6px; cursor:pointer;
-        font-weight:bold; line-height:1; font-size:14px;
+        font-weight:bold; line-height:1; font-size:14px; flex:none;
       ">–</button>
     `;
     khungMoRong.appendChild(thanhTieuDe);
@@ -1372,6 +2572,15 @@
     btnScanOnly.onclick = () => scanAndExport(false);
     vungNoiDung.appendChild(taoDongNutCoTheBatTat(btnScanOnly, ENABLE_SCAN_ONLY_KEY));
 
+    const btnSuaMauSac = document.createElement('button');
+    btnSuaMauSac.textContent = '🎨 Sửa quy đổi màu';
+    btnSuaMauSac.style.cssText = `
+      padding:8px 10px; background:#7C3AED; color:#fff; border:none;
+      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
+    `;
+    btnSuaMauSac.onclick = moModalSuaQuyDoiMau;
+    vungNoiDung.appendChild(btnSuaMauSac);
+
     idsTextarea = document.createElement('textarea');
     idsTextarea.placeholder = 'Mỗi mã đơn 1 dòng, ví dụ:\n4127701646\n4127701647';
     idsTextarea.style.cssText = 'width:100%; height:70px; box-sizing:border-box; font-size:12px; resize:vertical;';
@@ -1400,6 +2609,11 @@
     };
     vungNoiDung.appendChild(btnStop);
 
+    // ---- Auto Tracking (gop tu script "Etsy Auto Tracking"): chi hien o trang /your/orders/sold ----
+    if (/^\/your\/orders\/sold/.test(window.location.pathname)) {
+      vungNoiDung.appendChild(AutoTracking.buildSection());
+    }
+
     messageBox = document.createElement('div');
     messageBox.id = 'eos-message';
     messageBox.style.cssText = `
@@ -1407,6 +2621,10 @@
       border-radius:6px; line-height:1.4;
     `;
     vungNoiDung.appendChild(messageBox);
+
+    // Panel co the dai hon 70% chieu cao man hinh (them khoi Auto Tracking) -> cho cuon doc,
+    // dong thoi khong de cac muc ben trong (vd o nhap ma don) bi ep xep lai.
+    Array.from(vungNoiDung.children).forEach((c) => { c.style.flexShrink = '0'; });
 
     khungMoRong.appendChild(vungNoiDung);
     khung.appendChild(khungMoRong);
@@ -1447,6 +2665,16 @@
     document.getElementById('eos-btn-minimize').onclick = (e) => {
       e.stopPropagation();
       hienThiThuNho();
+    };
+
+    // Bam "Cap nhat": mo link cai dat ban moi nhat (Violentmonkey tu bat hop thoai cap nhat).
+    // Chan mousedown de bam nut khong bi tinh la bat dau keo panel.
+    const nutCapNhat = document.getElementById('eos-btn-update');
+    nutCapNhat.addEventListener('mousedown', (e) => e.stopPropagation());
+    nutCapNhat.onclick = (e) => {
+      e.stopPropagation();
+      window.open(UPDATE_URL, '_blank', 'noopener');
+      hienThongBao('🔄 Đã mở trang cập nhật — bấm "Cài đặt/Xác nhận" trong hộp thoại Violentmonkey, rồi tải lại trang (F5).', '#2563EB');
     };
 
     updatePanelCount();
