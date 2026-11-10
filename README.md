@@ -2119,6 +2119,24 @@ Xử lý theo 2 mức, tuỳ mức độ "mất thông tin" của việc chuyể
 - Chữ Hán/Nhật Kanji không có bảng chuyển đổi riêng (không khả thi khi không dùng thư viện lớn)
   nên được **giữ nguyên** nhưng vẫn nằm trong danh sách cần kiểm tra lại.
 
+## Auto Tracking: không chạy trùng khi bấm Start nhiều lần, Stop dừng ngay
+
+Phát hiện từ video lỗi: log hiện **"Fetching Sheet" 2 lần** và **"Stopped by user" / "All done" 2 lần**
+— tức đã có **2 vòng chạy song song** trên cùng các đơn. Nguyên nhân: cờ "đang chạy" chỉ bật khi
+`runAll()` bắt đầu, tức **sau khi tải xong Sheet (mất vài giây)**; bấm Start thêm lần nữa trong lúc
+đó vẫn lọt qua kiểm tra → tải Sheet nhiều lần và chạy nhiều vòng cùng lúc. Hai vòng cùng bấm menu
+"Update progress" của 1 đơn sẽ đóng/mở chồng nhau nên dropdown không mở → đứng yên chờ hết 8 giây.
+
+Đã sửa:
+
+- Bấm Start lúc đang tải Sheet chỉ báo "Đang tải Sheet để bắt đầu..." và bỏ qua; `runAll()` cũng
+  từ chối chạy khi đã có 1 vòng đang chạy.
+- **Stop dừng ngay** (vài trăm ms), không còn phải đợi hết 8 giây của bước đang chờ, và không còn ghi
+  `ERROR` giả khi chỉ bấm Stop.
+
+Nếu đơn vẫn đứng yên sau dòng `found ...`, log sẽ báo rõ `ERROR processing row: Timeout waiting for:
+dropdown open for order ...` — gửi dòng đó để xác định tiếp.
+
 ## Cột Personalization lấy mọi tuỳ chọn cá nhân hoá, không chỉ nhãn "Personalization"
 
 Mỗi listing tự đặt tên cho ô tuỳ chọn của khách (vd `Personalization`, `Outline Section`,
