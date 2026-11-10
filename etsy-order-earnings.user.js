@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.1
+// @version      3.5
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -52,7 +52,7 @@
   // hoa/thuong, khoang trang du khi so khop). Them 1 gia tri vao mang tuong ung la du, khong
   // can sua ham resolveColorForGarment ben duoi. Neu Etsy hien ten mau KHAC voi ten chinh
   // thuc trong bang mau (vd "Dark Heather" thay vi "Dark Grey Heather"), sua trong bang
-  // DEFAULT_BI_DANH ben duoi (hoac tren panel "🎨 Sua quy doi mau" - xem giai thich duoi day).
+  // BI_DANH_MAU ben duoi.
   const BANG_MAU_COMFORT_ADULT = [
     'White', 'Ivory', 'Banana', 'Butter', 'Mustard', 'Grey', 'Granite', 'Pepper', 'Orange',
     'Yam', 'Bay', 'Moss', 'Light Green', 'Island Reef', 'Khaki', 'Chambray', 'Espresso',
@@ -97,12 +97,11 @@
   // value la ten CHINH THUC dung trong bang mau tuong ung ben tren - dien ra se dung ten CHINH
   // THUC (value), khong dung nguyen van manh doc duoc tren Etsy (key).
   //
-  // BANG NAY LA "NGUON CHINH THUC" DUNG CHUNG CHO MOI SHOP: khi can sua quy doi mau cho TAT CA
-  // cac shop, sua bang nay roi TANG BI_DANH_VERSION (va @version) - moi shop bam "Cap nhat" se
-  // tu bo ban sua rieng cu va dung dung bang moi nay (xem docBiDanhDaLuu).
-  // Nguoi dung van co the tu sua rieng tung shop o panel (nut "🎨 Sua quy doi mau"), nhung ban sua
-  // rieng do se bi THAY bang bang nay moi khi BI_DANH_VERSION doi.
-  const DEFAULT_BI_DANH = {
+  // BANG QUY DOI MAU: nguon DUY NHAT, dung chung cho moi shop. Can doi quy doi cho tat ca shop thi
+  // sua truc tiep o day, tang @version roi bam "Cap nhat" tren tung shop (khong con sua tren panel).
+  // Key la ten (hoac to hop "A/B") XUAT HIEN TREN ETSY, khong phan biet hoa/thuong; value la ten
+  // CHINH THUC se dien ra.
+  const BI_DANH_MAU = {
     comfort_adult: { 'orange': 'Burnt Orange', 'yam/orange': 'Yam' },
     comfort_youth: {},
     bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue' },
@@ -117,71 +116,26 @@
     },
     sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' }
   };
-
-
-  // TANG so nay moi khi sua DEFAULT_BI_DANH. Ban da luu tren trinh duyet co so khac (hoac chua
-  // co so - ban cu truoc khi co co che nay) se bi bo va thay bang DEFAULT_BI_DANH hien tai.
-  const BI_DANH_VERSION = 1;
-
-  // Ten hien thi cho tung loai ao tren panel (dung khi dung nut "🎨 Sua quy doi mau").
-  const TEN_HIEN_THI_LOAI_AO = {
-    comfort_adult: 'Comfort Colors Adult',
-    comfort_youth: 'Comfort Colors Youth',
-    bella_adult: 'Bella Canvas Adult',
-    bella_youth: 'Bella Canvas Youth',
-    toddler: 'Toddler',
-    sweatshirt_hoodie: 'Sweatshirt / Hoodie'
-  };
-
-  const COLOR_ALIAS_STORAGE_KEY = 'etsy_scraper_color_aliases_v1';
-
-  // Doc bang bi danh dang luu (GM_setValue) - neu chua co (lan dau chay) hoac loi thi dung
-  // DEFAULT_BI_DANH lam gia tri khoi tao. Day la bien MUTABLE, duoc cap nhat truc tiep moi khi
-  // nguoi dung bam Luu trong panel "🎨 Sua quy doi mau" (khong can tai lai trang de ap dung).
-  // Co bao "bang cua shop nay vua bi thay bang ban moi" - de hien thong bao 1 lan khi panel mo.
-  let biDanhVuaDuocCapNhat = false;
-
-  function docBiDanhDaLuu() {
-    const macDinh = () => JSON.parse(JSON.stringify(DEFAULT_BI_DANH));
-    try {
-      const raw = GM_getValue(COLOR_ALIAS_STORAGE_KEY, null);
-      if (!raw) return macDinh();
-      const parsed = JSON.parse(raw);
-      // Dinh dang luu: { ver, data }. Ban cu (truoc khi co co che phien ban) la object tran khong
-      // co "ver" -> coi nhu khac phien ban. Khac BI_DANH_VERSION => bo ban cu, dung bang moi.
-      if (!parsed || parsed.ver !== BI_DANH_VERSION || typeof parsed.data !== 'object' || !parsed.data) {
-        biDanhVuaDuocCapNhat = true;
-        return macDinh();
-      }
-      // Dam bao du 6 loai ao (phong khi them loai ao moi sau nay).
-      return Object.assign(macDinh(), parsed.data);
-    } catch (e) {
-      return macDinh();
-    }
-  }
-
-  let biDanhHienTai = docBiDanhDaLuu();
-
   // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
   // "Bella-Youth Tee", "Toddler Tee", "Sweatshirt-Adult", "Hoodie-Adult"...) de chon dung
   // bang mau + bang bi danh tuong ung. Tra ve null neu khong nhan ra loai ao nao ben duoi.
   function xacDinhBangMauTheoAo(title) {
     const t = (title || '').toLowerCase();
-    if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: biDanhHienTai.toddler };
+    if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: BI_DANH_MAU.toddler };
     if (t.includes('sweatshirt') || t.includes('hoodie')) {
-      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: biDanhHienTai.sweatshirt_hoodie };
+      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU.sweatshirt_hoodie };
     }
     if (t.includes('comfort') && t.includes('youth')) {
-      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: biDanhHienTai.comfort_youth };
+      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU.comfort_youth };
     }
     if (t.includes('comfort') && t.includes('adult')) {
-      return { mau: BANG_MAU_COMFORT_ADULT, biDanh: biDanhHienTai.comfort_adult };
+      return { mau: BANG_MAU_COMFORT_ADULT, biDanh: BI_DANH_MAU.comfort_adult };
     }
     if (t.includes('bella') && t.includes('youth')) {
-      return { mau: BANG_MAU_BELLA_YOUTH, biDanh: biDanhHienTai.bella_youth };
+      return { mau: BANG_MAU_BELLA_YOUTH, biDanh: BI_DANH_MAU.bella_youth };
     }
     if (t.includes('bella') && t.includes('adult')) {
-      return { mau: BANG_MAU_BELLA_ADULT, biDanh: biDanhHienTai.bella_adult };
+      return { mau: BANG_MAU_BELLA_ADULT, biDanh: BI_DANH_MAU.bella_adult };
     }
     return null;
   }
@@ -255,13 +209,12 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.1';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.4';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
   const UPDATE_URL = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js';
 
-  const STORAGE_KEY = 'etsy_scraped_orders_v1';
   // Luu vi tri + trang thai thu nho/mo rong cua panel
   const PANEL_STATE_KEY = 'etsy_scraper_panel_state_v1';
   // Trang thai Bat/Tat rieng cho tung nut Quet don (moi trinh duyet/profile = 1 account rieng),
@@ -295,18 +248,6 @@
   const WAIT_TIMEOUT = 15000; // 15s cho moi buoc
 
   // ====== TIEN ICH CHUNG ======
-  function getStoredData() {
-    try {
-      return JSON.parse(GM_getValue(STORAGE_KEY, '[]'));
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function saveData(data) {
-    GM_setValue(STORAGE_KEY, JSON.stringify(data));
-  }
-
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -616,6 +557,34 @@
     return getLabelValues(container, 'Size');
   }
 
+  // Cac nhan CO DINH cua 1 san pham (da duoc doc rieng vao cot Quantity/size/color). Moi dong
+  // "nhan + gia tri" KHAC cua san pham (vd "Personalization", "Outline Section", "Primary
+  // Color"... - ten do tung listing tu dat) deu la tuy chon ca nhan hoa cua khach.
+  const NHAN_SAN_PHAM_CO_DINH = new Set(['quantity', 'style & size', 'size', 'color']);
+
+  // Lay GIA TRI cua moi dong tuy chon ca nhan hoa trong 1 khoi san pham, bat ke ten nhan la gi.
+  // Truoc day chi doc dung nhan "Personalization" nen cac don dung ten khac (vd "Outline Section:
+  // Minnie (with bow)") bi bo trong cot Personalization.
+  function getPersonalizationValues(flagEl) {
+    const out = [];
+    flagEl.querySelectorAll('span.strong').forEach((strong) => {
+      const cha = strong.parentElement;
+      if (!cha) return;
+      const nhanEl = Array.from(cha.children).find(
+        (el) => el !== strong && el.tagName === 'SPAN' && !el.classList.contains('strong')
+      );
+      const nhan = nhanEl ? nhanEl.textContent.trim() : '';
+      if (!nhan || NHAN_SAN_PHAM_CO_DINH.has(nhan.toLowerCase())) return;
+      const giaTri = strong.textContent.trim();
+      if (giaTri) out.push(giaTri);
+    });
+    // Du phong: cach cu doc dung nhan "Personalization" (phong khi DOM nhan/gia tri long khac).
+    getLabelValues(flagEl, 'Personalization').forEach((v) => {
+      if (!out.includes(v)) out.push(v);
+    });
+    return out;
+  }
+
   // Ghep 1 chuoi "Style & Size" thanh { title, size }, vd "Comfort-Adult Tee L" -> title "Comfort-Adult Tee", size "L"
   function splitStyleSize(styleSize) {
     const parts = (styleSize || '').trim().split(/\s+/).filter(Boolean);
@@ -657,7 +626,8 @@
         const styleSize = getStyleSizeValues(flagEl)[0] || '';
         const { title, size } = splitStyleSize(styleSize);
         const color = resolveColorForGarment(getLabelValues(flagEl, 'Color')[0] || '', title);
-        const personalization = getLabelValues(flagEl, 'Personalization')[0] || '';
+        // Nhieu tuy chon ca nhan hoa trong cung 1 san pham thi noi bang " | ".
+        const personalization = getPersonalizationValues(flagEl).join(' | ');
         // Personalization xuat ra cot rieng ("Personalization"), khong ghep vao title.
 
         return {
@@ -1224,10 +1194,8 @@
       return;
     }
 
-    const originalText = btnScanEarnings.textContent;
     setRunningState(true);
-    if (withEarnings) btnScanEarnings.textContent = '⏳ Đang xử lý...';
-    else btnScanOnly.textContent = '⏳ Đang xử lý...';
+    datNutDangChay(withEarnings ? btnScanEarnings : btnScanOnly, true);
 
     try {
       let stopped = false;
@@ -1236,9 +1204,6 @@
       }
 
       // Xoa du lieu cu, chi giu lai du lieu vua quet duoc
-      saveData(newRows);
-      updatePanelCount();
-
       exportToExcelFile(newRows);
 
       // Neu co truong dia chi bi chuyen tu chu khong phai Latin sang Latin (Nga, Hy Lap,
@@ -1262,8 +1227,8 @@
       console.error('[Etsy Scraper] Lỗi trong quá trình quét:', err);
       hienThongBao('❌ Lỗi: ' + err.message, '#DC2626');
     } finally {
-      btnScanEarnings.textContent = originalText;
-      btnScanOnly.textContent = '📦 Quét đơn & tải Excel';
+      datNutDangChay(btnScanEarnings, false);
+      datNutDangChay(btnScanOnly, false);
       setRunningState(false);
     }
   }
@@ -1285,7 +1250,7 @@
     }
 
     setRunningState(true);
-    btnEarningsOnly.textContent = '⏳ Đang xử lý...';
+    datNutDangChay(btnEarningsOnly, true);
 
     const results = [];
     // Neu danh sach nhap tay co ma don TRUNG NHAU, chi lay Earnings cho LAN XUAT HIEN DAU
@@ -1343,13 +1308,12 @@
       console.error('[Etsy Scraper] Lỗi khi lấy Earnings theo danh sách mã đơn:', err);
       hienThongBao('❌ Lỗi: ' + err.message, '#DC2626');
     } finally {
-      btnEarningsOnly.textContent = '💰 Lấy Earnings theo mã đơn & tải Excel';
+      datNutDangChay(btnEarningsOnly, false);
       setRunningState(false);
     }
   }
 
   // ====== GIAO DIEN NOI (FLOATING PANEL): KEO THA + THU NHO/MO RONG ======
-  let countLabel;
   let messageBox;
   let btnScanEarnings;
   let btnScanOnly;
@@ -1377,14 +1341,9 @@
       btnStop.style.display = isRunning ? 'block' : 'none';
       btnStop.disabled = false;
       btnStop.textContent = '⏹ Dừng';
+      datNutDangChay(btnStop, false);
     }
     cancelRequested = false;
-  }
-
-  function updatePanelCount() {
-    if (countLabel) {
-      countLabel.textContent = `Đã lưu: ${getStoredData().length} dòng`;
-    }
   }
 
   // Hien thong bao ngay ben duoi panel, thay cho alert() phai bam OK.
@@ -1397,115 +1356,6 @@
     messageBox._timer = setTimeout(() => {
       messageBox.style.display = 'none';
     }, 5000);
-  }
-
-  // ====== GIAO DIEN SUA QUY DOI MAU (BI_DANH) NGAY TREN PANEL ======
-
-  // Doi 1 bang bi danh {key: value} thanh van ban nhieu dong "key=value" de hien trong textarea.
-  function bienDoiBiDanhThanhVanBan(obj) {
-    return Object.keys(obj || {}).map((k) => `${k}=${obj[k]}`).join('\n');
-  }
-
-  // Nguoc lai: doi van ban nhieu dong "Ten Etsy=Ten chinh thuc" thanh bang bi danh {key: value}.
-  // Bo qua dong trong/khong co dau "=". Key duoc chuan hoa ve chu thuong (khong phan biet
-  // hoa/thuong khi so khop, giong logic resolveColorForGarment).
-  function bienDoiVanBanThanhBiDanh(text) {
-    const out = {};
-    (text || '').split('\n').forEach((dong) => {
-      const idx = dong.indexOf('=');
-      if (idx === -1) return;
-      const key = dong.slice(0, idx).trim().toLowerCase();
-      const value = dong.slice(idx + 1).trim();
-      if (key && value) out[key] = value;
-    });
-    return out;
-  }
-
-  // Mo 1 hop thoai (overlay) cho phep xem/sua truc tiep bang bi danh mau cho ca 6 loai ao,
-  // khong can sua code. Luu qua GM_setValue (COLOR_ALIAS_STORAGE_KEY) va cap nhat ngay bien
-  // biDanhHienTai de ap dung tu lan quet tiep theo, khong can tai lai trang.
-  function moModalSuaQuyDoiMau() {
-    const overlay = document.createElement('div');
-    overlay.id = 'eos-color-alias-overlay';
-    overlay.style.cssText = `
-      position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1000000;
-      display:flex; align-items:center; justify-content:center; padding:20px;
-      font-family:sans-serif;
-    `;
-
-    const hop = document.createElement('div');
-    hop.style.cssText = `
-      background:#fff; border-radius:10px; width:100%; max-width:480px; max-height:85vh;
-      overflow-y:auto; padding:16px;
-    `;
-
-    const tieuDe = document.createElement('div');
-    tieuDe.innerHTML = `
-      <div style="font-weight:bold; font-size:15px; margin-bottom:4px;">🎨 Sửa quy đổi màu theo loại áo</div>
-      <div style="font-size:11px; color:#6b7280; margin-bottom:10px;">
-        Mỗi dòng 1 quy đổi, dạng <code>Tên Etsy=Tên chính thức</code>. Ví dụ:
-        <code>Dark Heather=Dark Grey Heather</code>. Dòng trống hoặc không có dấu "=" sẽ bị bỏ qua.
-      </div>
-      <div style="font-size:11px; color:#b45309; margin-bottom:10px;">
-        ⚠️ Chỉnh sửa ở đây chỉ áp dụng cho shop/trình duyệt này và sẽ bị thay bằng bảng chuẩn mỗi khi
-        script cập nhật sang bảng quy đổi màu mới (bảng chuẩn hiện tại: bản ${BI_DANH_VERSION}).
-      </div>
-    `;
-    hop.appendChild(tieuDe);
-
-    const cacTextarea = {};
-    Object.keys(TEN_HIEN_THI_LOAI_AO).forEach((key) => {
-      const nhan = document.createElement('div');
-      nhan.textContent = TEN_HIEN_THI_LOAI_AO[key];
-      nhan.style.cssText = 'font-weight:bold; font-size:12px; margin:10px 0 4px;';
-      hop.appendChild(nhan);
-
-      const ta = document.createElement('textarea');
-      ta.value = bienDoiBiDanhThanhVanBan(biDanhHienTai[key]);
-      ta.style.cssText = 'width:100%; height:56px; box-sizing:border-box; font-size:12px; resize:vertical;';
-      hop.appendChild(ta);
-      cacTextarea[key] = ta;
-    });
-
-    const dongNut = document.createElement('div');
-    dongNut.style.cssText = 'display:flex; gap:8px; margin-top:14px;';
-
-    const btnXoaHet = document.createElement('button');
-    btnXoaHet.textContent = '🗑️ Xoá hết';
-    btnXoaHet.title = 'Xoá trắng tất cả các ô bên trên, chưa lưu ngay - vẫn phải bấm Lưu';
-    btnXoaHet.style.cssText = 'flex:1; padding:8px 10px; background:#6b7280; color:#fff; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
-    btnXoaHet.onclick = () => {
-      Object.keys(cacTextarea).forEach((key) => {
-        cacTextarea[key].value = '';
-      });
-    };
-
-    const btnLuu = document.createElement('button');
-    btnLuu.textContent = '💾 Lưu';
-    btnLuu.style.cssText = 'flex:1; padding:8px 10px; background:#1a7f37; color:#fff; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
-    btnLuu.onclick = () => {
-      const moi = {};
-      Object.keys(cacTextarea).forEach((key) => {
-        moi[key] = bienDoiVanBanThanhBiDanh(cacTextarea[key].value);
-      });
-      biDanhHienTai = moi;
-      GM_setValue(COLOR_ALIAS_STORAGE_KEY, JSON.stringify({ ver: BI_DANH_VERSION, data: moi }));
-      // KHONG dong cua so sau khi luu - de nguoi dung tiep tuc sua/kiem tra ngay trong hop thoai.
-      hienThongBao('✅ Đã lưu quy đổi màu.', '#16A34A');
-    };
-
-    const btnDong = document.createElement('button');
-    btnDong.textContent = 'Đóng';
-    btnDong.style.cssText = 'flex:1; padding:8px 10px; background:#e5e7eb; color:#111827; border:none; border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;';
-    btnDong.onclick = () => document.body.removeChild(overlay);
-
-    dongNut.appendChild(btnXoaHet);
-    dongNut.appendChild(btnLuu);
-    dongNut.appendChild(btnDong);
-    hop.appendChild(dongNut);
-
-    overlay.appendChild(hop);
-    document.body.appendChild(overlay);
   }
 
   function docTrangThaiPanel() {
@@ -1579,11 +1429,26 @@
   const AutoTracking = (function () {
     // Tham chieu toi cac phan tu giao dien (gan trong buildSection)
     let logBoxEl = null;
-    let statusEl = null;
+    let startBtnEl = null;
     let pauseBtnEl = null;
     let sheetInfoEl = null;
     let sheetCountEl = null;
     let sheetUrlInput = null;
+    let canhBaoScriptCuEl = null;
+
+    // Script cu "Etsy Auto Tracking (from Google Sheet)" (v4.8, da gop vao Order Scraper tu
+    // v3.0 nhung van con trong Violentmonkey neu chua xoa) tao panel #at-panel va lay nut bang
+    // document.getElementById('at-...'). Neu chay song song, 2 vong cung dien tracking vao cung
+    // don, tranh nhau mo/dong modal "Complete order" -> khong dien duoc / modal tat ngay.
+    function coScriptTrackingCuDangChay() {
+      return !!document.getElementById('at-panel');
+    }
+
+    function kiemTraScriptCu() {
+      const coCu = coScriptTrackingCuDangChay();
+      if (canhBaoScriptCuEl) canhBaoScriptCuEl.style.display = coCu ? 'block' : 'none';
+      return coCu;
+    }
 
     // Manual overrides if the automatic substring match picks the wrong
     // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -1600,6 +1465,9 @@
     function normalizeName(s) {
       return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
     }
+
+    const RUN_KEY = 'AT_RUNNING';
+    const PAUSE_KEY = 'AT_PAUSED';
 
     // Short log lines shown inside the on-page panel (kept separate from the
     // full console log, which stays verbose for debugging).
@@ -1618,6 +1486,20 @@
       box.scrollTop = box.scrollHeight;
     }
 
+    // Dich cac loi thuong gap sang tieng Viet ngan gon (console van giu thong bao goc).
+    function dichLoi(m) {
+      m = String(m || '');
+      if (/^Timeout waiting for/i.test(m)) return 'quá thời gian chờ (' + m.replace(/^Timeout waiting for:\s*/i, '') + ')';
+      if (/carrier select not found/i.test(m)) return 'không thấy ô chọn DVVC';
+      if (/No "Other" option/i.test(m)) return 'DVVC không có mục Other';
+      if (/submit button not found/i.test(m)) return 'không thấy nút gửi';
+      if (/^HTTP 4(01|03)/.test(m)) return 'Sheet chưa chia sẻ công khai (' + m + ')';
+      if (/^HTTP 404/.test(m)) return 'không tìm thấy Sheet (404)';
+      if (/network error/i.test(m)) return 'lỗi mạng';
+      if (/^timeout$/i.test(m)) return 'hết thời gian tải';
+      return m;
+    }
+
     function log(...a) {
       console.log('%c[AutoTrack]', 'color:#0ea5e9;font-weight:bold', ...a);
       let text = a.map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ');
@@ -1626,9 +1508,15 @@
       uiLog(text);
     }
 
+    // Bam Stop phai dung NGAY, khong doi het thoi gian cho (toi 8s/buoc) cua buoc dang ket:
+    // moi vong cho kiem tra co RUN_KEY (xem bamStopGiuaChung) va nem loi dac biet de thoat.
+    const STOP_MSG = 'Stopped by user';
+    const laLoiDung = (e) => !!e && e.message === STOP_MSG;
+
     async function waitFor(fn, { timeout = 10000, interval = 200, desc = '' } = {}) {
       const start = Date.now();
       while (Date.now() - start < timeout) {
+        if (!GM_getValue(RUN_KEY)) throw new Error(STOP_MSG);
         const v = await fn();
         if (v) return v;
         await sleep(interval);
@@ -1642,8 +1530,6 @@
       desc.set.call(el, value);
     }
 
-    const RUN_KEY = 'AT_RUNNING';
-    const PAUSE_KEY = 'AT_PAUSED';
 
     function getOrderIds() {
       return Array.from(document.querySelectorAll('a[href*="order_id="]'))
@@ -1816,7 +1702,7 @@
       const matched = matchCarrierOption(select, carrierRaw);
 
       if (matched) {
-        log(`  carrier "${carrierRaw}" -> "${matched.textContent.trim()}"`);
+        log(`  DVVC: ${matched.textContent.trim()}`);
         setNativeValue(select, matched.value);
         select.dispatchEvent(new Event('change', { bubbles: true }));
         // Let Etsy's own React tree finish re-rendering around the select
@@ -1827,7 +1713,7 @@
           (o) => o.textContent.trim().toLowerCase() === 'other'
         );
         if (!other) throw new Error('No "Other" option found in carrier select');
-        log(`  carrier "${carrierRaw}" -> Other (custom text)`);
+        log(`  DVVC: Other (${carrierRaw})`);
         setNativeValue(select, other.value);
         select.dispatchEvent(new Event('change', { bubbles: true }));
         // Selecting "Other" makes the custom carrier-name field appear/enable;
@@ -2124,79 +2010,99 @@
       }
       const customerName = getOrderCustomerName(row);
 
-      log('Checking order', orderId, customerName ? `(name: "${customerName}")` : '(no name found)', '...');
+      log(`Đơn ${orderId}${customerName ? ' (' + customerName + ')' : ''}...`);
 
       const result = lookupTracking(orderId, customerName);
 
       if (!result.found) {
-        log('  not found in Sheet -> skipped (no modal opened)');
+        log('  Không có trong Sheet → bỏ qua.');
         return false;
       }
-      log(result.byName ? '  found (by customer name):' : '  found:', result.tracking, '/', result.carrier);
+      log(`  Thấy${result.byName ? ' (theo tên)' : ''}: ${result.tracking} / ${result.carrier || '?'}`);
 
       if (!result.carrier) {
-        log('  ERROR: có tracking nhưng thiếu DVVC (carrier) trong Sheet -> skipped (no modal opened)');
+        log('  Thiếu DVVC trong Sheet → bỏ qua.');
         return false;
       }
 
       const opened = await openCompleteOrderModal(row, orderId);
       if (!opened) {
-        log('  no "Complete order" action available on this row -> skipped');
+        log('  Đơn không có nút Complete order → bỏ qua.');
         return false;
       }
 
       try {
         await fillAndSubmit(orderId, result.tracking, result.carrier);
-        log('  done:', result.tracking, '/', result.carrier);
+        log('  ✓ Đã điền xong.');
       } catch (e) {
-        log('  ERROR filling modal:', e.message);
+        if (!laLoiDung(e)) log('  ✗ Lỗi khi điền: ' + dichLoi(e.message));
         closeModalIfOpen(orderId);
       }
       return true;
     }
 
+    // Co "dang co 1 vong runAll chay" - chan viec 2 vong chay SONG SONG tren cung cac don
+    // (2 vong cung bam menu "Update progress" cua 1 don -> bam dong/mo chong nhau -> ket).
+    let vongDangChay = false;
+    let dangKhoiDong = false; // dang tai Sheet sau khi bam Start, chua vao runAll
+
     async function runAll() {
+      if (vongDangChay) {
+        log('Đang chạy rồi, bỏ qua lần bấm trùng.');
+        return;
+      }
+      vongDangChay = true;
+      try {
+        await runAllImpl();
+      } finally {
+        vongDangChay = false;
+      }
+    }
+
+    async function runAllImpl() {
       GM_setValue(RUN_KEY, true);
       GM_setValue(PAUSE_KEY, false);
-      setStatus('Running...');
+      capNhatTrangThaiNut();
 
       if (!sheetMap) {
-        log('Chưa có dữ liệu Sheet — dán link Google Sheet rồi bấm Start.');
+        log('Chưa có dữ liệu Sheet — dán link rồi bấm Bắt đầu.');
       }
 
       // Always driven by the Etsy page: scan every order currently shown on
       // this page first, then check each one against the loaded Sheet data.
       const orderIds = getOrderIds();
-      log(`Found ${orderIds.length} order(s) on this page.`);
+      log(`Trang này có ${orderIds.length} đơn.`);
 
       for (const orderId of orderIds) {
         if (!GM_getValue(RUN_KEY)) {
-          log('Stopped by user.');
+          log('Đã dừng.');
           break;
         }
 
         // Pause: block right here (loop position/order id list is kept,
         // nothing is re-scanned) until Resume is clicked or Stop cancels the run.
         while (GM_getValue(PAUSE_KEY)) {
-          setStatus('Paused');
+          capNhatTrangThaiNut();
           await sleep(300);
           if (!GM_getValue(RUN_KEY)) break;
         }
         if (!GM_getValue(RUN_KEY)) {
-          log('Stopped by user.');
+          log('Đã dừng.');
           break;
         }
-        setStatus('Running...');
+        capNhatTrangThaiNut();
 
         let attempted = false;
         try {
           attempted = await processOrder(orderId);
         } catch (e) {
-          log('ERROR processing row:', e.message);
+          // Bam Stop giua chung khong phai la loi - chi can don dep roi vong lap tu thoat.
+          if (!laLoiDung(e)) log('Lỗi khi xử lý đơn:', e.message);
           // Best-effort cleanup: close any dropdown/modal left open by the
           // failed step so it doesn't block clicks on the next order.
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-          attempted = true;
+          // Chi bam Stop thi khong can nghi 2s cho trang on dinh - thoat vong lap ngay.
+          attempted = !laLoiDung(e);
         }
         // Only pay the full "let the page settle" pause after a real
         // open-modal/fill/submit attempt; a quick non-match skip doesn't need it.
@@ -2205,9 +2111,8 @@
 
       GM_setValue(RUN_KEY, false);
       GM_setValue(PAUSE_KEY, false);
-      setStatus('Idle');
-      setPauseButtonLabel();
-      log('All done.');
+      capNhatTrangThaiNut();
+      log('Xong hết.');
     }
 
     // Fetches + parses a single sheet URL. Returns { ok:true, ...parseSheetCsv
@@ -2282,17 +2187,17 @@
       let totalSkippedNotTracking = 0;
 
       for (const url of urls) {
-        log('Fetching Sheet:', url);
+        log('Đang tải Sheet...');
         const result = await fetchOneSheet(url);
         if (!result.ok) {
-          log('  failed:', result.error);
+          log('  ✗ Tải lỗi: ' + dichLoi(result.error));
           errors.push(`${url}\n  -> ${result.error}`);
           continue;
         }
         okCount++;
         totalSkippedOld += result.skippedOld || 0;
         totalSkippedNotTracking += result.skippedNotTracking || 0;
-        log(`  loaded ${result.count} order(s).`);
+        log(`  Đã tải ${result.count} đơn.`);
         for (const orderId of result.order) {
           if (!(orderId in combinedMap)) combinedOrder.push(orderId);
           combinedMap[orderId] = result.map[orderId];
@@ -2302,7 +2207,7 @@
 
       if (!okCount) {
         if (info) info.textContent = `Không tải được link nào.\n${errors.join('\n')}`;
-        log('All Sheet URLs failed to load.');
+        log('Không tải được Sheet nào.');
         return false;
       }
 
@@ -2316,21 +2221,23 @@
         msg += ` (bỏ qua ${totalSkippedNotTracking} dòng ghi chú không phải mã tracking, VD: "NGOÀI US", "Priority")`;
       if (errors.length) msg += `\nLỗi:\n${errors.join('\n')}`;
       if (info) info.textContent = msg;
-      log(
-        `Sheet URLs: loaded ${combinedOrder.length} order(s) from ${okCount}/${urls.length} link(s)`,
-        totalSkippedOld > 0 ? `(skipped ${totalSkippedOld} older than ${RECENT_DAYS_LIMIT}d)` : '',
-        totalSkippedNotTracking > 0 ? `(skipped ${totalSkippedNotTracking} non-tracking notes)` : ''
-      );
+      log(`Tổng ${combinedOrder.length} đơn từ ${okCount}/${urls.length} link.`);
       return true;
     }
 
     // --- giao dien (kieu Order Scraper) --------------------------------
-    function setStatus(text) {
-      if (statusEl) statusEl.textContent = text;
+    // Khong con dong chu "Idle/Running": nut nao dang hoat dong thi nhay sang (eos-busy).
+    // Start sang khi dang chay (hoac dang tai Sheet), Tam dung sang khi dang tam dung.
+    function capNhatTrangThaiNut() {
+      const chay = !!GM_getValue(RUN_KEY);
+      const tamDung = chay && !!GM_getValue(PAUSE_KEY);
+      datNutDangChay(startBtnEl, (chay && !tamDung) || dangKhoiDong);
+      datNutDangChay(pauseBtnEl, tamDung);
+      if (pauseBtnEl) pauseBtnEl.textContent = tamDung ? '▶ Tiếp tục' : '⏸ Tạm dừng';
     }
 
     function setPauseButtonLabel() {
-      if (pauseBtnEl) pauseBtnEl.textContent = GM_getValue(PAUSE_KEY) ? '▶ Resume' : '⏸ Pause';
+      capNhatTrangThaiNut();
     }
 
     // Live line-count so it's obvious each pasted link actually landed on its
@@ -2356,71 +2263,74 @@
     function taoNut(nhan, mau) {
       const btn = document.createElement('button');
       btn.textContent = nhan;
-      btn.style.cssText = `
-        flex:1; padding:8px 4px; background:${mau}; color:#fff; border:none;
-        border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
-      `;
+      btn.className = 'eos-btn';
+      btn.style.cssText = `flex:1; min-width:0; padding:7px 2px; background:${mau};`;
       return btn;
     }
 
     // Tao khoi giao dien Auto Tracking de gan vao panel Order Scraper.
     function buildSection() {
       const khoi = document.createElement('div');
-      khoi.id = 'at-section';
+      khoi.id = 'eos-at-section';
+      canhBaoScriptCuEl = document.createElement('div');
+      canhBaoScriptCuEl.style.cssText =
+        'display:none; background:#FEF2F2; border:1px solid #DC2626; color:#991B1B; border-radius:6px; padding:5px 7px; font-size:11px; line-height:1.4; font-weight:600;';
+      canhBaoScriptCuEl.textContent =
+        '⚠️ Còn script cũ "Etsy Auto Tracking" — đã gộp vào đây nên 2 script sẽ tranh nhau điền. Xoá/tắt script cũ trong Violentmonkey rồi F5.';
+      khoi.appendChild(canhBaoScriptCuEl);
+      kiemTraScriptCu();
+      // Script cu co the nap SAU script nay nen kiem tra lai vai lan.
+      [1500, 4000, 8000].forEach((ms) => setTimeout(kiemTraScriptCu, ms));
       khoi.style.cssText =
-        'display:flex; flex-direction:column; gap:8px; border-top:1px solid #E5E7EB; padding-top:10px; margin-top:2px;';
+        'display:flex; flex-direction:column; gap:7px; border-top:1px solid #E5E7EB; padding-top:8px; margin-top:1px;';
 
       const tieuDe = document.createElement('div');
-      tieuDe.style.cssText = 'font-weight:bold; font-size:13px; color:#111;';
-      tieuDe.textContent = '🚚 Auto Tracking';
+      tieuDe.className = 'eos-title';
+      tieuDe.textContent = '🚚 Điền tracking từ Google Sheet';
       khoi.appendChild(tieuDe);
 
-      statusEl = document.createElement('div');
-      statusEl.id = 'at-status';
-      statusEl.style.cssText = 'color:#555; font-size:12px;';
-      statusEl.textContent = 'Idle';
-      khoi.appendChild(statusEl);
-
       const hangNut = document.createElement('div');
-      hangNut.style.cssText = 'display:flex; gap:6px;';
-      const btnStart = taoNut('▶ Start', '#16a34a');
-      pauseBtnEl = taoNut('⏸ Pause', '#d97706');
-      const btnStop = taoNut('⏹ Stop', '#DC2626');
-      btnStart.id = 'at-start';
-      pauseBtnEl.id = 'at-pause';
-      btnStop.id = 'at-stop';
+      hangNut.style.cssText = 'display:flex; gap:5px;';
+      const btnStart = taoNut('▶ Bắt đầu', '#1a7f37');
+      startBtnEl = btnStart;
+      pauseBtnEl = taoNut('⏸ Tạm dừng', '#D97706');
+      const btnStop = taoNut('⏹ Dừng', '#DC2626');
+      btnStart.id = 'eos-at-start';
+      pauseBtnEl.id = 'eos-at-pause';
+      btnStop.id = 'eos-at-stop';
       hangNut.appendChild(btnStart);
       hangNut.appendChild(pauseBtnEl);
       hangNut.appendChild(btnStop);
       khoi.appendChild(hangNut);
 
       const nhanLink = document.createElement('div');
-      nhanLink.style.cssText = 'color:#555; font-size:11px; line-height:1.4;';
-      nhanLink.textContent = 'Link Google Sheet (mỗi link 1 dòng, share "Anyone with the link" — Viewer)';
+      nhanLink.className = 'eos-hint';
+      nhanLink.textContent = 'Link Google Sheet (mỗi link 1 dòng, chia sẻ "Anyone with the link")';
       khoi.appendChild(nhanLink);
 
       sheetUrlInput = document.createElement('textarea');
-      sheetUrlInput.id = 'at-sheet-url';
+      sheetUrlInput.id = 'eos-at-sheet-url';
       sheetUrlInput.placeholder = 'https://docs.google.com/spreadsheets/d/...\nhttps://docs.google.com/spreadsheets/d/...';
-      sheetUrlInput.style.cssText = 'width:100%; height:70px; box-sizing:border-box; font-size:12px; resize:vertical;';
+      sheetUrlInput.className = 'eos-input';
+      sheetUrlInput.style.height = '46px';
       sheetUrlInput.value = localStorage.getItem('at_sheet_urls') || localStorage.getItem('at_sheet_url') || '';
       sheetUrlInput.addEventListener('input', updateSheetUrlCount);
       khoi.appendChild(sheetUrlInput);
 
       sheetCountEl = document.createElement('div');
-      sheetCountEl.id = 'at-sheet-url-count';
-      sheetCountEl.style.cssText = 'color:#555; font-size:11px;';
+      sheetCountEl.id = 'eos-at-sheet-url-count';
+      sheetCountEl.className = 'eos-hint';
       khoi.appendChild(sheetCountEl);
 
       sheetInfoEl = document.createElement('div');
-      sheetInfoEl.id = 'at-sheet-info';
-      sheetInfoEl.style.cssText = 'color:#555; font:11px monospace; white-space:pre-wrap;';
+      sheetInfoEl.id = 'eos-at-sheet-info';
+      sheetInfoEl.className = 'eos-hint';
+      sheetInfoEl.style.whiteSpace = 'pre-wrap';
       khoi.appendChild(sheetInfoEl);
 
       logBoxEl = document.createElement('div');
-      logBoxEl.id = 'at-log';
-      logBoxEl.style.cssText =
-        'max-height:150px; overflow-y:auto; background:#111827; border-radius:6px; padding:6px; font:11px/1.4 monospace; color:#9ca3af;';
+      logBoxEl.id = 'eos-at-log';
+      logBoxEl.className = 'eos-log';
       khoi.appendChild(logBoxEl);
 
       updateSheetUrlCount();
@@ -2433,50 +2343,113 @@
       // same in-progress list, same position, nothing re-scanned. Stop: cancels
       // the run entirely; the next Start rescans from the top.
       btnStart.addEventListener('click', async () => {
+        if (kiemTraScriptCu()) {
+          log('⚠️ Còn script Auto Tracking cũ — xoá/tắt nó rồi F5.');
+          return;
+        }
         if (GM_getValue(RUN_KEY)) {
           if (GM_getValue(PAUSE_KEY)) {
             GM_setValue(PAUSE_KEY, false);
             setPauseButtonLabel();
-            log('Resumed by user.');
+            log('Tiếp tục.');
           }
+          return;
+        }
+        // RUN_KEY chi bat khi runAll() thuc su bat dau (sau khi tai xong Sheet, mat vai giay) nen
+        // bam Start them lan nua TRONG LUC DO van lot qua kiem tra tren -> tai Sheet nhieu lan va
+        // chay nhieu vong song song. Dung co rieng de chan ngay tu lan bam dau tien.
+        if (dangKhoiDong) {
+          log('Đang tải Sheet, đợi chút...');
           return;
         }
         const urlsText = sheetUrlInput ? sheetUrlInput.value : '';
         if (!urlsText.trim()) {
-          log('Chưa có link Google Sheet — dán link vào ô rồi bấm Start lại.');
+          log('Chưa có link Sheet — dán link vào ô trên.');
           return;
         }
-        if (!(await loadSheetsFromUrls(urlsText))) {
-          return;
+        dangKhoiDong = true;
+        capNhatTrangThaiNut();
+        try {
+          if (!(await loadSheetsFromUrls(urlsText))) {
+            return;
+          }
+          // runAll() chay dong bo toi cho await dau tien va bat RUN_KEY ngay dau ham, nen sau
+          // dong nay cac lan bam Start tiep theo se bi chan boi RUN_KEY o tren.
+          runAll();
+        } finally {
+          dangKhoiDong = false;
+          capNhatTrangThaiNut();
         }
-        runAll();
       });
       pauseBtnEl.addEventListener('click', () => {
         if (!GM_getValue(RUN_KEY)) return; // nothing running to pause
         const nowPaused = !GM_getValue(PAUSE_KEY);
         GM_setValue(PAUSE_KEY, nowPaused);
         setPauseButtonLabel();
-        log(nowPaused ? 'Paused by user.' : 'Resumed by user.');
+        log(nowPaused ? 'Tạm dừng.' : 'Tiếp tục.');
       });
       btnStop.addEventListener('click', () => {
         GM_setValue(RUN_KEY, false);
         GM_setValue(PAUSE_KEY, false);
         setPauseButtonLabel();
-        setStatus('Stopping...');
 
         // Wipe the on-page log per earlier request (the Sheet link itself is
         // kept, same as before, so Start doesn't need it re-entered).
         if (logBoxEl) logBoxEl.innerHTML = '';
       });
 
-      log('Etsy helper loaded. Dán link Google Sheet rồi bấm Start.');
+      log('Sẵn sàng. Dán link Sheet rồi bấm Bắt đầu.');
       return khoi;
     }
 
     return { buildSection };
   })();
 
+  // CSS dung chung cho ca khoi Order Scraper lan Auto Tracking de nhin dong bo 1 giao dien.
+  // Nut dang chay: .eos-busy -> vet sang chay ngang + sang hon (khong doi chu, khong them dong trang thai).
+  function chenCssPanel() {
+    if (document.getElementById('eos-style')) return;
+    const st = document.createElement('style');
+    st.id = 'eos-style';
+    st.textContent = `
+      #etsy-order-scraper-panel, #etsy-order-scraper-panel * { box-sizing:border-box; }
+      #etsy-order-scraper-panel .eos-btn {
+        position:relative; overflow:hidden; padding:7px 8px; color:#fff; border:none; border-radius:6px;
+        font:600 12px/1.3 sans-serif; cursor:pointer; transition:filter .15s, box-shadow .15s; white-space:nowrap;
+      }
+      #etsy-order-scraper-panel .eos-btn:hover:not(:disabled) { filter:brightness(1.08); }
+      #etsy-order-scraper-panel .eos-btn:disabled { opacity:.5; cursor:not-allowed; }
+      #etsy-order-scraper-panel .eos-btn.eos-busy:disabled { opacity:1; cursor:progress; }
+      #etsy-order-scraper-panel .eos-btn.eos-busy { box-shadow:0 0 0 2px rgba(255,255,255,.9), 0 0 0 4px currentColor; }
+      #etsy-order-scraper-panel .eos-btn.eos-busy::after {
+        content:''; position:absolute; inset:0; transform:translateX(-100%);
+        background:linear-gradient(110deg, transparent 25%, rgba(255,255,255,.45) 50%, transparent 75%);
+        animation:eos-sheen 1.1s linear infinite;
+      }
+      @keyframes eos-sheen { to { transform:translateX(100%); } }
+      #etsy-order-scraper-panel .eos-input {
+        width:100%; font:12px/1.4 sans-serif; border:1px solid #D1D5DB; border-radius:6px; padding:5px 6px;
+        resize:vertical; user-select:text; color:#111;
+      }
+      #etsy-order-scraper-panel .eos-input:focus { outline:none; border-color:#1a7f37; box-shadow:0 0 0 2px rgba(26,127,55,.2); }
+      #etsy-order-scraper-panel .eos-hint { color:#6B7280; font-size:11px; line-height:1.4; }
+      #etsy-order-scraper-panel .eos-title { font:700 12px sans-serif; color:#111; }
+      #etsy-order-scraper-panel .eos-hint:empty, #etsy-order-scraper-panel .eos-log:empty { display:none; }
+      #etsy-order-scraper-panel .eos-log {
+        max-height:96px; overflow-y:auto; background:#111827; border-radius:6px; padding:5px 6px;
+        font:11px/1.4 ui-monospace, monospace; color:#D1D5DB; user-select:text;
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  // Bat/tat hieu ung "dang chay" cho 1 nut.
+  function datNutDangChay(btn, bat) {
+    if (btn) btn.classList.toggle('eos-busy', !!bat);
+  }
+
   function buildPanel() {
+    chenCssPanel();
     const trangThai = docTrangThaiPanel();
 
     // Khung ngoai cung: dinh vi co dinh, keo tha duoc tu do
@@ -2545,11 +2518,7 @@
     khungMoRong.appendChild(thanhTieuDe);
 
     const vungNoiDung = document.createElement('div');
-    vungNoiDung.style.cssText = 'padding:10px; display:flex; flex-direction:column; gap:8px; max-height:70vh; overflow-y:auto;';
-
-    countLabel = document.createElement('div');
-    countLabel.style.cssText = 'color:#555; font-size:12px;';
-    vungNoiDung.appendChild(countLabel);
+    vungNoiDung.style.cssText = 'padding:10px; display:flex; flex-direction:column; gap:7px; max-height:70vh; overflow-y:auto;';
 
     // Tao 1 dong gom [checkbox Bat/Tat] + [nut bam], de nguoi dung tu chan bot nut khong
     // muon dung tren account nay - tat thi nut xam di va khong bam duoc, trang thai duoc
@@ -2566,8 +2535,6 @@
 
       function apDungTrangThai() {
         btn.disabled = !checkbox.checked;
-        btn.style.opacity = checkbox.checked ? '1' : '.5';
-        btn.style.cursor = checkbox.checked ? 'pointer' : 'not-allowed';
       }
       checkbox.addEventListener('change', () => {
         GM_setValue(storageKey, checkbox.checked);
@@ -2582,52 +2549,37 @@
     }
 
     btnScanEarnings = document.createElement('button');
-    btnScanEarnings.textContent = '🔍 Quét đơn + Earnings & tải Excel';
-    btnScanEarnings.style.cssText = `
-      padding:8px 10px; background:#1a7f37; color:#fff; border:none;
-      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
-    `;
+    btnScanEarnings.textContent = '🔍 Quét đơn + Earnings → Excel';
+    btnScanEarnings.className = 'eos-btn';
+    btnScanEarnings.style.background = '#1a7f37';
     btnScanEarnings.onclick = () => scanAndExport(true);
     vungNoiDung.appendChild(taoDongNutCoTheBatTat(btnScanEarnings, ENABLE_SCAN_EARNINGS_KEY));
 
     btnScanOnly = document.createElement('button');
-    btnScanOnly.textContent = '📦 Quét đơn & tải Excel';
-    btnScanOnly.style.cssText = `
-      padding:8px 10px; background:#2563EB; color:#fff; border:none;
-      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
-    `;
+    btnScanOnly.textContent = '📦 Quét đơn → Excel';
+    btnScanOnly.className = 'eos-btn';
+    btnScanOnly.style.background = '#2563EB';
     btnScanOnly.onclick = () => scanAndExport(false);
     vungNoiDung.appendChild(taoDongNutCoTheBatTat(btnScanOnly, ENABLE_SCAN_ONLY_KEY));
 
-    const btnSuaMauSac = document.createElement('button');
-    btnSuaMauSac.textContent = '🎨 Sửa quy đổi màu';
-    btnSuaMauSac.style.cssText = `
-      padding:8px 10px; background:#7C3AED; color:#fff; border:none;
-      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
-    `;
-    btnSuaMauSac.onclick = moModalSuaQuyDoiMau;
-    vungNoiDung.appendChild(btnSuaMauSac);
-
     idsTextarea = document.createElement('textarea');
     idsTextarea.placeholder = 'Mỗi mã đơn 1 dòng, ví dụ:\n4127701646\n4127701647';
-    idsTextarea.style.cssText = 'width:100%; height:70px; box-sizing:border-box; font-size:12px; resize:vertical;';
+    idsTextarea.className = 'eos-input';
+    idsTextarea.style.height = '52px';
     vungNoiDung.appendChild(idsTextarea);
 
     btnEarningsOnly = document.createElement('button');
-    btnEarningsOnly.textContent = '💰 Lấy Earnings theo mã đơn & tải Excel';
-    btnEarningsOnly.style.cssText = `
-      padding:8px 10px; background:#F56400; color:#fff; border:none;
-      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
-    `;
+    btnEarningsOnly.textContent = '💰 Earnings theo mã đơn → Excel';
+    btnEarningsOnly.className = 'eos-btn';
+    btnEarningsOnly.style.background = '#F56400';
     btnEarningsOnly.onclick = runEarningsOnlyExport;
     vungNoiDung.appendChild(btnEarningsOnly);
 
     btnStop = document.createElement('button');
     btnStop.textContent = '⏹ Dừng';
-    btnStop.style.cssText = `
-      display:none; padding:8px 10px; background:#DC2626; color:#fff; border:none;
-      border-radius:6px; font-weight:bold; font-size:13px; cursor:pointer;
-    `;
+    btnStop.className = 'eos-btn';
+    btnStop.style.background = '#DC2626';
+    btnStop.style.display = 'none';
     btnStop.onclick = () => {
       cancelRequested = true;
       btnStop.disabled = true;
@@ -2645,7 +2597,7 @@
     messageBox.id = 'eos-message';
     messageBox.style.cssText = `
       display:none; color:#fff; font-size:12px; padding:6px 8px;
-      border-radius:6px; line-height:1.4;
+      border-radius:6px; line-height:1.4; user-select:text;
     `;
     vungNoiDung.appendChild(messageBox);
 
@@ -2704,10 +2656,6 @@
       hienThongBao('🔄 Đã mở trang cập nhật — bấm "Cài đặt/Xác nhận" trong hộp thoại Violentmonkey, rồi tải lại trang (F5).', '#2563EB');
     };
 
-    updatePanelCount();
-    if (biDanhVuaDuocCapNhat) {
-      hienThongBao(`🎨 Bảng quy đổi màu đã cập nhật lên bản chuẩn ${BI_DANH_VERSION} (chỉnh sửa riêng cũ của shop này đã được thay).`, '#2563EB');
-    }
   }
 
   // Chi hien panel tren cac trang thuoc "/your/orders" (vd trang mac dinh cua Etsy la
