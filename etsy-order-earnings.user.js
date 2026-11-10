@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.2
+// @version      3.4
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -255,7 +255,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.2';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.4';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1613,6 +1613,21 @@
     let sheetInfoEl = null;
     let sheetCountEl = null;
     let sheetUrlInput = null;
+    let canhBaoScriptCuEl = null;
+
+    // Script cu "Etsy Auto Tracking (from Google Sheet)" (v4.8, da gop vao Order Scraper tu
+    // v3.0 nhung van con trong Violentmonkey neu chua xoa) tao panel #at-panel va lay nut bang
+    // document.getElementById('at-...'). Neu chay song song, 2 vong cung dien tracking vao cung
+    // don, tranh nhau mo/dong modal "Complete order" -> khong dien duoc / modal tat ngay.
+    function coScriptTrackingCuDangChay() {
+      return !!document.getElementById('at-panel');
+    }
+
+    function kiemTraScriptCu() {
+      const coCu = coScriptTrackingCuDangChay();
+      if (canhBaoScriptCuEl) canhBaoScriptCuEl.style.display = coCu ? 'block' : 'none';
+      return coCu;
+    }
 
     // Manual overrides if the automatic substring match picks the wrong
     // carrier option. Key = lowercase DVVC/carrier text (or part of it) as it
@@ -1629,6 +1644,9 @@
     function normalizeName(s) {
       return (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
     }
+
+    const RUN_KEY = 'AT_RUNNING';
+    const PAUSE_KEY = 'AT_PAUSED';
 
     // Short log lines shown inside the on-page panel (kept separate from the
     // full console log, which stays verbose for debugging).
@@ -1655,9 +1673,15 @@
       uiLog(text);
     }
 
+    // Bam Stop phai dung NGAY, khong doi het thoi gian cho (toi 8s/buoc) cua buoc dang ket:
+    // moi vong cho kiem tra co RUN_KEY (xem bamStopGiuaChung) va nem loi dac biet de thoat.
+    const STOP_MSG = 'Stopped by user';
+    const laLoiDung = (e) => !!e && e.message === STOP_MSG;
+
     async function waitFor(fn, { timeout = 10000, interval = 200, desc = '' } = {}) {
       const start = Date.now();
       while (Date.now() - start < timeout) {
+        if (!GM_getValue(RUN_KEY)) throw new Error(STOP_MSG);
         const v = await fn();
         if (v) return v;
         await sleep(interval);
@@ -1671,8 +1695,6 @@
       desc.set.call(el, value);
     }
 
-    const RUN_KEY = 'AT_RUNNING';
-    const PAUSE_KEY = 'AT_PAUSED';
 
     function getOrderIds() {
       return Array.from(document.querySelectorAll('a[href*="order_id="]'))
@@ -2178,13 +2200,31 @@
         await fillAndSubmit(orderId, result.tracking, result.carrier);
         log('  done:', result.tracking, '/', result.carrier);
       } catch (e) {
-        log('  ERROR filling modal:', e.message);
+        if (!laLoiDung(e)) log('  ERROR filling modal:', e.message);
         closeModalIfOpen(orderId);
       }
       return true;
     }
 
+    // Co "dang co 1 vong runAll chay" - chan viec 2 vong chay SONG SONG tren cung cac don
+    // (2 vong cung bam menu "Update progress" cua 1 don -> bam dong/mo chong nhau -> ket).
+    let vongDangChay = false;
+    let dangKhoiDong = false; // dang tai Sheet sau khi bam Start, chua vao runAll
+
     async function runAll() {
+      if (vongDangChay) {
+        log('Đã có 1 lượt đang chạy — bỏ qua yêu cầu Start trùng.');
+        return;
+      }
+      vongDangChay = true;
+      try {
+        await runAllImpl();
+      } finally {
+        vongDangChay = false;
+      }
+    }
+
+    async function runAllImpl() {
       GM_setValue(RUN_KEY, true);
       GM_setValue(PAUSE_KEY, false);
       setStatus('Running...');
@@ -2221,11 +2261,13 @@
         try {
           attempted = await processOrder(orderId);
         } catch (e) {
-          log('ERROR processing row:', e.message);
+          // Bam Stop giua chung khong phai la loi - chi can don dep roi vong lap tu thoat.
+          if (!laLoiDung(e)) log('ERROR processing row:', e.message);
           // Best-effort cleanup: close any dropdown/modal left open by the
           // failed step so it doesn't block clicks on the next order.
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-          attempted = true;
+          // Chi bam Stop thi khong can nghi 2s cho trang on dinh - thoat vong lap ngay.
+          attempted = !laLoiDung(e);
         }
         // Only pay the full "let the page settle" pause after a real
         // open-modal/fill/submit attempt; a quick non-match skip doesn't need it.
@@ -2395,7 +2437,16 @@
     // Tao khoi giao dien Auto Tracking de gan vao panel Order Scraper.
     function buildSection() {
       const khoi = document.createElement('div');
-      khoi.id = 'at-section';
+      khoi.id = 'eos-at-section';
+      canhBaoScriptCuEl = document.createElement('div');
+      canhBaoScriptCuEl.style.cssText =
+        'display:none; background:#FEF2F2; border:1px solid #DC2626; color:#991B1B; border-radius:6px; padding:6px 8px; font-size:11px; line-height:1.4; font-weight:bold;';
+      canhBaoScriptCuEl.textContent =
+        '⚠️ Phát hiện script cũ "Etsy Auto Tracking (from Google Sheet)" đang được cài. Script đó đã được gộp vào Order Scraper — chạy cả hai sẽ tranh nhau điền tracking (modal bị mở/đóng chồng nhau). Hãy XOÁ hoặc TẮT script cũ trong Violentmonkey rồi tải lại trang (F5). Nút Start tạm bị khoá.';
+      khoi.appendChild(canhBaoScriptCuEl);
+      kiemTraScriptCu();
+      // Script cu co the nap SAU script nay nen kiem tra lai vai lan.
+      [1500, 4000, 8000].forEach((ms) => setTimeout(kiemTraScriptCu, ms));
       khoi.style.cssText =
         'display:flex; flex-direction:column; gap:8px; border-top:1px solid #E5E7EB; padding-top:10px; margin-top:2px;';
 
@@ -2405,7 +2456,7 @@
       khoi.appendChild(tieuDe);
 
       statusEl = document.createElement('div');
-      statusEl.id = 'at-status';
+      statusEl.id = 'eos-at-status';
       statusEl.style.cssText = 'color:#555; font-size:12px;';
       statusEl.textContent = 'Idle';
       khoi.appendChild(statusEl);
@@ -2415,9 +2466,9 @@
       const btnStart = taoNut('▶ Start', '#16a34a');
       pauseBtnEl = taoNut('⏸ Pause', '#d97706');
       const btnStop = taoNut('⏹ Stop', '#DC2626');
-      btnStart.id = 'at-start';
-      pauseBtnEl.id = 'at-pause';
-      btnStop.id = 'at-stop';
+      btnStart.id = 'eos-at-start';
+      pauseBtnEl.id = 'eos-at-pause';
+      btnStop.id = 'eos-at-stop';
       hangNut.appendChild(btnStart);
       hangNut.appendChild(pauseBtnEl);
       hangNut.appendChild(btnStop);
@@ -2429,7 +2480,7 @@
       khoi.appendChild(nhanLink);
 
       sheetUrlInput = document.createElement('textarea');
-      sheetUrlInput.id = 'at-sheet-url';
+      sheetUrlInput.id = 'eos-at-sheet-url';
       sheetUrlInput.placeholder = 'https://docs.google.com/spreadsheets/d/...\nhttps://docs.google.com/spreadsheets/d/...';
       sheetUrlInput.style.cssText = 'width:100%; height:70px; box-sizing:border-box; font-size:12px; resize:vertical;';
       sheetUrlInput.value = localStorage.getItem('at_sheet_urls') || localStorage.getItem('at_sheet_url') || '';
@@ -2437,17 +2488,17 @@
       khoi.appendChild(sheetUrlInput);
 
       sheetCountEl = document.createElement('div');
-      sheetCountEl.id = 'at-sheet-url-count';
+      sheetCountEl.id = 'eos-at-sheet-url-count';
       sheetCountEl.style.cssText = 'color:#555; font-size:11px;';
       khoi.appendChild(sheetCountEl);
 
       sheetInfoEl = document.createElement('div');
-      sheetInfoEl.id = 'at-sheet-info';
+      sheetInfoEl.id = 'eos-at-sheet-info';
       sheetInfoEl.style.cssText = 'color:#555; font:11px monospace; white-space:pre-wrap;';
       khoi.appendChild(sheetInfoEl);
 
       logBoxEl = document.createElement('div');
-      logBoxEl.id = 'at-log';
+      logBoxEl.id = 'eos-at-log';
       logBoxEl.style.cssText =
         'max-height:150px; overflow-y:auto; background:#111827; border-radius:6px; padding:6px; font:11px/1.4 monospace; color:#9ca3af;';
       khoi.appendChild(logBoxEl);
@@ -2462,6 +2513,10 @@
       // same in-progress list, same position, nothing re-scanned. Stop: cancels
       // the run entirely; the next Start rescans from the top.
       btnStart.addEventListener('click', async () => {
+        if (kiemTraScriptCu()) {
+          log('⚠️ Script Auto Tracking CŨ đang chạy song song — hãy xoá/tắt nó trong Violentmonkey rồi F5, sau đó bấm Start lại.');
+          return;
+        }
         if (GM_getValue(RUN_KEY)) {
           if (GM_getValue(PAUSE_KEY)) {
             GM_setValue(PAUSE_KEY, false);
@@ -2470,15 +2525,29 @@
           }
           return;
         }
+        // RUN_KEY chi bat khi runAll() thuc su bat dau (sau khi tai xong Sheet, mat vai giay) nen
+        // bam Start them lan nua TRONG LUC DO van lot qua kiem tra tren -> tai Sheet nhieu lan va
+        // chay nhieu vong song song. Dung co rieng de chan ngay tu lan bam dau tien.
+        if (dangKhoiDong) {
+          log('Đang tải Sheet để bắt đầu — vui lòng đợi, không cần bấm Start nhiều lần.');
+          return;
+        }
         const urlsText = sheetUrlInput ? sheetUrlInput.value : '';
         if (!urlsText.trim()) {
           log('Chưa có link Google Sheet — dán link vào ô rồi bấm Start lại.');
           return;
         }
-        if (!(await loadSheetsFromUrls(urlsText))) {
-          return;
+        dangKhoiDong = true;
+        try {
+          if (!(await loadSheetsFromUrls(urlsText))) {
+            return;
+          }
+          // runAll() chay dong bo toi cho await dau tien va bat RUN_KEY ngay dau ham, nen sau
+          // dong nay cac lan bam Start tiep theo se bi chan boi RUN_KEY o tren.
+          runAll();
+        } finally {
+          dangKhoiDong = false;
         }
-        runAll();
       });
       pauseBtnEl.addEventListener('click', () => {
         if (!GM_getValue(RUN_KEY)) return; // nothing running to pause
