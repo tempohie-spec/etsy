@@ -31,10 +31,6 @@ const LUU_TOI_DA_GIAY = 30 * 24 * 3600;
 const SO_NGAY_CAP_NHAT = 10;
 // Goi Free cua Cloudflare cho toi da 50 request ra ngoai moi lan chay -> chua lai vai request.
 const GIOI_HAN_REQUEST = 45;
-// Canh bao khi so du store duoi muc nay (USD).
-const NGUONG_SO_DU = 50;
-// Thoi gian luu so du (giay): lich 2 tieng/lan thi cu 2 lan chay moi lay lai 1 lan.
-const THOI_GIAN_LUU_SO_DU = 4 * 3600;
 
 // Vi tri cot (0-based) - giong userscript merchize-order-sender.user.js.
 const COL = {
@@ -894,19 +890,10 @@ async function chayLich(env, event) {
       donLe.push({ tab, store, ma, dong, ngay: ngay ? ngay.getTime() : 0, coFfm });
     });
   }
-  // Chua lai request cho: ghi Sheet (2), Telegram (1), so du moi store (1/store).
+  // Chua lai request cho: ghi Sheet (2), Telegram (1).
   // Don cu hon truoc (de co tracking hon), roi xoay vong tiep noi lan truoc.
   donLe.sort((a, b) => a.ngay - b.ngay);
-  // So du luu KV 4 gio (THOI_GIAN_LUU_SO_DU, chi luu so lay duoc): store nao da co thi khong goi lai; store loi (vd 403)
-  // thi lan chay sau goi lai ngay, khong phai doi het 1 gio.
-  let soDuCu = {};
-  let lucSoDu = Date.now();
-  try {
-    const v = JSON.parse((await env.EVENTS.get('sodu')) || 'null');
-    if (v && v.luc && Date.now() - v.luc < THOI_GIAN_LUU_SO_DU * 1000) { soDuCu = v.giaTri || {}; lucSoDu = v.luc; }
-  } catch (e) { /* ban luu cu, lay lai */ }
-  const canLaySoDu = tabs.filter((t) => typeof soDuCu[t] !== 'number');
-  const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - canLaySoDu.length - dem.n);
+  const conLai = Math.max(0, GIOI_HAN_REQUEST - 4 - dem.n);
   if (donLe.length && conLai) {
     // Moi lan chay tiep noi vi tri lan truoc (luu KV), dat lich 30 phut hay 1 gio deu tra lan luot het.
     const viTriXoay = Number(await env.EVENTS.get('cron:vitri')) || 0;
@@ -952,35 +939,6 @@ async function chayLich(env, event) {
     lanNayDaTra: daTraMa.has(x.tab + '|' + x.ma)
   }));
 
-  // So du tung store: API noi bo cua trang seller Merchize (GET /billing/balance -> data.amount).
-  const soDu = { ...soDuCu };
-  if (canLaySoDu.length) {
-    await Promise.all(canLaySoDu.map(async (tab) => {
-      const store = stores[tab];
-      if (!store || !store.baseUrl || !store.token) return;
-      try {
-        const res = await goi(dem, store.baseUrl.replace(/\/+$/, '') + '/billing/balance', {
-          headers: { Authorization: 'Bearer ' + store.token }
-        });
-        const data = await res.json().catch(() => null);
-        const amount = data && data.success && data.data ? Number(data.data.amount) : NaN;
-        soDu[tab] = isNaN(amount) ? `lỗi ${res.status}` : Math.round(amount * 100) / 100;
-      } catch (e) {
-        soDu[tab] = 'lỗi kết nối';
-      }
-    }));
-    // Chi luu so lay duoc; store loi se duoc lay lai o lan chay sau.
-    const giaTri = {};
-    Object.keys(soDu).forEach((t) => { if (typeof soDu[t] === 'number') giaTri[t] = soDu[t]; });
-    if (Object.keys(giaTri).length) {
-      await env.EVENTS.put('sodu', JSON.stringify({ luc: lucSoDu, giaTri }), { expirationTtl: THOI_GIAN_LUU_SO_DU });
-    }
-  }
-  const dongSoDu = Object.keys(soDu).map((tab) => {
-    const v = soDu[tab];
-    if (typeof v !== 'number') return `• ${tab}: không lấy được (${v})`;
-    return `• ${tab}: $${v.toFixed(2)}${v < NGUONG_SO_DU ? ' ⚠️ sắp hết' : ''}`;
-  });
   const luc = (event && event.scheduledTime) || Date.now();
   const tiep = lanChayTiep(event && event.cron, luc);
   // Nhom theo tab: "  • <tab>: ma1, ma2 ..." (toi da 15 ma moi tab).
@@ -1006,12 +964,11 @@ async function chayLich(env, event) {
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
     `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.`,
-    dongSoDu.length ? 'Số dư:\n' + dongSoDu.join('\n') : ''
   ].filter(Boolean).join('\n'));
 
   return {
     tracking: thongKe.tracking, cost: thongKe.cost,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, canXuLy: thongKe.canXuLy, zootop: zooInfo, trackingZooTop: thongKe.zoo, costZooTop: thongKe.zooCost, conThieuTracking: conThieu, donThieu, soDu
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, canXuLy: thongKe.canXuLy, zootop: zooInfo, trackingZooTop: thongKe.zoo, costZooTop: thongKe.zooCost, conThieuTracking: conThieu, donThieu
   };
 }
 

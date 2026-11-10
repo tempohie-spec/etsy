@@ -2386,7 +2386,7 @@ không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4
 - Tên store: script tự hỏi API Merchize `bo-master-1-eks.merchize.store/api/seller/stores/by-slug/<mã>/authorize`
   (lấy `name`) bằng Access Token của store. Chưa lấy được tên thì hiện mã store.
 - Bỏ store của 1 tab: bấm dòng ✅ store > **Bỏ store của tab này**. Script xoá store + sheet ZooTop của tab trên máy và
-  báo Worker (kể cả mục trong biến `STORES`), Worker thôi tra tracking, số dư, Request update cho tab đó.
+  báo Worker (kể cả mục trong biến `STORES`), Worker thôi tra tracking, Request update cho tab đó.
 - Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / ZooTop, nhắc điền `Cũ` vào cột AC cho đơn cũ.
 - **1. Catalog SKU** mở một mục gồm: **Xem catalog SKU các nhà cung cấp** (thứ tự gửi, link sheet SKU / sheet
   fulfill, quy chuẩn tra SKU của ZooTop và Merchize cho tab đang mở) và nút **Cập nhật catalog Merchize**. Gildan
@@ -2533,8 +2533,7 @@ Chạy 24/7, **không cần mở Sheet**:
 - Đơn chưa có mã RX (AD trống): mỗi store 1 request `search/v3` lấy 100 đơn mới nhất, ghi mã RX vào AD rồi
   tra tracking theo lô 50 đơn/request; chỉ đơn không có trong 100 đơn đó mới tra từng đơn.
 - Tối ưu mỗi lần chạy: tra tracking song song 6 đơn/lần; đơn cũ tra trước; bỏ qua đơn fulfill
-  hôm nay (chưa thể có tracking); số dư lưu 4 giờ (`THOI_GIAN_LUU_SO_DU`, store lỗi thì lấy lại ngay lần sau);
-  hạn mức request tính trước nên không bao giờ vượt 50. Muốn cập nhật nhanh hơn: đặt lịch
+  hôm nay (chưa thể có tracking); hạn mức request tính trước nên không bao giờ vượt 50. Muốn cập nhật nhanh hơn: đặt lịch
   `*/15 * * * *` (15 phút/lần, Telegram 96 tin/ngày).
 - Miễn phí trên gói Free của Cloudflare. Giới hạn: tối đa 50 request ra ngoài mỗi lần chạy, nên
   mỗi giờ tra khoảng 40 đơn chưa có mã RX (đơn đã có mã RX tra gộp 50 đơn/1 request), lần sau tra
@@ -2597,9 +2596,8 @@ Cost thật: 2 đơn (4179216794, 4181224261)
 
 Không có gì mới thì tin ghi `Không có giá trị mới để điền.` kèm số đơn đã tra / còn thiếu.
 
-Cuối tin có **số dư từng store** (lấy từ `GET <baseUrl>/billing/balance`, API nội bộ của trang
-seller Merchize, trường `data.amount`), dưới 50$ thì gắn `⚠️ sắp hết` (đổi mức ở hằng số
-`NGUONG_SO_DU`). Store nào không lấy được thì ghi lý do.
+Tin không còn dòng số dư từng store (đã bỏ từ v1.58, Worker cũng không gọi API số dư nữa nên mỗi lần chạy
+tiết kiệm được 1 lượt gọi cho mỗi store).
 
 **Chạy ngay không cần đợi lịch:** mở `https://merchize-webhook.<subdomain>.workers.dev/run?key=<SECRET_KEY>`
 (`<SECRET_KEY>` là 1 key bất kỳ trong `SECRET_KEYS`). Trang trả về số đơn đã tra / có tracking mới /
