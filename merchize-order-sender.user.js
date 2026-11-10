@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.54
+// @version      1.55
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.54';
+  const SCRIPT_VERSION = '1.55';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -949,6 +949,14 @@
     'gildan youth': { DTF: 'TShirt2D - G5000B | Gildan-5000B', DTG: 'TShirt2D - G5000B | Gildan-5000B (DTG)' }
   };
   const chuanTen = (v) => str(v).toLowerCase().replace(/\s+/g, ' ');
+  // Tim theo title khong can khop tuyet doi: bo dau / ky tu la roi xem title co chua ten loai ao khong
+  // (vd "Comfort-Adult Tee" van la "comfort adult").
+  const chiChu = (v) => str(v).toLowerCase().replace(/[^a-z]/g, '');
+  function timTheoTitle(bang, title) {
+    const t = chiChu(title);
+    const khoa = Object.keys(bang).find((k) => t.includes(chiChu(k)));
+    return khoa === undefined ? undefined : bang[khoa];
+  }
   const phuongPhapIn = (v) => (/DTG/i.test(str(v)) ? 'DTG' : /DTF/i.test(str(v)) ? 'DTF' : '');
   const khoaZooTop = (tenSp, pm, mau, size) => [chuanTen(tenSp), pm, chuanHoaMau(mau), chuanHoaSize(size)].join('|');
 
@@ -1013,10 +1021,10 @@
   function zootopSkuDong(r, bangZoo, r0 = r) {
     const pm = phuongPhapIn(cell(r, COL.printingMethod));
     if (!pm) return '';
-    const tenSp = (ZOOTOP_TEN[chuanTen(cell(r, COL.title))] || {})[pm];
+    const tenSp = (timTheoTitle(ZOOTOP_TEN, cell(r, COL.title)) || {})[pm];
     const skuThuong = tenSp ? bangZoo[khoaZooTop(tenSp, pm, cell(r, COL.color), cell(r, COL.size))] || '' : '';
     if (maQuocGia(cell(r0, COL.country)) === 'US') return skuThuong;
-    const maLoai = ZOOTOP_QT_MA[chuanTen(cell(r, COL.title))];
+    const maLoai = timTheoTitle(ZOOTOP_QT_MA, cell(r, COL.title));
     const skuQt = maLoai ? (bangZoo.quocTe || {})[[maLoai, pm, chuanHoaMau(cell(r, COL.color)), chuanHoaSize(cell(r, COL.size))].join('|')] || '' : '';
     if (skuDiNgoaiUs(skuQt)) return skuQt;
     return skuDiNgoaiUs(skuThuong) ? skuThuong : '';
@@ -1028,7 +1036,7 @@
     const moTa = `${cell(r, COL.printingMethod) || '?'} | ${cell(r, COL.title)} | ${cell(r, COL.color)} | ${cell(r, COL.size)}`;
     if (!pm) return `${moTa}: cột A không phải DTG/DTF`;
     if (maQuocGia(cell(r0, COL.country)) !== 'US') return `${moTa} (${cell(r0, COL.country)}): không có SKU đi ngoài US (G/C) trong bảng quốc tế hay các bảng khác`;
-    const tenSp = (ZOOTOP_TEN[chuanTen(cell(r, COL.title))] || {})[pm];
+    const tenSp = (timTheoTitle(ZOOTOP_TEN, cell(r, COL.title)) || {})[pm];
     if (!tenSp) return `${moTa}: title chưa có trong danh sách ZooTop`;
     const cd = bangZoo.chanDoan || { sanPham: {} };
     if (!cd.sanPham[pm + '|' + chuanTen(tenSp)]) return `${moTa}: file SKU không có sản phẩm "${tenSp}" (${pm})`;
