@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.1
+// @version      3.2
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -255,7 +255,7 @@
   // Doc truc tiep tu metadata @version cua chinh script (GM_info luon co san, khong can
   // khai bao @grant) de hien thi tren panel (ca luc thu nho) - tranh phai sua 2 cho moi
   // lan bump version. '2.12' chi la gia tri du phong neu vi ly do nao do GM_info khong co.
-  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.1';
+  const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '3.2';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -616,6 +616,34 @@
     return getLabelValues(container, 'Size');
   }
 
+  // Cac nhan CO DINH cua 1 san pham (da duoc doc rieng vao cot Quantity/size/color). Moi dong
+  // "nhan + gia tri" KHAC cua san pham (vd "Personalization", "Outline Section", "Primary
+  // Color"... - ten do tung listing tu dat) deu la tuy chon ca nhan hoa cua khach.
+  const NHAN_SAN_PHAM_CO_DINH = new Set(['quantity', 'style & size', 'size', 'color']);
+
+  // Lay GIA TRI cua moi dong tuy chon ca nhan hoa trong 1 khoi san pham, bat ke ten nhan la gi.
+  // Truoc day chi doc dung nhan "Personalization" nen cac don dung ten khac (vd "Outline Section:
+  // Minnie (with bow)") bi bo trong cot Personalization.
+  function getPersonalizationValues(flagEl) {
+    const out = [];
+    flagEl.querySelectorAll('span.strong').forEach((strong) => {
+      const cha = strong.parentElement;
+      if (!cha) return;
+      const nhanEl = Array.from(cha.children).find(
+        (el) => el !== strong && el.tagName === 'SPAN' && !el.classList.contains('strong')
+      );
+      const nhan = nhanEl ? nhanEl.textContent.trim() : '';
+      if (!nhan || NHAN_SAN_PHAM_CO_DINH.has(nhan.toLowerCase())) return;
+      const giaTri = strong.textContent.trim();
+      if (giaTri) out.push(giaTri);
+    });
+    // Du phong: cach cu doc dung nhan "Personalization" (phong khi DOM nhan/gia tri long khac).
+    getLabelValues(flagEl, 'Personalization').forEach((v) => {
+      if (!out.includes(v)) out.push(v);
+    });
+    return out;
+  }
+
   // Ghep 1 chuoi "Style & Size" thanh { title, size }, vd "Comfort-Adult Tee L" -> title "Comfort-Adult Tee", size "L"
   function splitStyleSize(styleSize) {
     const parts = (styleSize || '').trim().split(/\s+/).filter(Boolean);
@@ -657,7 +685,8 @@
         const styleSize = getStyleSizeValues(flagEl)[0] || '';
         const { title, size } = splitStyleSize(styleSize);
         const color = resolveColorForGarment(getLabelValues(flagEl, 'Color')[0] || '', title);
-        const personalization = getLabelValues(flagEl, 'Personalization')[0] || '';
+        // Nhieu tuy chon ca nhan hoa trong cung 1 san pham thi noi bang " | ".
+        const personalization = getPersonalizationValues(flagEl).join(' | ');
         // Personalization xuat ra cot rieng ("Personalization"), khong ghep vao title.
 
         return {

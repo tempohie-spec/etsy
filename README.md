@@ -2119,6 +2119,16 @@ Xử lý theo 2 mức, tuỳ mức độ "mất thông tin" của việc chuyể
 - Chữ Hán/Nhật Kanji không có bảng chuyển đổi riêng (không khả thi khi không dùng thư viện lớn)
   nên được **giữ nguyên** nhưng vẫn nằm trong danh sách cần kiểm tra lại.
 
+## Cột Personalization lấy mọi tuỳ chọn cá nhân hoá, không chỉ nhãn "Personalization"
+
+Mỗi listing tự đặt tên cho ô tuỳ chọn của khách (vd `Personalization`, `Outline Section`,
+`Primary Color`...). Trước đây script chỉ đọc đúng nhãn **"Personalization"** nên đơn dùng tên khác
+(vd `Outline Section: Minnie (with bow)`) bị bỏ trống cột Personalization.
+
+Giờ script lấy **giá trị của mọi dòng tuỳ chọn khác** trong khối sản phẩm — trừ các dòng cố định
+đã có cột riêng (`Quantity`, `Style & Size`/`Size`, `Color`). Nếu 1 sản phẩm có nhiều tuỳ chọn thì
+nối bằng ` | ` (vd `Minnie (with bow) | Emma`). Chỉ xuất **giá trị**, không kèm tên nhãn.
+
 ## Cột PrintingMethod và Account
 
 Thêm 2 cột ở ĐẦU file Excel xuất ra:
