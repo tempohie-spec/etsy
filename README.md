@@ -2328,7 +2328,7 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
      `/bo-api` (vd `https://bo-group-1-2.merchize.com/zoi24ff/bo-api`).
    - Token chỉ lưu trong Violentmonkey trên máy này, không nằm trong Sheet hay GitHub.
    - Khi panel đang mở, dòng trạng thái tự đổi theo tab đang chọn: **✅ store Merchize <mã store>**
-     hoặc **❌ chưa có store Merchize**; tab dùng Teb hiện thêm **✅ Sheet Teb: <tên tab>**. Nút
+     hoặc **❌ chưa có store Merchize**; tab dùng ZooTop hiện thêm **✅ ZooTop: <tên file>**. Nút
      store hiện luôn mã store (vd `Store Merchize: e36qbb2`), bấm để làm mới khi dòng trạng thái
      chưa hiện.
 3. Bấm **1. Cập nhật catalog** (catalog dùng chung cho mọi store, chỉ cần làm 1 lần).
@@ -2339,8 +2339,8 @@ Merchize qua API `POST /order/external/orders`. Thay cho bước import file tr�
 
 1. Copy đơn từ file Excel dán vào tab account như bình thường, dán link design vào cột F/G.
 2. Bấm **2. Kiểm tra**: điền SKU vào cột AB và liệt kê đơn lỗi, chưa gửi gì lên Merchize.
-3. Sửa lỗi nếu có, bấm **3. Gửi đơn (Merchize + sheet Teb)**: gửi đơn lên Merchize, ghi đơn
-   Teb vào sheet Teb (tab dùng Teb). Cost thật do Worker tự điền vào Y.
+3. Sửa lỗi nếu có, bấm **3. Gửi đơn (ZooTop / Merchize)**: đơn đủ SKU ZooTop thì ghi vào sheet fulfill
+   ZooTop (tab đã gắn sheet), còn lại gửi lên Merchize. Cost thật do Worker tự điền vào Y.
 
 Đơn chờ gửi = dòng có orderNumber (cột C) và cột AC còn trống. Dòng tổng màu xanh (không có
 orderNumber) bị bỏ qua.
@@ -2352,7 +2352,7 @@ dòng thì sửa `SO_DONG_CUOI` đầu script.
 | Cột | Nội dung |
 |---|---|
 | AB | Merchize SKU tự tra |
-| AC | Tên nhà cung cấp khi gửi thành công (`Merchize` / `Teb` / `ZooTop`) / `Cũ` / `Lỗi: ...` |
+| AC | Tên nhà cung cấp khi gửi thành công (`Merchize` / `ZooTop`) / `Cũ` / `Lỗi: ...` |
 | AD | Mã đơn Merchize (ID nội bộ, dùng khi hỏi hỗ trợ). Mã đơn Etsy gửi lên thành External number |
 
 Đơn bị lỗi: sửa dữ liệu rồi **xoá ô AC** của các dòng đơn đó để gửi lại. Gửi lại đơn đã bị
@@ -2362,21 +2362,17 @@ không tự bỏ hậu tố), nên sửa luôn orderNumber trong Sheet thành `4
 
 ## Bảng điều khiển (v1.32)
 
-- Tab đã cài đủ chỉ hiện 2 dòng: `✅ Tab "<tab>": <tên store> (đã có token)` và `✅ Sheet Teb: <tên
-  file Teb>`. Bấm vào dòng để hiện ô sửa. Tab chưa cài thì hiện sẵn các ô nhập.
+- Tab đã cài đủ chỉ hiện 2 dòng: `✅ Tab "<tab>": <tên store> (đã có token)` và (nếu tab dùng ZooTop)
+  `✅ ZooTop: <tên file>`. Bấm vào dòng để hiện ô sửa. Tab chưa cài thì hiện sẵn các ô nhập.
 - Tên store: script tự hỏi API Merchize `bo-master-1-eks.merchize.store/api/seller/stores/by-slug/<mã>/authorize`
   (lấy `name`) bằng Access Token của store. Chưa lấy được tên thì hiện mã store.
-- SKU Teb tra trong tab **SKU LIST** của file Teb đã chọn cho tab (STYLE CODE cột D / COLOR / SIZE / SKU,
-  không phân biệt hoa thường; dòng tiêu đề nằm trong 10 dòng đầu). Không dùng sheet Teb Print SKU nữa.
-- Bỏ store của 1 tab: bấm dòng ✅ store > **Bỏ store của tab này**. Script xoá store + sheet Teb của tab trên máy và
+- Bỏ store của 1 tab: bấm dòng ✅ store > **Bỏ store của tab này**. Script xoá store + sheet ZooTop của tab trên máy và
   báo Worker (kể cả mục trong biến `STORES`), Worker thôi tra tracking, số dư, Request update cho tab đó.
-- Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / sheet Teb, nhắc điền `Cũ` vào cột AC cho đơn cũ.
-- **1. Catalog SKU** (v1.51) mở một mục riêng gồm: **Xem catalog SKU các nhà cung cấp** (thứ tự gửi, link sheet SKU /
-  sheet fulfill, quy chuẩn tra SKU của ZooTop, Merchize, Teb cho tab đang mở), nút **Cập nhật catalog Merchize**, danh sách **Loại áo thêm**
-  (từ khóa trong title → mã sản phẩm Merchize, vd `gildan youth → 5000BUS`; title chứa đủ các từ khóa thì dùng mã đó,
-  xét trước luật có sẵn; thêm xong bấm Tải catalog) và danh sách **Ghép Teb** (title trên Sheet → STYLE CODE cột D
-  trong SKU LIST, vd `Comfort Adult → <style code>`; ô STYLE CODE gợi ý các mã đã đọc từ SKU LIST). Mỗi dòng có nút
-  Xoá. Đơn đi Teb khi khớp STYLE CODE + COLOR + SIZE trong SKU LIST; title chưa ghép thì gửi Merchize.
+- Nút 3 hiện hộp xác nhận: số đơn sẽ gửi Merchize / ZooTop, nhắc điền `Cũ` vào cột AC cho đơn cũ.
+- **1. Catalog SKU** mở một mục gồm: **Xem catalog SKU các nhà cung cấp** (thứ tự gửi, link sheet SKU / sheet
+  fulfill, quy chuẩn tra SKU của ZooTop và Merchize cho tab đang mở) và nút **Cập nhật catalog Merchize**. Gildan
+  được cố định trong code (v1.56): title chứa `gildan` + `youth` → `500BUS`, `gildan` + `adult` → `5000US`
+  (`MA_SAN_PHAM` / `xacDinhMaSanPham`); sau khi cập nhật script bấm **Cập nhật catalog Merchize** một lần.
 - Đã bỏ nút Đánh dấu dòng cũ và Điền cost thật (Worker vẫn tự điền cost thật).
 
 ## Thêm account / file Sheet mới (không cần sửa Cloudflare)
@@ -2385,12 +2381,18 @@ Cài 1 lần trên mỗi máy: bấm **Cài Worker (link + key, 1 lần)** (ho�
 Worker), nhập link Worker và 1 key trong `SECRET_KEYS`.
 
 Mỗi tab account mới: dán Base URL, Access Token và **Secret key webhook** của store (Merchize >
-Webhook), bấm **Lưu store Merchize cho tab này**; tab dùng Teb thì dán link sheet Teb rồi bấm
-**Lưu sheet Teb cho tab này**. Script tự gửi lên Worker (Worker nhận webhook bằng secret key riêng
+Webhook), bấm **Lưu store Merchize cho tab này**; tab dùng ZooTop thì dán link sheet fulfill rồi bấm
+**Lưu sheet ZooTop cho tab này**. Script tự gửi lên Worker (Worker nhận webhook bằng secret key riêng
 của từng store, không cần thêm vào `SECRET_KEYS`). Tab đã cài từ trước được tự gửi lên Worker khi
 mở tab. Nếu script báo `⚠️ Worker chưa vào được file`: share file cho email service account trong
-thông báo (Sheet đơn: Editor, file Teb: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
-ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
+thông báo (Sheet đơn: Editor, file ZooTop: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
+ghi đè lên mục cùng tên trong biến `STORES` / `ZOOTOP`.
+
+## Gỡ Teb, cố định Gildan (v1.56)
+
+- Gỡ toàn bộ Teb: nút / ô nhập sheet Teb, danh sách Ghép Teb, đọc SKU LIST, ghi sheet Teb, `@Teb`; Worker không còn đọc
+  sheet Teb, không còn biến `TEB`, Telegram không còn dòng Teb. Biến `TEB` cũ trên Cloudflare có thể xoá.
+- Danh sách **Loại áo thêm** bỏ khỏi giao diện, thay bằng mã cố định: Gildan youth → `500BUS`, Gildan adult → `5000US`.
 
 ## Cập nhật script và chặn đơn thiếu link design (v1.53)
 
@@ -2398,13 +2400,13 @@ ghi đè lên mục cùng tên trong biến `STORES` / `TEB`.
   (`LINK_CAP_NHAT`, nhánh `main`); mới hơn thì mở tab cài đặt của Violentmonkey, bấm xác
   nhận rồi tải lại trang Sheet. Script cũng có `@updateURL` / `@downloadURL` nên Violentmonkey tự kiểm tra định kỳ.
   Worker không tự cập nhật: dán code mới vào Cloudflare rồi Deploy.
-- Đơn nào cũng không được đẩy (ZooTop, Teb, Merchize) nếu có dòng thiếu cả design front lẫn design back: bị ghi
+- Đơn nào cũng không được đẩy (ZooTop, Merchize) nếu có dòng thiếu cả design front lẫn design back: bị ghi
   `Lỗi: thiếu link design (dòng N)`. Trước đây đơn ZooTop không bị kiểm tra này.
 
 ## Chỉ định nhà cung cấp cho từng đơn (v1.47)
 
-Gõ `@ZooTop`, `@Teb` hoặc `@Merchize` (không phân biệt hoa thường) vào cột AC của đơn trước khi bấm Kiểm tra / Gửi
-đơn. Đơn đó vẫn tính là chờ gửi và chỉ đi đúng nhà cung cấp đã chọn (bỏ qua thứ tự ưu tiên ZooTop > Teb > Merchize).
+Gõ `@ZooTop` hoặc `@Merchize` (không phân biệt hoa thường) vào cột AC của đơn trước khi bấm Kiểm tra / Gửi
+đơn. Đơn đó vẫn tính là chờ gửi và chỉ đi đúng nhà cung cấp đã chọn (bỏ qua thứ tự ưu tiên ZooTop > Merchize).
 Không tìm được SKU của bên đó (hoặc tab chưa gắn sheet) thì đơn bị đánh dấu `Lỗi: chỉ định ...`, không tự chuyển bên.
 Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng chỉ cần ghi ở 1 dòng.
 
@@ -2416,15 +2418,15 @@ thì ghi thêm `@ZooTop` / `@Merchize` ở AC để ép. Đơn nhiều dòng: d�
 nhà cung cấp của đơn. Lưu ý: nút Kiểm tra cũng điền SKU vào AB, nên nếu sau đó sửa màu / size thì xoá ô AB của
 dòng đó để script tra lại.
 
-## ZooTop ngoài US, tạm tắt Teb, đoán hãng vận chuyển (v1.49)
+## ZooTop ngoài US, đoán hãng vận chuyển (v1.49)
 
-- Thứ tự: **ZooTop → Merchize**. Teb tạm tắt (`DUNG_TEB = false` đầu phần ZooTop; đổi thành `true` để bật lại).
+- Thứ tự: **ZooTop → Merchize** (Teb đã gỡ hoàn toàn từ v1.56).
 - Đơn **ngoài US**: tra bảng SKU quốc tế (`ZOOTOP_QT`, file `1wsnF3NT...`, gid 0) trước: cột B `G5000-DTG` (mã loại áo
   - kiểu in; `G5000` = Gildan Adult, `C1717` = Comfort Adult, ở `ZOOTOP_QT_MA`), E Color, F Size, H SKU. Không có thì
   tra các bảng ZooTop khác. Đơn ngoài US chỉ nhận SKU bắt đầu bằng **G** hoặc **C** (mã `UT...` chỉ đi trong US); không
   có thì đơn đi Merchize.
 - Worker: tracking không có tên hãng thì đoán theo đầu mã: `92...` / `94...` / `42...` = USPS, `20...` / `GM...` = DHL (cho mọi nguồn).
-- Tracking từ sheet ZooTop / Teb chỉ lấy mã thật (8+ ký tự chữ/số, ít nhất 6 chữ số); chữ ghi chú như `NGOÀI US`, `Priority` bị bỏ qua.
+- Tracking từ sheet ZooTop chỉ lấy mã thật (8+ ký tự chữ/số, ít nhất 6 chữ số); chữ ghi chú như `NGOÀI US`, `Priority` bị bỏ qua.
 - `GET /debug?key=<SECRET_KEY>&ma=<mã đơn Etsy>`: các trường tiền của đơn từ API tracking và search/v3 của Merchize, cost Worker
   đang tính, mẫu webhook fulfillment cost gần nhất (không kèm thông tin khách). Dùng khi cost lệch với Merchize.
 - Webhook `Order payment fulfillment cost` và `... cost paid` đều ghi `price` vào Base Cost (Y).
@@ -2434,7 +2436,7 @@ dòng đó để script tra lại.
 
 - Gắn sheet fulfill: mở tab, bấm dòng **ZooTop** trên bảng, dán link sheet fulfill ZooTop (mở đúng tab, link có
   `#gid=`) rồi bấm **Lưu sheet ZooTop cho tab này** (tự gửi lên Worker). Để trống rồi bấm Lưu = bỏ dùng ZooTop.
-- Chọn đơn: tab đã gắn sheet ZooTop, đơn mà **mọi dòng** đều tìm được SKU ZooTop thì đi ZooTop (ưu tiên hơn Teb và
+- Chọn đơn: tab đã gắn sheet ZooTop, đơn mà **mọi dòng** đều tìm được SKU ZooTop thì đi ZooTop (ưu tiên hơn
   Merchize), mỗi sản phẩm 1 dòng. Tra SKU trong file SKU ZooTop (`ZOOTOP_FILE_SKU`, 3 tab theo gid):
   - gid 193554855: Product Name (I), Type (K, so với cột A PrintingMethod), Color (L), Size (M), SKU (N) cho
     Gildan Adult (Gildan Unisex T-Shirt 5000) và Comfort Adult (Comfort Colors Unisex T-Shirt 1717).
@@ -2451,37 +2453,13 @@ dòng đó để script tra lại.
   tracking (AB, trống thì C) + hãng (AC) vào AE/AF, Base Cost (Y) = tổng Total Cost (AF) các dòng của đơn. Telegram
   báo `Tracking ZooTop mới` / `Cost ZooTop`.
 
-## Luật AU và Teb Print (v1.21, thay Apps Script cũ)
+## Luật AU (v1.21)
 
-- **SKU Merchize tra thẳng catalog.** Luật AU giữ như Apps Script cũ: Comfort Adult (1717US) gửi
-  **Australia** dùng **1717AU** (Comfort Colors 1717 Made in AU) nếu có đúng màu + size, không có
-  thì dùng 1717US. Bấm **1. Cập nhật catalog** một lần để tải thêm 1717AU.
-- **Teb Print** (tab **đã lưu sheet Teb** bằng nút Lưu sheet Teb, hoặc ETSY_Turkiye 01), luật giữ
-  như cũ; bỏ dùng Teb: để trống ô link rồi bấm Lưu. Đơn gửi
-  **United States**, **chỉ 1 dòng**, tìm được SKU trong tab **SKU LIST** của file Teb (cột `title`,
-  `color`, `size`, `SKU`) thì **không gửi Merchize** mà **ghi nối tiếp vào sheet Teb do bạn
-  chọn**; cột AB = SKU Teb, AC = `Teb`.
-  - Chọn sheet Teb: mở file Teb, mở đúng tab, copy link (có `#gid=`) → trên bảng Merchize ở tab
-    cần dùng Teb dán vào ô **Link sheet Teb** → **Lưu sheet Teb cho tab này**. Tài khoản Google
-    của bạn phải có quyền sửa file Teb.
-  - **Chỉ ghi cột B → T** (cột A ORDER DATE bị khoá, không ghi), vào dòng trống kế tiếp theo cột
-    B, không chèn dòng mới. Cột ghi: B ORDER CODE, C SKU, D QUANTITY, E FULL
-    NAME, F PHONE, G-H ADDRESS, I CITY, J REGION, K ZIP, L COUNTRY, M FRONT DESIGN, N BACK DESIGN,
-    Q MOCKUP (chỉ có back design thì ghi vào R MOCKUP BACK), S NOTE = `DTG` nếu in DTG.
-- **Tracking + cost Teb tự động:** Worker đọc sheet Teb mỗi lần chạy, theo ORDER CODE (cột B):
-  TRACKING (T) / DVVC (U) điền vào AE/AF cho đơn `Teb` còn thiếu tracking; **Total (AA)** điền vào
-  **Base Cost (Y)** (ghi đè cả chữ `chưa có cost` / `chưa ff`, chỉ ghi khi số khác). Chỉ ghi ở dòng
-  đầu của đơn. Telegram báo `Tracking Teb mới` / `Cost Teb`. Chỉ xét đơn có Date Fulfill trong
-  **10 ngày** gần nhất; nhận đơn theo mã có trong sheet Teb (kể cả AC đang là `Cũ` / `Đã gửi`, AC đổi
-  thành `Teb`), khớp đúng mã. Cần: **Share file Teb** cho email service account (quyền xem là đủ) và thêm biến
-  Secret `TEB` trên Cloudflare:
-
-  ```json
-  { "ETSY_Turkiye 01": { "spreadsheetId": "<ID file Teb>", "sheet": "<tên tab trong file Teb>" },
-    "ETSY_OlavenStore": { "spreadsheetId": "<ID file Teb>", "sheet": "<tên tab trong file Teb>" } }
-  ```
-
-  File Teb cần có tab **SKU LIST** (để tra SKU Teb).
+- **SKU Merchize tra thẳng catalog.** Luật AU: Comfort Adult (1717US) gửi **Australia** dùng **1717AU**
+  (Comfort Colors 1717 Made in AU) nếu có đúng màu + size, không có thì dùng 1717US. Bấm **1. Catalog SKU** >
+  **Cập nhật catalog Merchize** một lần để tải thêm 1717AU.
+- Teb Print đã được gỡ khỏi script và Worker ở v1.56 (không còn ghi sheet Teb, không còn biến `TEB`). Dòng cũ có AC =
+  `Teb` vẫn được giữ nguyên và Worker bỏ qua chúng khi tra Merchize.
 
 ## Quy tắc tra SKU
 
