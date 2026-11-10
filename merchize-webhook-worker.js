@@ -1078,7 +1078,7 @@ function chonTruongTien(obj) {
   return kq;
 }
 
-// GET /debug?key=...&ma=<ma don Etsy>: cac truong tien cua don tu API tracking va search/v3, va mau
+// GET /debug?key=...&ma=<ma don Etsy>: cac truong tien + tag cua don tu API tracking va search/v3, va mau
 // webhook fulfillment cost gan nhat. Dung de doi chieu cost (vd lech phi so voi Merchize).
 async function xuLyDebug(env, url) {
   const dem = taoBoDem();
@@ -1089,14 +1089,23 @@ async function xuLyDebug(env, url) {
     const store = stores[tab];
     if (!ma || !store || !store.baseUrl || !store.token) continue;
     try {
-      const goiHang = await merchizeFetch(dem, store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma));
-      if (!goiHang.length) continue;
-      kq.tab = tab;
-      kq.apiTracking = chonTruongTien(goiHang);
-      kq.costWorkerTinh = tomTatApiTracking(goiHang).cost;
+      // Tim don trong 100 don moi nhat cua store (ke ca don CSV khong co tren API tracking).
       const tim = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_DON_MOI.replace('external_number=', 'external_number=' + encodeURIComponent(ma)));
       const o = ((tim && tim.orders) || []).find((x) => str(x.external_order_number || (x.external_order_id || {}).id) === ma);
+      const goiHang = await merchizeFetch(dem, store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma)).catch(() => []);
+      if (!o && !goiHang.length) continue;
+      kq.tab = tab;
+      if (goiHang.length) {
+        kq.apiTracking = chonTruongTien(goiHang);
+        kq.costWorkerTinh = tomTatApiTracking(goiHang).cost;
+      }
       kq.searchV3 = o ? chonTruongTien(o) : 'không tìm thấy';
+      // Tag cua don (vd "api", "csv_merchize"): cac truong co chu "tag" va ten tat ca truong cap 1 (khong kem gia tri).
+      if (o) {
+        kq.tagCuaDon = {};
+        Object.keys(o).filter((k) => /tag/i.test(k)).forEach((k) => { kq.tagCuaDon[k] = o[k]; });
+        kq.cacTruongCuaDon = Object.keys(o);
+      }
       break;
     } catch (e) { kq['loi_' + tab] = e.message.slice(0, 200); }
   }
