@@ -2441,6 +2441,7 @@ dòng đó để script tra lại.
   - gid 1487135370 (DTF) và gid 2135860525 (DTG): Product Name (B), Color (E), Size (F), SKU (G) cho Adult Hoodie,
     Adult Sweatshirt, Bella Adult, Gildan Youth (tên sản phẩm ở `ZOOTOP_TEN`).
   - Màu so không phân biệt hoa thường; size chuẩn hoá (XXL = 2XL).
+  - Title (cột H) khớp theo cụm tên loại áo, bỏ dấu và ký tự lạ (v1.55): `Comfort-Adult Tee`, `COMFORT ADULT T-Shirt` đều là `comfort adult`.
 - Sheet fulfill (v1.45): A DATE, B trạng thái, C Tracking Number, D order_id ... AA note, AB tracking_number, AC
   tracking_carrier, AF Total Cost. Ghi nối tiếp (dòng trống kế tiếp theo cột D), chỉ cột D đến AA: order_id, store_code trống,
   shipping_type `SELLER` (đổi ở `ZOOTOP_SHIPPING_TYPE`), buyer_first_name = tên đầy đủ, phone, email, country,
