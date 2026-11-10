@@ -2610,6 +2610,8 @@ Merchize trừ thật, gồm cả phụ phí như `usps_peak_surcharge`. Đơn t
 để bắt cost Merchize cập nhật sau: Worker nhớ cost API lần trước của từng đơn (KV `apicost:<tab>`) và chỉ ghi đè ô Y
 khi cost API thay đổi, nên số thực trừ từ webhook hoặc số sửa tay được giữ nếu Merchize không đổi gì.
 
+**Chỉ đơn có tag `api`:** Worker chỉ xét đơn Request update có tag `api` trên Merchize, đơn CSV (tag `csv_merchize`) bị bỏ qua.
+
 **Đơn cần xử lý (Request update, chỉ đơn tạo trong 10 ngày gần nhất):** mỗi lần chạy, với từng store Worker gọi
 `GET <baseUrl>/order/orders/statistic-issues` (API nội bộ trang Orders). Có đơn `issue_request_update`
 thì lấy danh sách qua `search/v3?order_issue_type=issue_request_update`, yêu cầu mới thì lấy nội

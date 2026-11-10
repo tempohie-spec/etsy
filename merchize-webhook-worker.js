@@ -761,6 +761,8 @@ async function chayLich(env, event) {
       const kq = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_CAN_XU_LY);
       for (const o of (kq && kq.orders) || []) {
         if (o.order_request_attention_status && o.order_request_attention_status !== 'open') continue;
+        // Chi xet don co tag "api" (bo qua don CSV, tag csv_merchize...).
+        if (!((o.tags || []).some((t) => str(t && (t.title || t)).trim().toLowerCase() === 'api'))) continue;
         // Chi xet don tao trong SO_NGAY_CAP_NHAT ngay gan nhat.
         const taoLuc = Date.parse(o.created || o.paid_at || '');
         if (!isNaN(taoLuc) && taoLuc < Date.now() - SO_NGAY_CAP_NHAT * 86400000) continue;
