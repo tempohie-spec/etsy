@@ -2214,13 +2214,7 @@ bảng màu, script sẽ giữ nguyên `A/B/C` thay vì điền đúng màu.
 thị, value là tên CHÍNH THỨC trong bảng màu — khớp được bí danh nào thì điền ra đúng tên chính
 thức đó, không điền nguyên văn tên Etsy ghi.
 
-**Sửa trực tiếp trên panel, không cần sửa code**: bấm nút **"🎨 Sửa quy đổi màu"** trong panel để
-mở hộp thoại sửa bí danh cho cả 6 loại áo. Mỗi ô là 1 loại áo, mỗi dòng 1 quy đổi dạng
-`Tên Etsy=Tên chính thức` (vd `Dark Heather=Dark Grey Heather`) — dòng trống hoặc không có dấu
-`=` sẽ bị bỏ qua. Bấm **"💾 Lưu"** để áp dụng ngay (không cần tải lại trang) và lưu lại qua
-`GM_setValue` nên vẫn còn sau khi đóng trình duyệt — cửa sổ **không tự đóng** sau khi lưu, để
-bạn tiếp tục sửa/kiểm tra ngay trong hộp thoại. Nút **"🗑️ Xoá hết"** xoá trắng tất cả các ô,
-cũng CHƯA lưu ngay — vẫn cần bấm "Lưu" nếu muốn áp dụng việc xoá đó.
+**Chỉ sửa trong code** (từ v3.5): đã bỏ nút "🎨 Sửa quy đổi màu" và hộp thoại trên panel — bảng bí danh nằm cứng trong `BI_DANH_MAU` (đầu file script), dùng chung cho mọi shop.
 
 Phần "Tên Etsy" của 1 dòng có thể là:
 
@@ -2253,19 +2247,10 @@ Các bí danh trong **bảng chuẩn** hiện tại (bản 1):
 
 ### Dùng chung 1 bảng cho nhiều shop (mỗi shop 1 trình duyệt)
 
-Bảng quy đổi màu lưu **riêng từng trình duyệt**, nên để mọi shop dùng giống nhau, bảng chuẩn được
-đặt cứng trong code (`DEFAULT_BI_DANH`) kèm 1 số phiên bản bảng (`BI_DANH_VERSION`):
-
-1. Cần đổi quy đổi màu cho **tất cả shop**: sửa `DEFAULT_BI_DANH`, **tăng `BI_DANH_VERSION`** (và
-   `@version`), merge vào `main`.
-2. Ở **mỗi shop** bấm **"⟳ Cập nhật"** (hoặc đợi Violentmonkey tự kiểm tra) → xác nhận → F5.
-3. Khi mở panel, nếu bảng đã lưu của shop đó có phiên bản khác `BI_DANH_VERSION` (kể cả bản cũ
-   chưa có phiên bản), nó bị **bỏ và thay bằng bảng chuẩn mới**; panel báo
-   "🎨 Bảng quy đổi màu đã cập nhật lên bản chuẩn N". Số phiên bản trên panel giúp kiểm tra shop
-   nào chưa cập nhật.
-
-⚠️ Chỉnh sửa riêng trong hộp thoại "🎨 Sửa quy đổi màu" vẫn dùng được cho từng shop, nhưng sẽ **mất**
-mỗi khi `BI_DANH_VERSION` tăng. Muốn giữ lâu dài thì đưa vào `DEFAULT_BI_DANH`.
+Bảng `BI_DANH_MAU` đặt cứng trong code nên mọi shop luôn giống nhau. Cần đổi quy đổi màu: nhờ sửa
+`BI_DANH_MAU`, tăng `@version`, merge vào `main`, rồi ở **mỗi shop** bấm **"⟳ Cập nhật"** → xác nhận
+→ F5. Số phiên bản trên panel giúp kiểm tra shop nào chưa cập nhật. (Bảng cũ đã lưu trong trình
+duyệt từ các bản trước không còn được dùng.)
 
 ## Tự động copy dữ liệu vào clipboard
 
@@ -2284,6 +2269,18 @@ lại trang, và không bị bật nhầm lại sau khi quét xong.
 
 Dòng hướng dẫn "Lấy Earnings theo danh sách mã đơn (nhập tay)" phía trên ô nhập mã đơn cũng đã
 được bỏ.
+
+## Gọn lại giao diện panel, nút chạy có hiệu ứng, log tiếng Việt (v3.5)
+
+- Bỏ dòng "Đã lưu: xx dòng" và nút "🎨 Sửa quy đổi màu" (panel ngắn hơn, ~430px thay vì dài hơn).
+- Bỏ dòng trạng thái "Idle / Running…". Thay vào đó **nút đang chạy sẽ có vệt sáng chạy ngang +
+  viền sáng** (quét đơn, Earnings theo mã đơn, Bắt đầu điền tracking); khi tạm dừng thì nút
+  "Tạm dừng" sáng lên và đổi thành "▶ Tiếp tục". Các nút khác vẫn bị khoá khi đang chạy.
+- Khối Auto Tracking dùng chung kiểu nút/ô nhập/màu với Order Scraper (trước trông như 2 script
+  ghép lại); nhãn nút: Bắt đầu / Tạm dừng / Dừng.
+- Dòng log trong panel Auto Tracking chuyển sang tiếng Việt ngắn gọn (vd `Đơn 4222… (Tên)...`,
+  `Thấy: mã / DVVC`, `✓ Đã điền xong.`, `✗ Lỗi khi điền: …`). Console (F12) vẫn giữ thông báo
+  kỹ thuật gốc cho việc debug.
 
 ## Đóng bảng "Order details" sau mỗi đơn
 
