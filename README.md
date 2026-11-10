@@ -2407,6 +2407,13 @@ mở tab. Nếu script báo `⚠️ Worker chưa vào được file`: share file
 thông báo (Sheet đơn: Editor, file ZooTop: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
 ghi đè lên mục cùng tên trong biến `STORES` / `ZOOTOP`.
 
+## Chỉ định bằng dấu # (v1.57)
+
+Chỉ định nhà cung cấp ở cột AC giờ dùng `#ZooTop` / `#Merchize` (gõ `@` trong Google Sheets hay bật menu smart chip).
+Dòng đã ghi `@...` từ trước vẫn được nhận. Lỗi "đơn này đã có dòng được gửi/đánh dấu trước đó" nghĩa là một dòng khác
+cùng mã đơn đã có trạng thái ở AC (không phải `#...`): tìm mã đơn bằng Ctrl+F, xoá trạng thái đó hoặc gõ chỉ định cho
+đủ mọi dòng.
+
 ## Gỡ Teb, cố định Gildan (v1.56)
 
 - Gỡ toàn bộ Teb: nút / ô nhập sheet Teb, danh sách Ghép Teb, đọc SKU LIST, ghi sheet Teb, `@Teb`; Worker không còn đọc
@@ -2424,7 +2431,7 @@ ghi đè lên mục cùng tên trong biến `STORES` / `ZOOTOP`.
 
 ## Chỉ định nhà cung cấp cho từng đơn (v1.47)
 
-Gõ `@ZooTop` hoặc `@Merchize` (không phân biệt hoa thường) vào cột AC của đơn trước khi bấm Kiểm tra / Gửi
+Gõ `#ZooTop` hoặc `#Merchize` (không phân biệt hoa thường) vào cột AC của đơn trước khi bấm Kiểm tra / Gửi
 đơn. Đơn đó vẫn tính là chờ gửi và chỉ đi đúng nhà cung cấp đã chọn (bỏ qua thứ tự ưu tiên ZooTop > Merchize).
 Không tìm được SKU của bên đó (hoặc tab chưa gắn sheet) thì đơn bị đánh dấu `Lỗi: chỉ định ...`, không tự chuyển bên.
 Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng chỉ cần ghi ở 1 dòng.
@@ -2433,7 +2440,7 @@ Gửi xong AC ghi tên nhà cung cấp như bình thường. Đơn nhiều dòng
 
 Điền SKU vào cột **AB** của dòng chờ gửi (AC trống hoặc `@...`) thì dòng đó gửi đúng SKU này, không tra bảng.
 Nhà cung cấp theo SKU: có trong bảng SKU ZooTop → ZooTop, có trong catalog Merchize → Merchize. SKU không có ở đâu
-thì ghi thêm `@ZooTop` / `@Merchize` ở AC để ép. Đơn nhiều dòng: dòng có SKU dùng SKU đó, dòng trống tự tra theo
+thì ghi thêm `#ZooTop` / `#Merchize` ở AC để ép. Đơn nhiều dòng: dòng có SKU dùng SKU đó, dòng trống tự tra theo
 nhà cung cấp của đơn. Lưu ý: nút Kiểm tra cũng điền SKU vào AB, nên nếu sau đó sửa màu / size thì xoá ô AB của
 dòng đó để script tra lại.
 

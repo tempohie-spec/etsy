@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.56
+// @version      1.57
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.56';
+  const SCRIPT_VERSION = '1.57';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -622,7 +622,7 @@
 
   // Tra ve danh sach don CHO GUI (cac dong co orderNumber va cot AC trong), gop theo orderNumber.
   // SKU tu dien san o cot AB (dong cho gui): ep dong do dung SKU nay. Nha cung cap theo SKU: co trong bang
-  // ZooTop -> ZooTop, co trong catalog Merchize -> Merchize; SKU la thi can "@ZooTop" / "@Merchize" o AC.
+  // ZooTop -> ZooTop, co trong catalog Merchize -> Merchize; SKU la thi can "#ZooTop" / "#Merchize" o AC.
   function bangSkuDaBiet(bangZoo, catalog) {
     const zoo = new Set(bangZoo ? Object.values(bangZoo).concat(Object.values(bangZoo.quocTe || {})) : []);
     const mz = new Set();
@@ -630,10 +630,11 @@
     return { zoo, mz };
   }
 
-  // Chi dinh nha cung cap: go "@ZooTop" / "@Merchize" vao cot AC truoc khi gui. Don nay van la
+  // Chi dinh nha cung cap: go "#ZooTop" / "#Merchize" vao cot AC truoc khi gui. Don nay van la
   // don cho gui, va chi di dung nha cung cap do (khong tim duoc SKU thi bao loi, khong tu doi ben).
   function chiDinhNcc(st) {
-    const m = str(st).match(/^@\s*(merchize|zootop)$/i);
+    // Dau '#' (go '@' trong Google Sheets hay bat menu smart chip); '@' cu van duoc nhan cho dong da danh dau.
+    const m = str(st).match(/^[#@]\s*(merchize|zootop)$/i);
     return m ? { merchize: 'Merchize', zootop: 'ZooTop' }[m[1].toLowerCase()] : '';
   }
 
@@ -957,7 +958,7 @@
         let ncc = d0.chiDinh;
         let loiSku = '';
         if (!ncc) {
-          if (theoSku.has('?')) loiSku = `SKU tự điền "${skuTay.find((k) => k && !daBiet.zoo.has(k) && !daBiet.mz.has(k))}" không có trong bảng ZooTop hay catalog Merchize (ghi @ZooTop / @Merchize ở AC để ép)`;
+          if (theoSku.has('?')) loiSku = `SKU tự điền "${skuTay.find((k) => k && !daBiet.zoo.has(k) && !daBiet.mz.has(k))}" không có trong bảng ZooTop hay catalog Merchize (ghi #ZooTop / #Merchize ở AC để ép)`;
           else if (theoSku.size > 1) loiSku = 'SKU tự điền vừa của ZooTop vừa của Merchize trong cùng 1 đơn';
           else ncc = Array.from(theoSku)[0];
         }
@@ -972,12 +973,12 @@
           // Merchize: cac dong co SKU tu dien gui dung SKU do, dong con lai tra catalog.
         d = { ...d0, chiDinh: 'Merchize', skuTay };
       }
-      // Don chi dinh nha cung cap (@ZooTop / @Merchize o cot AC).
+      // Don chi dinh nha cung cap (#ZooTop / #Merchize o cot AC).
       if (d.chiDinh === 'Merchize') return { ...d, zooSkus: null };
       if (d.chiDinh === 'ZooTop') {
         const zooSkus = bangZoo ? zootopSkuCuaDon(d, bangZoo) : null;
-        const loiChiDinh = zooSkus ? '' : !zooTarget ? 'chỉ định @ZooTop nhưng tab chưa gắn sheet ZooTop'
-          : 'chỉ định @ZooTop nhưng không có SKU ZooTop: ' + d.rows.filter(({ r }) => !zootopSkuDong(r, bangZoo, d.rows[0].r))
+        const loiChiDinh = zooSkus ? '' : !zooTarget ? 'chỉ định #ZooTop nhưng tab chưa gắn sheet ZooTop'
+          : 'chỉ định #ZooTop nhưng không có SKU ZooTop: ' + d.rows.filter(({ r }) => !zootopSkuDong(r, bangZoo, d.rows[0].r))
             .map(({ r }) => lyDoKhongCoZooTop(r, bangZoo, d.rows[0].r)).join('; ');
         return { ...d, zooSkus, loiChiDinh };
       }
@@ -1201,7 +1202,7 @@
       const cat = docCatalogDaLuu();
 
       tieuDe('Thứ tự gửi: ZooTop → Merchize');
-      dong('Ép từng đơn: ghi @ZooTop / @Merchize ở cột AC, hoặc điền SKU sẵn ở cột AB.');
+      dong('Ép từng đơn: ghi #ZooTop / #Merchize ở cột AC, hoặc điền SKU sẵn ở cột AB.');
 
       tieuDe('ZooTop');
       const zoo = docCacSheetZooTop()[tab];

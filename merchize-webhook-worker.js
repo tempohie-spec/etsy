@@ -574,7 +574,7 @@ function donKiemCost(rows) {
     const st = cell(r0, COL.status);
     if (!dong.some(({ row }) => cell(row, COL.tracking))) return false;
     if (!/^[A-Z]{2}-\d+-\d+$/.test(cell(r0, COL.merchizeId))) return false;
-    if (!st || st.startsWith('@') || /^Lỗi/.test(st) || ['Teb', 'ZooTop'].includes(st)) return false; // "Teb": dong cu, khong co tren Merchize
+    if (!st || /^[#@]/.test(st) || /^Lỗi/.test(st) || ['Teb', 'ZooTop'].includes(st)) return false; // "Teb": dong cu, khong co tren Merchize
     const ngay = ngayTuO(cell(r0, COL.dateFulfill));
     return ngay && ngay >= moc;
   });
@@ -650,8 +650,8 @@ function donCanTra(rows) {
   return Array.from(map.entries()).filter(([, dong]) => {
     if (dong.some(({ row }) => cell(row, COL.tracking))) return false;
     // Don chua gui (AC trong), don loi (chua gui duoc / loi import) va dong cu AC = "Teb" khong co tren Merchize.
-    // AC "@ZooTop" / "@Merchize": don chi dinh nha cung cap nhung chua gui.
-    if (!cell(dong[0].row, COL.status) || cell(dong[0].row, COL.status).startsWith('@')) return false;
+    // AC "#ZooTop" / "#Merchize": don chi dinh nha cung cap nhung chua gui.
+    if (!cell(dong[0].row, COL.status) || cell(dong[0].row, COL.status).match(/^[#@]/)) return false;
     if (dong.some(({ row }) => /^Lỗi/.test(cell(row, COL.status)) || ['Teb', 'ZooTop'].includes(cell(row, COL.status)))) return false;
     const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
     return ngay && ngay >= moc;
