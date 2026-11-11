@@ -2307,6 +2307,13 @@ duyệt đang đăng nhập (nhiều) tài khoản Google không có quyền, Go
 Sheet hạn chế vẫn đọc được ở lần đầu nhờ cookie. Nếu vẫn lỗi, thông báo nói rõ cần kiểm tra chia sẻ
 và Sheet phải là Google Sheets gốc (không phải file `.xlsx` tải lên Drive).
 
+## Gildan: thêm "Y" cho size Youth + quy đổi màu Ivory/Natural (v3.7)
+
+- Title có **Gildan** và **Youth** (vd `Gildan Youth`, `Gildan-Youth Tee`): size chữ tự thêm `Y`
+  phía trước khi xuất Excel/clipboard — `M` → `YM`, `XL` → `YXL` (không thêm lại nếu đã có `Y`;
+  size không phải dạng chữ như `5-6T` giữ nguyên; Gildan Adult không đổi).
+- Quy đổi màu mới cho áo Gildan (Adult và Youth): `Ivory/Natural` → `Natural` (bảng `BI_DANH_MAU.gildan`).
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
