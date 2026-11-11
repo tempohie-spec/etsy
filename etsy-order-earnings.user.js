@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.5
+// @version      3.6
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -1784,11 +1784,12 @@
       return { sheetId: idMatch[1], gid: gidMatch ? gidMatch[1] : '0' };
     }
 
-    function gmFetchTextOnce(url) {
+    function gmFetchTextOnce(url, anonymous) {
       return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
           method: 'GET',
           url,
+          anonymous: !!anonymous, // true = khong gui cookie Google (tranh 401 do dang nhap nhieu tai khoan)
           timeout: 15000,
           onload: (res) => {
             if (res.status >= 200 && res.status < 300) resolve(res.responseText);
@@ -1804,11 +1805,15 @@
     // (e.g. 403/404) won't get better by retrying, so it fails immediately.
     async function gmFetchText(url) {
       try {
-        return await gmFetchTextOnce(url);
+        return await gmFetchTextOnce(url, false);
       } catch (e) {
+        // 401/403 thuong do cookie cua tai khoan Google dang dang nhap trong trinh duyet khong
+        // co quyen (dang nhap nhieu tai khoan) du Sheet da chia se "Anyone with the link" ->
+        // thu lai KHONG gui cookie (nac danh). Sheet han che thi van dung cookie o lan dau.
+        if (/^HTTP 40[13]/.test(e.message)) return gmFetchTextOnce(url, true);
         if (/^HTTP 4/.test(e.message)) throw e;
         await sleep(1500);
-        return gmFetchTextOnce(url);
+        return gmFetchTextOnce(url, false);
       }
     }
 
@@ -2129,7 +2134,8 @@
       try {
         text = await gmFetchText(exportUrl);
       } catch (e) {
-        return { ok: false, error: `không tải được (${e.message})` };
+        const loiQuyen = /^HTTP 40[13]/.test(e.message);
+        return { ok: false, error: loiQuyen ? `không có quyền đọc (${e.message}) — kiểm tra Sheet đã chia sẻ "Bất kỳ ai có đường liên kết" chưa, và phải là Google Sheets gốc (không phải file Excel .xlsx tải lên Drive)` : `không tải được (${e.message})` };
       }
 
       if (/^\s*<(!DOCTYPE|html)/i.test(text)) {
