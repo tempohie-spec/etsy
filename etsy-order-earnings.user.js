@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.6
+// @version      3.7
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -114,7 +114,9 @@
       'pepper/dark heather': 'Vintage Smoke',
       'moss/military green': 'Military Green'
     },
-    sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' }
+    sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' },
+    // Ao Gildan (Adult + Youth, title chua "Gildan"): chi quy doi to hop, chua co bang mau chuan
+    gildan: { 'ivory/natural': 'Natural' }
   };
   // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
   // "Bella-Youth Tee", "Toddler Tee", "Sweatshirt-Adult", "Hoodie-Adult"...) de chon dung
@@ -137,6 +139,7 @@
     if (t.includes('bella') && t.includes('adult')) {
       return { mau: BANG_MAU_BELLA_ADULT, biDanh: BI_DANH_MAU.bella_adult };
     }
+    if (t.includes('gildan')) return { mau: [], biDanh: BI_DANH_MAU.gildan };
     return null;
   }
 
@@ -781,6 +784,12 @@
     return size.replace(/^(\d+)-(\d+)([A-Za-z]*)$/, '$1/$2$3');
   }
 
+  // Ao Gildan Youth: them "Y" vao truoc size chu (M -> YM, XL -> YXL). Khong them lai neu da co Y.
+  function themYChoGildanYouth(title, size) {
+    if (!size || !/gildan/i.test(title || '') || !/youth/i.test(title || '')) return size;
+    return /^(XXS|XS|S|M|L|XL|XXL|[2-5]XL)$/i.test(size.trim()) ? 'Y' + size.trim().toUpperCase() : size;
+  }
+
   // Thay dau nhay don cong (’) bang dau nhay don thang (') trong tat ca cac cot dang chu.
   function fixCurlyApostrophe(value) {
     if (typeof value !== 'string') return value;
@@ -792,6 +801,7 @@
     const cleanData = data.map((row) => {
       const out = {};
       HEADERS.forEach((h) => { out[h] = fixCurlyApostrophe(row[h] !== undefined ? row[h] : ''); });
+      out.size = themYChoGildanYouth(out.title, out.size);
       out.title = cleanTitleForExport(out.title);
       out.size = cleanSizeForExport(out.size);
       out.mockUpFront = fixCFormatUrl(out.mockUpFront);
