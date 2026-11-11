@@ -2282,6 +2282,14 @@ Dòng hướng dẫn "Lấy Earnings theo danh sách mã đơn (nhập tay)" ph�
   `Thấy: mã / DVVC`, `✓ Đã điền xong.`, `✗ Lỗi khi điền: …`). Console (F12) vẫn giữ thông báo
   kỹ thuật gốc cho việc debug.
 
+## Auto Tracking: lỗi HTTP 401 dù Sheet đã chia sẻ công khai (v3.6)
+
+Script đọc Sheet bằng `GM_xmlhttpRequest`, mặc định gửi kèm cookie Google của trình duyệt. Khi trình
+duyệt đang đăng nhập (nhiều) tài khoản Google không có quyền, Google trả **401** kể cả với Sheet đã
+để "Anyone with the link". Từ v3.6, gặp 401/403 script **tự thử lại không gửi cookie** (nặc danh);
+Sheet hạn chế vẫn đọc được ở lần đầu nhờ cookie. Nếu vẫn lỗi, thông báo nói rõ cần kiểm tra chia sẻ
+và Sheet phải là Google Sheets gốc (không phải file `.xlsx` tải lên Drive).
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
