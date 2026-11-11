@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.70
+// @version      9.71
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.70';
+  const PHIEN_BAN = '9.71';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -5518,22 +5518,6 @@
 
   let loiDongBoCuoi = '';
 
-  // v9.70: ma Apps Script tren Sheet la ban CU (chua co cot "Ten san pham"...) thi bao ro, vi nguoi dung chi
-  // cap nhat script o trinh duyet chu khong tu cap nhat ma tren Google. Ma moi tra ve "phienBanMa" trong doGet.
-  const PHIEN_BAN_MA_CAN = 2;
-  const HUONG_DAN_CAP_NHAT_MA =
-    'bấm 🏷️ Đánh dấu listing → 📋 Copy mã Apps Script → dán ĐÈ toàn bộ mã trong Apps Script → Lưu → ' +
-    'Triển khai → Quản lý các bản triển khai → ✏️ → Phiên bản: Phiên bản mới → Triển khai.';
-  let maAppsScriptCu = false;
-  let daBaoMaCuTrangNay = false;
-  function ghiNhanPhienBanMa(kq) {
-    maAppsScriptCu = (Number(kq && kq.phienBanMa) || 1) < PHIEN_BAN_MA_CAN;
-    if (maAppsScriptCu && !daBaoMaCuTrangNay) {
-      daBaoMaCuTrangNay = true;
-      hienThongBao(`⚠️ Mã Apps Script trên Google Sheet còn bản CŨ (chưa có cột "Tên sản phẩm"). Cách cập nhật: ${HUONG_DAN_CAP_NHAT_MA}`, '#F59E0B', 15000);
-    }
-  }
-
   // v9.61: dong bo loi (Google 403/429, mat mang...) thi TAM NGHI tang dan (xem ghiKetQuaDongBo) toi da 3 phut thay vi
   // dap lai Google moi 10s (de lam het han muc hon). Luu trong kho chung nen MOI tab / MOI trinh duyet cung nghi.
   // Nguoi dung bam "Dong bo ngay" hoac vua bam Publish (batBuoc) van thu ngay.
@@ -5605,7 +5589,6 @@
         ghiKhoDanhDau(kho);
       }
       luuGiaTri(KHOA_DANH_DAU_CON_TRO, JSON.stringify({ dong: Number(kq.dongCuoi) || conTro.dong, luc: Date.now() }));
-      ghiNhanPhienBanMa(kq);
       loiDongBoCuoi = '';
       ghiKetQuaDongBo(true);
       if (ds.length) veLaiDanhDau();
@@ -5764,7 +5747,6 @@
   const MA_APPS_SCRIPT_DANH_DAU = `// Etsy Auto — kho danh dau listing dung chung cho nhieu may (Google Apps Script)
 // Doi BI_MAT thanh dung "Mã bí mật" da nhap trong script tren MOI may.
 const BI_MAT = '__BI_MAT__';
-const PHIEN_BAN_MA = 2; // script Etsy Auto doc so nay de bao "ma Apps Script cu, hay dan lai"
 
 const LINK_LISTING = 'https://www.etsy.com/listing/';
 
@@ -5790,19 +5772,6 @@ function tenAnToan_(v) {
 function layId_(v) {
   const m = String(v).match(/listing\\/(\\d+)/) || String(v).match(/^(\\d+)$/);
   return m ? m[1] : '';
-}
-
-// Chay 1 LAN trong trinh soan thao (chon ham doiIdThanhLink -> Chay) de doi cac dong CU (chi co so id) thanh link
-function doiIdThanhLink() {
-  const sh = laySheet_();
-  sh.getRange(1, 2).setValue('Link sản phẩm');
-  const n = sh.getLastRow() - 1;
-  if (n < 1) return;
-  const o = sh.getRange(2, 2, n, 1);
-  o.setValues(o.getValues().map(function (r) {
-    const id = layId_(r[0]);
-    return [id ? LINK_LISTING + id : r[0]];
-  }));
 }
 
 function traVe_(o) {
@@ -5836,12 +5805,11 @@ function doGet(e) {
   const sh = laySheet_();
   const dongCuoi = sh.getLastRow();
   const tuDong = Math.max(1, Number(p.tuDong || 1)); // dong 1 la tieu de
-  if (dongCuoi <= tuDong) return traVe_({ ok: true, suKien: [], dongCuoi: dongCuoi, phienBanMa: PHIEN_BAN_MA });
+  if (dongCuoi <= tuDong) return traVe_({ ok: true, suKien: [], dongCuoi: dongCuoi });
   const vals = sh.getRange(tuDong + 1, 1, dongCuoi - tuDong, 4).getValues();
   return traVe_({
     ok: true,
     dongCuoi: dongCuoi,
-    phienBanMa: PHIEN_BAN_MA,
     suKien: vals.map(function (r) { return { t: Number(r[0]), id: layId_(r[1]), loai: r[2], nhan: r[3] }; }),
   });
 }
@@ -5854,15 +5822,7 @@ function doGet(e) {
     const choGui = docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).length;
     o.textContent =
       (c.nhanMay || 'chưa đặt nhãn') +
-      (coSheetDanhDau(c)
-        ? loiDongBoCuoi
-          ? ' · ⚠️ lỗi đồng bộ'
-          : maAppsScriptCu
-            ? ' · ⚠️ mã Sheet cũ'
-            : choGui
-              ? ` · ⏳ ${choGui} chờ gửi`
-              : ' · ☁️'
-        : ' · chỉ máy này');
+      (coSheetDanhDau(c) ? (loiDongBoCuoi ? ' · ⚠️ lỗi đồng bộ' : choGui ? ` · ⏳ ${choGui} chờ gửi` : ' · ☁️') : ' · chỉ máy này');
   }
 
   function taoMaBiMat() {
@@ -5933,7 +5893,6 @@ function doGet(e) {
         `Chờ gửi lên Sheet: ${docJsonLuu(KHOA_DANH_DAU_CHO_GUI, []).length}` +
         (conTro && conTro.luc ? ` · Đồng bộ lần cuối: ${moTaThoiDiem(conTro.luc)}` : '') +
         (loiDongBoCuoi ? `\n⚠️ Lỗi đồng bộ gần nhất: ${loiDongBoCuoi}` : '') +
-        (maAppsScriptCu ? `\n⚠️ Mã Apps Script trên Sheet còn bản CŨ (chưa có cột "Tên sản phẩm"): ${HUONG_DAN_CAP_NHAT_MA}` : '') +
         (them ? `\n${them}` : '');
     };
     veTrangThai();
@@ -5971,11 +5930,7 @@ function doGet(e) {
       veTrangThai('⏳ Đang kiểm tra...');
       try {
         const kq = await goiSheetDanhDau('GET', `${o.urlSheet}?biMat=${encodeURIComponent(o.biMat)}&tuDong=999999999`);
-        ghiNhanPhienBanMa(kq);
-        veTrangThai(
-          `✅ Kết nối được — Sheet đang có ${Math.max(0, (Number(kq.dongCuoi) || 1) - 1)} dòng đánh dấu. Bấm Lưu để dùng.` +
-            (maAppsScriptCu ? '' : ' Mã Apps Script là bản mới (có cột "Tên sản phẩm").')
-        );
+        veTrangThai(`✅ Kết nối được — Sheet đang có ${Math.max(0, (Number(kq.dongCuoi) || 1) - 1)} dòng đánh dấu. Bấm Lưu để dùng.`);
       } catch (loi) {
         veTrangThai(`❌ ${loi.message}`);
       }

@@ -828,6 +828,15 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Dọn code: bỏ phần kiểm tra tạm đã xong (v9.71)
+
+Bỏ các thứ chỉ dùng cho đợt chuyển đổi Sheet vừa rồi (không đổi chức năng đang dùng):
+
+- **Bỏ cảnh báo "mã Apps Script cũ"** (v9.70): thông báo vàng, chữ "mã Sheet cũ" trên panel, dòng cảnh báo trong hộp 🏷️ và số `phienBanMa` trong mã Apps Script. Cảnh báo này còn báo nhầm khi mã dán đã có cột "Tên sản phẩm" nhưng thiếu số phiên bản.
+- **Bỏ hàm `doiIdThanhLink`** khỏi mã Apps Script (chỉ chạy 1 lần để đổi các dòng cũ từ số ID thành link). Script vẫn đọc được cả dòng cũ (số ID) lẫn dòng mới (link).
+- Vẫn giữ: nút **Kiểm tra kết nối**, cột **Tên sản phẩm**, thông báo lỗi Google chi tiết và tự giãn nhịp khi đồng bộ lỗi (v9.61).
+- Mã Apps Script đã triển khai trên Sheet **không cần dán lại**: bỏ số phiên bản chỉ làm mã gọn hơn, bản đang chạy vẫn tương thích.
+
 ### Tự báo khi mã Apps Script trên Sheet còn bản cũ (v9.70)
 
 Cập nhật userscript **không** tự cập nhật mã Apps Script trên Google (2 thứ riêng) — nên sau v9.69 có thể Sheet vẫn chạy mã cũ, không có cột "Tên sản phẩm". Mã Apps Script giờ trả về số phiên bản (`phienBanMa`), script so với số cần có:
