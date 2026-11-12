@@ -1180,7 +1180,7 @@ class App(tk.Tk):
                                     "Hãy chỉnh \"Bịt khe hở nét vẽ\" hoặc \"Độ nhạy\" nếu nền bị rò hay còn sót.")
             return
         self.flips.setdefault(self.path, []).append((x, y))
-        self.refresh()
+        self.schedule()   # hiện ngay bản xem nhanh (thu nhỏ), kết quả đầy đủ tính ở nền sau đó
 
     # --- Học từ lựa chọn của người dùng ---
     def update_learn_label(self):
