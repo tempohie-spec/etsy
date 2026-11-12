@@ -21,6 +21,8 @@ CLOSE = 2         # px khe ho duoc bit khi bat close_gaps
 EDGE_REACH = 3    # px toi da de lay mau vien tu vung dac gan nhat
 CONNECT_MIN = 0.08
 JOIN_DARK = 0.45      # pixel khac nen hon muc nay coi la net ve dam khi to bu khe gan khoang nen duoc giu
+POCKET_LIGHT = 0.2     # khoang kin duoc xoa lan them qua pixel khac nen it hon muc nay (nen nga xam sat net vien)
+POCKET_GREY = 26      # ... va chi qua pixel gan nhu khong mau: chenh lech giua cac kenh mau toi da muc nay (0-255)
 FAR = 6               # khe hep co the keo dai toi FAR * r px tinh tu nen da xoa (r ti le voi kich thuoc anh)
 FLANK_DARK = 0.55     # hai ben khe deu co net dam hon muc nay thi pixel o giua duoc so voi net do
 FLANK_REL = 0.65      # pixel giua hai net duoc coi la vet sot neu do dam chi bang ty le nay cua net yeu hon
@@ -188,6 +190,7 @@ class Remover:
         if o.connected:
             labels, remove = self.decide(o, flips)
             gone = remove[labels]
+            gone = self._fill_pockets(o, dist, labels, remove, gone)
             # Dai vien lan tu vung nen da xoa nhung khong vuot qua net chan (mask: khong lan vao pixel net chan)
             free = None if self.barrier is None else ~self.barrier
             # near_gone(n): pixel cach vung da xoa toi da n buoc. Khong co net chan thi tinh mot lan khoang cach
@@ -226,6 +229,24 @@ class Remover:
         if o.connected and fill is not None and fill.any():
             self._paint_dark(out, fill, dist > JOIN_DARK, max(2, round(max(self.h, self.w) / 1000) + 1) * 2)
         return out
+
+    def _fill_pockets(self, o, dist, labels, remove, gone):
+        """Khoang nen kin duoc chon xoa thi xoa tron toi net vien: phan nen nga xam (bong do, chuyen mau gan net)
+        khong du gan mau nen de thuoc khoang do nhung van lien voi no. Chi lan qua pixel nhat va gan nhu khong
+        mau (xam), khong lan vao mang mau nhat (hong, xanh nhat) va khong ap dung cho nen ngoai."""
+        inner = remove & ~self._regions_for(o)[2]
+        if not inner.any():
+            return gone
+        soft = (labels == 0) & (dist <= POCKET_LIGHT)
+        if not soft.any():
+            return gone
+        soft &= (self.rgb.max(axis=-1) - self.rgb.min(axis=-1)) <= POCKET_GREY
+        if self.barrier is not None:
+            soft &= ~self.barrier
+        seeds = inner[labels]
+        extra = ndimage.binary_dilation(seeds, iterations=0, mask=soft) & ~seeds
+        # Chi lay mang rong; dai hep 1-2 px sat net la vien khu rang cua cua net, de buoc tinh do trong suot xu ly
+        return gone | ndimage.binary_opening(extra, iterations=2)
 
     def _wide_light(self, bg, loose, r):
         """Phan sang rong (con lai sau mo hinh thai ban kinh r) cua cac pixel gan mau nen. Vung da xoa luon nam

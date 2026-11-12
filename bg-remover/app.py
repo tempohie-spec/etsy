@@ -465,10 +465,10 @@ class App(tk.Tk):
         self.opq = tk.DoubleVar(value=0.8)
         self.connected = tk.BooleanVar(value=True)
         self.close_gaps = tk.BooleanVar(value=False)
-        self.bridge_on = tk.BooleanVar(value=True)
+        self.bridge_on = tk.BooleanVar(value=False)
         self.corners_on = tk.BooleanVar(value=True)
         self.corner_light = tk.DoubleVar(value=0.45)
-        self.smooth = tk.DoubleVar(value=0.0)
+        self.smooth = tk.DoubleVar(value=1.0)
         self.view_bg = tk.StringVar(value=next(iter(PREVIEW_BGS)))
         self.profile_var = tk.StringVar()
         self.auto_suggest = tk.BooleanVar(value=True)
@@ -584,7 +584,7 @@ class App(tk.Tk):
         self.slider_feature(p, "Độ nhạy", self.tol, 0, 0.4, 0.01,
                             "Tăng nếu còn vệt nền; quá cao (từ khoảng 0,2) sẽ ăn vào phần trắng bên trong.")
         self.slider_feature(p, "Làm mịn viền (px)", self.smooth, 0, 2, 0.1,
-                            "Thêm quầng mềm ở ngoài mép để bớt răng cưa; nên thử 1.")
+                            "Thêm quầng mềm ở ngoài mép để bớt răng cưa; mặc định 1, ảnh nhỏ (khoảng 2000 px) nên dùng 0,6.")
         ttk.Separator(p).pack(fill="x", pady=(4, 10))
         self.button_feature(p, "Đề xuất vùng nền", self.suggest_now,
                             "Tự chọn các khoảng nền kín nên xóa theo những gì ứng dụng đã học.")
@@ -780,7 +780,7 @@ class App(tk.Tk):
     @staticmethod
     def options_from(d, size=None):
         """Tùy chọn xử lý từ một cấu hình; `size` là kích thước ảnh để tính độ dày xuyên nét mảnh."""
-        bridge = auto_bridge(size) if size and d.get("bridge_on", True) else 0
+        bridge = auto_bridge(size) if size and d.get("bridge_on", False) else 0
         return Options(d["bg"], d["tolerance"], d["opaque"], d["connected"], d["close_gaps"], d.get("smooth", 0.0), bridge,
                        d.get("corners", True), d.get("corner_light", 0.45))
 
