@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.8
+// @version      3.9
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -125,7 +125,7 @@
     const t = (title || '').toLowerCase();
     if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: BI_DANH_MAU.toddler };
     if (t.includes('sweatshirt') || t.includes('hoodie')) {
-      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU.sweatshirt_hoodie };
+      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU.sweatshirt_hoodie, apDungMauDon: true };
     }
     if (t.includes('comfort') && t.includes('youth')) {
       return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU.comfort_youth };
@@ -154,10 +154,18 @@
   // dien, bang cach so tung manh voi bang mau chuan (va bang bi danh) cua dung loai ao. Xem
   // giai thich o tren.
   function resolveColorForGarment(colorRaw, title) {
-    if (!colorRaw || !colorRaw.includes('/')) return colorRaw;
+    if (!colorRaw) return colorRaw;
     const thongTinAo = xacDinhBangMauTheoAo(title);
     if (!thongTinAo) return colorRaw;
     const { mau: bangMau, biDanh } = thongTinAo;
+    // Mau DON (khong co "/"): mac dinh giu nguyen; chi Sweatshirt/Hoodie (apDungMauDon) moi
+    // quy doi theo bang bi danh (vd "Forest" -> "Forest Green", "Blue" -> "Light Blue").
+    if (!colorRaw.includes('/')) {
+      if (!thongTinAo.apDungMauDon) return colorRaw;
+      const chuanDon = chuanHoaTenMau(colorRaw);
+      const khoaKhop = Object.keys(biDanh).find((k) => chuanHoaTenMau(k) === chuanDon);
+      return khoaKhop !== undefined ? biDanh[khoaKhop] : colorRaw;
+    }
 
     const biDanhChuanHoa = {};
     Object.keys(biDanh).forEach((k) => { biDanhChuanHoa[chuanHoaTenMau(k)] = biDanh[k]; });

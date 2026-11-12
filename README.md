@@ -2263,6 +2263,8 @@ Các bí danh trong **bảng chuẩn** hiện tại (bản 1):
 | Sweatshirt/Hoodie | `Pink` | `Light Pink` |
 | Sweatshirt/Hoodie | `Forest` | `Forest Green` (v3.8) |
 
+Từ v3.9, riêng **Sweatshirt/Hoodie** các bí danh trên áp dụng cả cho **màu đơn không có `/`** (vd `Forest` → `Forest Green`, `Blue` → `Light Blue`, `Pink` → `Light Pink`). Các loại áo khác vẫn giữ nguyên màu đơn.
+
 ### Dùng chung 1 bảng cho nhiều shop (mỗi shop 1 trình duyệt)
 
 Bảng `BI_DANH_MAU` đặt cứng trong code nên mọi shop luôn giống nhau. Cần đổi quy đổi màu: nhờ sửa
