@@ -135,6 +135,56 @@ class ScrollPanel(ttk.Frame):
             w = w.master
 
 
+class Tooltip:
+    """Chú thích hiện khi rê chuột vào một ô điều khiển và dừng lại một lúc."""
+    DELAY = 450   # ms
+
+    def __init__(self, widget, text):
+        self.widget, self.text = widget, text
+        self._job = self._win = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        for seq in ("<Leave>", "<ButtonPress>", "<Destroy>"):
+            widget.bind(seq, self.hide, add="+")
+
+    def _schedule(self, _event=None):
+        self.hide()
+        self._job = self.widget.after(self.DELAY, self.show)
+
+    def show(self):
+        self._job = None
+        if self._win is not None or not self.widget.winfo_exists():
+            return
+        self._win = win = tk.Toplevel(self.widget)
+        win.wm_overrideredirect(True)
+        try:
+            win.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        tk.Label(win, text=self.text, justify="left", wraplength=320, background="#ffffe1", foreground="#000000",
+                 relief="solid", borderwidth=1, padx=6, pady=4).pack()
+        win.update_idletasks()
+        # Đặt ngay dưới con trỏ, không tràn ra ngoài màn hình
+        x = min(self.widget.winfo_pointerx() + 14, win.winfo_screenwidth() - win.winfo_reqwidth() - 4)
+        y = self.widget.winfo_pointery() + 18
+        if y + win.winfo_reqheight() > win.winfo_screenheight() - 4:
+            y = self.widget.winfo_pointery() - win.winfo_reqheight() - 10
+        win.wm_geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+    def hide(self, _event=None):
+        if self._job is not None:
+            try:
+                self.widget.after_cancel(self._job)
+            except tk.TclError:
+                pass
+            self._job = None
+        if self._win is not None:
+            try:
+                self._win.destroy()
+            except tk.TclError:
+                pass
+            self._win = None
+
+
 class CompareCanvas(tk.Canvas):
     """Xem trước/sau: kéo thanh chia, lăn chuột để zoom, kéo bên ngoài thanh để di chuyển ảnh,
     bấm (không kéo) vào ảnh để gọi on_click(x, y) theo tọa độ ảnh gốc."""
@@ -429,26 +479,58 @@ class App(tk.Tk):
         self.barrier_w = tk.IntVar(value=8)
         self.threshold = tk.DoubleVar(value=self.learner.threshold)
 
-        bar = ttk.Frame(self, padding=(8, 8, 8, 0))
-        bar.pack(fill="x")
-        ttk.Button(bar, text="Chọn ảnh", command=self.pick).pack(side="left")
-        ttk.Button(bar, text="Lưu ảnh này", command=self.save_one).pack(side="left", padx=4)
-        self.batch_btn = ttk.Button(bar, text="Xử lý cả lô", command=self.save_all)
-        self.batch_btn.pack(side="left")
-        ttk.Button(bar, text="Đóng ảnh này", command=self.close_current).pack(side="left", padx=(12, 0))
-        ttk.Button(bar, text="Hoàn tác (Ctrl+Z)", command=self.undo).pack(side="left", padx=(12, 0))
-        ttk.Button(bar, text="Làm lại (Ctrl+Y)", command=self.redo).pack(side="left", padx=4)
-        ttk.Button(bar, text="Khôi phục ảnh gốc", command=self.restore_original).pack(side="left", padx=(12, 0))
-
         bold = tkfont.nametofont("TkDefaultFont").copy()
         bold.configure(weight="bold")
-        head = tkfont.nametofont("TkDefaultFont").copy()
-        head.configure(weight="bold", size=head.cget("size") + 2)
         style = ttk.Style(self)
         for name in ("Feature.TLabel", "Feature.TCheckbutton", "Feature.TButton", "Feature.TRadiobutton"):
             style.configure(name, font=bold)
-        style.configure("Section.TLabel", font=head, foreground="#1d4f91")
         style.configure("Desc.TLabel", foreground="#555555")
+
+        # --- Thanh trên cùng: file, hoàn tác, công cụ nét chắn, cấu hình ---
+        bar = ttk.Frame(self, padding=(8, 8, 8, 0))
+        bar.pack(fill="x")
+
+        # Nhóm cấu hình nằm bên phải, dựng trước để luôn đủ chỗ khi cửa sổ hẹp
+        right = ttk.Frame(bar)
+        right.pack(side="right", padx=(8, 0))
+        menu_btn = ttk.Menubutton(right, text="Lưu / Xóa", takefocus=0)
+        menu = tk.Menu(menu_btn, tearoff=False)
+        menu.add_command(label="Lưu cấu hình hiện tại...", command=self.save_profile)
+        menu.add_command(label="Đặt cấu hình đang chọn làm mặc định", command=self.set_default_profile)
+        menu.add_command(label="Xóa cấu hình đang chọn", command=self.delete_profile)
+        menu_btn["menu"] = menu
+        self.profile_menu = menu
+        menu_btn.pack(side="right")
+        Tooltip(menu_btn, "Lưu các tùy chọn đang dùng thành một cấu hình có tên, đặt cấu hình mặc định khi mở ứng dụng, hoặc xóa cấu hình.")
+        self.profile_box = ttk.Combobox(right, textvariable=self.profile_var, state="readonly", width=18)
+        self.profile_box.pack(side="right", padx=(4, 4))
+        self.profile_box.bind("<<ComboboxSelected>>", self.on_profile_selected)
+        Tooltip(self.profile_box, "Chọn để áp dụng một bộ tùy chọn đã lưu cho ảnh đang mở.")
+        ttk.Label(right, text="Cấu hình:").pack(side="right")
+
+        def tool_button(text, command, tip, gap=4):
+            b = ttk.Button(bar, text=text, command=command, width=-6)   # không ép bề rộng tối thiểu của giao diện
+            b.pack(side="left", padx=(gap, 0))
+            Tooltip(b, tip)
+            return b
+
+        tool_button("Chọn ảnh", self.pick, "Mở một hay nhiều ảnh (cũng có thể kéo thả ảnh hoặc thư mục vào cửa sổ).", gap=0)
+        tool_button("Lưu ảnh này", self.save_one, "Lưu ảnh đang mở thành PNG nền trong suốt.")
+        self.batch_btn = tool_button("Xử lý cả lô", self.save_all, "Tách nền và lưu tất cả ảnh đang mở vào một thư mục.")
+        tool_button("Đóng ảnh này", self.close_current, "Bỏ ảnh đang mở khỏi danh sách.")
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
+        tool_button("Hoàn tác", self.undo, "Hoàn tác thao tác vừa làm (Ctrl+Z).", gap=0)
+        tool_button("Làm lại", self.redo, "Làm lại thao tác vừa hoàn tác (Ctrl+Y).")
+        tool_button("Khôi phục ảnh gốc", self.restore_original, "Bỏ mọi vùng đã bấm chọn và nét chắn của ảnh đang mở.")
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
+        draw = ttk.Checkbutton(bar, text="Vẽ nét chắn (B)", variable=self.draw_on, style="Toolbutton", command=self.toggle_draw)
+        draw.pack(side="left")
+        Tooltip(draw, "Bật rồi kéo chuột trái vẽ qua chỗ hở của viền để nền không tràn vào trong. "
+                      "Nét chắn không xuất hiện trong ảnh lưu ra. Phím tắt: B.")
+        erase = ttk.Checkbutton(bar, text="Tẩy (E)", variable=self.erase_on, style="Toolbutton", command=self.toggle_erase)
+        erase.pack(side="left", padx=(4, 0))
+        Tooltip(erase, "Bật rồi bấm hoặc kéo chuột trái qua nét chắn để xóa từng nét. Phím tắt: E.")
+        tool_button("Xóa nét chắn", self.clear_barriers, "Bỏ mọi nét chắn đã vẽ trên ảnh đang mở (Ctrl+Z để lấy lại).")
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, padx=8, pady=8)
@@ -463,86 +545,86 @@ class App(tk.Tk):
         self.listbox.bind("<<ListboxSelect>>", self.on_list_select)
         panel = ScrollPanel(body, PANEL_WIDTH)
         panel.pack(side="right", fill="y", padx=(8, 0))
-        self.view = CompareCanvas(body)
+
+        # --- Khung ảnh, bên dưới là thanh hiển thị ---
+        center = ttk.Frame(body)
+        center.pack(side="left", fill="both", expand=True, padx=(8, 0))
+        viewbar = ttk.Frame(center, padding=(0, 6, 0, 0))
+        viewbar.pack(side="bottom", fill="x")
+        self.view = CompareCanvas(center)
         self.view.on_click = self.on_click
         self.view.on_stroke = self.on_stroke
         self.view.on_erase = self.on_erase
         self.view.on_erase_done = self.on_erase_done
         self.view.cursors = cursor_specs()
-        self.view.pack(side="left", fill="both", expand=True, padx=(8, 0))
-        p = panel.inner
-
-        self.section(p, "Hiển thị")
-        self.check_feature(p, "So sánh trước/sau", self.compare_on,
-                           "Hiện ảnh gốc bên trái, kết quả bên phải; kéo thanh chia để so sánh.",
-                           command=lambda: self.view.set_compare(self.compare_on.get()))
-        ttk.Label(p, text="Nền xem trước", style="Feature.TLabel").pack(anchor="w")
-        box = ttk.Combobox(p, textvariable=self.view_bg, state="readonly", width=24, values=list(PREVIEW_BGS))
-        box.pack(anchor="w", pady=(2, 0))
+        self.view.pack(side="top", fill="both", expand=True)
+        ttk.Label(viewbar, text="Nền xem thử:").pack(side="left")
+        box = ttk.Combobox(viewbar, textvariable=self.view_bg, state="readonly", width=20, values=list(PREVIEW_BGS))
+        box.pack(side="left", padx=(4, 12))
         box.bind("<<ComboboxSelected>>", lambda e: self.view.set_background(PREVIEW_BGS[self.view_bg.get()]))
-        self.describe(p, "Màu nền để xem kết quả; ảnh lưu ra vẫn trong suốt.")
-        self.button_feature(p, "Vừa khung", lambda: self.view.reset_view(),
-                            "Trả ảnh về vừa khung sau khi phóng to/thu nhỏ (hoặc bấm đúp vào ảnh).")
+        Tooltip(box, "Màu nền để xem kết quả; ảnh lưu ra vẫn trong suốt.")
+        cmp_box = ttk.Checkbutton(viewbar, text="So sánh trước/sau", variable=self.compare_on,
+                                  command=lambda: self.view.set_compare(self.compare_on.get()))
+        cmp_box.pack(side="left", padx=(0, 12))
+        Tooltip(cmp_box, "Hiện ảnh gốc bên trái, kết quả bên phải; kéo thanh chia để so sánh.")
+        fit = ttk.Button(viewbar, text="Vừa khung", command=lambda: self.view.reset_view())
+        fit.pack(side="left")
+        Tooltip(fit, "Trả ảnh về vừa khung sau khi phóng to/thu nhỏ (hoặc bấm đúp vào ảnh).")
 
-        self.section(p, "Tách nền")
-        ttk.Label(p, text="Màu nền ảnh gốc", style="Feature.TLabel").pack(anchor="w")
+        # --- Bảng bên phải: chỉ những thứ dùng với mọi ảnh; phần còn lại nằm trong "Nâng cao" ---
+        p = panel.inner
+        lab = ttk.Label(p, text="Màu nền ảnh gốc", style="Feature.TLabel")
+        lab.pack(anchor="w", pady=(4, 0))
         radios = ttk.Frame(p)
-        radios.pack(anchor="w")
+        radios.pack(anchor="w", pady=(0, 10))
         for label, v in (("Tự động", "auto"), ("Nền trắng", "white"), ("Nền đen", "black")):
             ttk.Radiobutton(radios, text=label, value=v, variable=self.bg, command=self.schedule).pack(side="left", padx=(0, 8))
-        self.describe(p, "Tự nhận nền trắng hay đen; chọn tay nếu ứng dụng nhận sai.")
-        self.check_feature(p, "Chỉ xóa nền nối với mép ảnh", self.connected,
-                           "Giữ lại phần trắng/đen nằm bên trong thiết kế (găng tay, mắt, viền lông...).")
-        self.check_feature(p, "Xuyên nét mảnh", self.bridge_on,
-                           "Xóa luôn các khoảng nền bị dây đèn, nét chữ chia cắt; độ dày tự tính theo kích thước ảnh.")
-        self.check_feature(p, "Xóa vệt trắng ở góc nhọn", self.corners_on,
-                           "Làm sạch vệt nền còn sót trong khe hẹp giữa hai nét viền; vệt ở chỗ hai nét gần chạm nhau "
-                           "được tô bằng màu nét bên cạnh để không thủng vào phần trắng bên trong.")
-        self.check_feature(p, "Bịt khe hở nét vẽ", self.close_gaps,
-                           "Chặn nền rò vào bên trong qua khe hở nhỏ của nét viền.")
-        self.check_feature(p, "Vẽ nét chắn (B)", self.draw_on,
-                           "Bật rồi kéo chuột trái vẽ qua chỗ hở của viền để nền không tràn vào trong. "
-                           "Nét chắn không xuất hiện trong ảnh lưu ra.", command=self.toggle_draw)
-        self.check_feature(p, "Tẩy nét chắn (E)", self.erase_on,
-                           "Bật rồi bấm hoặc kéo chuột trái qua nét chắn để xóa từng nét.", command=self.toggle_erase)
-        self.slider_feature(p, "Độ dày nét chắn (px)", self.barrier_w, 2, 40, 1,
-                            "Độ dày nét vẽ tiếp theo, tính theo pixel của ảnh; nên vừa đủ phủ kín chỗ hở.",
-                            integer=True, on_change=lambda: setattr(self.view, "draw_width", self.barrier_w.get()))
-        self.button_feature(p, "Xóa nét chắn của ảnh này", self.clear_barriers,
-                            "Bỏ mọi nét chắn đã vẽ trên ảnh đang mở (Ctrl+Z để lấy lại).")
+        for w in (lab, radios, *radios.winfo_children()):
+            Tooltip(w, "Tự nhận nền trắng hay đen; chọn tay nếu ứng dụng nhận sai.")
         self.slider_feature(p, "Độ nhạy", self.tol, 0, 0.4, 0.01,
                             "Tăng nếu còn vệt nền; quá cao (từ khoảng 0,2) sẽ ăn vào phần trắng bên trong.")
-        self.slider_feature(p, "Độ đặc", self.opq, 0.3, 1.0, 0.01,
-                            "Giảm nếu màu nhạt bị trong suốt; tăng để viền chuyển mềm hơn.")
         self.slider_feature(p, "Làm mịn viền (px)", self.smooth, 0, 2, 0.1,
                             "Thêm quầng mềm ở ngoài mép để bớt răng cưa; nên thử 1.")
-        self.slider_feature(p, "Độ nhạy góc nhọn", self.corner_light, 0.2, 0.65, 0.05,
-                            "Cao hơn thì xóa được cả vệt nhạt màu ở góc nhọn; chỉ tác động khe hẹp sát nền.")
-
-        self.section(p, "Cấu hình")
-        ttk.Label(p, text="Cấu hình đã lưu", style="Feature.TLabel").pack(anchor="w")
-        self.profile_box = ttk.Combobox(p, textvariable=self.profile_var, state="readonly", width=30)
-        self.profile_box.pack(anchor="w", pady=(2, 2))
-        self.profile_box.bind("<<ComboboxSelected>>", self.on_profile_selected)
-        self.describe(p, "Chọn để áp dụng một bộ tùy chọn đã lưu cho ảnh đang mở.")
-        self.button_feature(p, "Lưu cấu hình hiện tại...", self.save_profile, "Đặt tên và lưu các tùy chọn đang dùng.")
-        self.button_feature(p, "Đặt làm mặc định", self.set_default_profile,
-                            "Tự áp dụng cấu hình đang chọn mỗi khi mở ứng dụng.")
-        self.button_feature(p, "Xóa cấu hình", self.delete_profile, "Xóa cấu hình đang chọn khỏi danh sách.")
-
-        self.section(p, "Học từ lựa chọn của bạn")
-        self.button_feature(p, "Học từ ảnh này", self.learn_now,
-                            "Lấy các khoảng nền đang xóa/giữ trên ảnh này làm đáp án để ứng dụng học.")
+        ttk.Separator(p).pack(fill="x", pady=(4, 10))
         self.button_feature(p, "Đề xuất vùng nền", self.suggest_now,
-                            "Tự chọn các khoảng nền kín nên xóa theo những gì đã học.")
+                            "Tự chọn các khoảng nền kín nên xóa theo những gì ứng dụng đã học.")
+        self.button_feature(p, "Học từ ảnh này", self.learn_now,
+                            "Lấy các khoảng nền đang xóa/giữ trên ảnh này làm đáp án để ứng dụng học. "
+                            "Chỉ bấm khi kết quả của ảnh đã đúng.")
         self.check_feature(p, "Tự đề xuất khi mở ảnh", self.auto_suggest,
                            "Tự chạy đề xuất cho mỗi ảnh mới mở và khi xử lý cả lô.", command=lambda: None)
-        self.slider_feature(p, "Ngưỡng đề xuất", self.threshold, 0.05, 0.95, 0.05,
+        ttk.Separator(p).pack(fill="x", pady=(4, 6))
+        self.adv_open = False
+        self.adv_btn = ttk.Button(p, command=self.toggle_advanced)
+        self.adv_btn.pack(anchor="w", pady=(0, 6))
+        Tooltip(self.adv_btn, "Các tùy chọn ít khi phải đổi: độ đặc, góc nhọn, khe hở, nét mảnh, ngưỡng đề xuất, dữ liệu đã học.")
+        self.adv = ttk.Frame(p)
+        a = self.adv
+        self.slider_feature(a, "Độ đặc", self.opq, 0.3, 1.0, 0.01,
+                            "Giảm nếu màu nhạt bị trong suốt; tăng để viền chuyển mềm hơn.")
+        self.slider_feature(a, "Độ nhạy góc nhọn", self.corner_light, 0.2, 0.65, 0.05,
+                            "Cao hơn thì xóa được cả vệt nhạt màu ở góc nhọn; chỉ tác động khe hẹp sát nền.")
+        self.slider_feature(a, "Độ dày nét chắn", self.barrier_w, 2, 40, 1,
+                            "Độ dày nét chắn vẽ tiếp theo, tính theo pixel của ảnh; nên vừa đủ phủ kín chỗ hở.",
+                            integer=True, on_change=lambda: setattr(self.view, "draw_width", self.barrier_w.get()))
+        self.check_feature(a, "Xóa vệt trắng ở góc nhọn", self.corners_on,
+                           "Làm sạch vệt nền còn sót trong khe hẹp giữa hai nét viền; vệt ở chỗ hai nét gần chạm nhau "
+                           "được tô bằng màu nét bên cạnh để không thủng vào phần trắng bên trong.")
+        self.check_feature(a, "Bịt khe hở nét vẽ", self.close_gaps,
+                           "Chặn nền rò vào bên trong qua khe hở nhỏ của nét viền.")
+        self.check_feature(a, "Xuyên nét mảnh", self.bridge_on,
+                           "Xóa luôn các khoảng nền bị dây đèn, nét chữ chia cắt; độ dày tự tính theo kích thước ảnh.")
+        self.check_feature(a, "Chỉ xóa nền nối với mép ảnh", self.connected,
+                           "Giữ lại phần trắng/đen nằm bên trong thiết kế (găng tay, mắt, viền lông...). "
+                           "Tắt thì xóa mọi pixel gần màu nền, kể cả bên trong hình.")
+        ttk.Separator(a).pack(fill="x", pady=(6, 10))
+        self.slider_feature(a, "Ngưỡng đề xuất", self.threshold, 0.05, 0.95, 0.05,
                             "Thấp: đề xuất nhiều vùng hơn nhưng dễ xóa nhầm hơn.", on_change=self.on_threshold)
-        self.button_feature(p, "Xóa dữ liệu đã học", self.forget, "Bỏ toàn bộ dữ liệu đã học để học lại từ đầu.")
-        self.learn_label = ttk.Label(p, style="Desc.TLabel", wraplength=DESC_WRAP, justify="left")
-        self.learn_label.pack(anchor="w", pady=(4, 0))
+        self.learn_label = ttk.Label(a, style="Desc.TLabel", wraplength=DESC_WRAP, justify="left")
+        self.learn_label.pack(anchor="w", pady=(0, 8))
+        self.button_feature(a, "Xóa dữ liệu đã học", self.forget, "Bỏ toàn bộ dữ liệu đã học để học lại từ đầu.")
         self.update_learn_label()
+        self.toggle_advanced(False)
 
         self.status = ttk.Label(
             self, padding=(8, 0, 8, 8), wraplength=1360,
@@ -559,7 +641,7 @@ class App(tk.Tk):
         while stack:
             w = stack.pop()
             stack.extend(w.winfo_children())
-            if w.winfo_class() in ("TButton", "TCheckbutton", "TRadiobutton"):
+            if w.winfo_class() in ("TButton", "TCheckbutton", "TRadiobutton", "TMenubutton", "Toolbutton"):
                 w.configure(takefocus=0)
         for key, action in (("b", self.key_draw), ("B", self.key_draw), ("e", self.key_erase), ("E", self.key_erase)):
             self.bind_all(f"<KeyPress-{key}>", action)
@@ -588,29 +670,32 @@ class App(tk.Tk):
         self.full_worker.close()
         super().destroy()
 
-    # --- Dựng các khối tính năng: tên in đậm, mô tả chữ thường bên dưới ---
-    def section(self, parent, title):
-        ttk.Label(parent, text=title, style="Section.TLabel").pack(anchor="w", pady=(12, 2))
-        ttk.Separator(parent).pack(fill="x", pady=(0, 6))
-
-    def describe(self, parent, text, indent=0):
-        ttk.Label(parent, text=text, style="Desc.TLabel", wraplength=DESC_WRAP - indent, justify="left").pack(
-            anchor="w", padx=(indent, 0), pady=(0, 8))
+    # --- Dựng các khối tính năng: tên in đậm, mô tả hiện khi rê chuột vào ---
+    def toggle_advanced(self, show=None):
+        """Mở/đóng phần tùy chọn nâng cao của bảng bên phải."""
+        self.adv_open = (not self.adv_open) if show is None else show
+        if self.adv_open:
+            self.adv.pack(fill="x")
+        else:
+            self.adv.pack_forget()
+        self.adv_btn.config(text="Nâng cao (bấm để đóng)" if self.adv_open else "Nâng cao (bấm để mở)")
 
     def check_feature(self, parent, name, var, desc, command=None):
-        ttk.Checkbutton(parent, text=name, variable=var, style="Feature.TCheckbutton",
-                        command=command or self.schedule).pack(anchor="w")
-        self.describe(parent, desc, indent=22)
+        w = ttk.Checkbutton(parent, text=name, variable=var, style="Feature.TCheckbutton", command=command or self.schedule)
+        w.pack(anchor="w", pady=(0, 8))
+        Tooltip(w, desc)
 
     def slider_feature(self, parent, name, var, lo, hi, step, desc, **kw):
         row = ttk.Frame(parent)
-        row.pack(fill="x")
+        row.pack(fill="x", pady=(0, 10))
         self.numeric_slider(row, name, var, lo, hi, step, bold=True, **kw)
-        self.describe(parent, desc)
+        for w in (row, *row.winfo_children()):
+            Tooltip(w, desc)
 
     def button_feature(self, parent, name, command, desc):
-        ttk.Button(parent, text=name, command=command, style="Feature.TButton").pack(anchor="w")
-        self.describe(parent, desc)
+        w = ttk.Button(parent, text=name, command=command, style="Feature.TButton")
+        w.pack(anchor="w", pady=(0, 8))
+        Tooltip(w, desc)
 
     def numeric_slider(self, parent, text, var, lo, hi, step, integer=False, on_change=None, bold=False):
         """Thanh trượt kèm ô nhập số: kéo thanh (làm tròn theo bước) hoặc gõ số rồi nhấn Enter."""
@@ -624,7 +709,7 @@ class App(tk.Tk):
 
         txt = tk.StringVar(value=fmt.format(var.get()))
         if bold:
-            ttk.Label(parent, text=text, style="Feature.TLabel", width=17).pack(side="left")
+            ttk.Label(parent, text=text, style="Feature.TLabel", width=18).pack(side="left")
         else:
             ttk.Label(parent, text=text).pack(side="left", padx=(8, 2))
 
@@ -923,6 +1008,8 @@ class App(tk.Tk):
         if self.src is not None and self.files:
             self.flush()
             self.doc_settings[self.path] = self.settings()
+            if self.remover is not None:
+                self.remover._base = None   # bỏ kết quả trung gian của ảnh vừa rời để đỡ tốn bộ nhớ
         self.index = i % len(self.files)
         path = self.path
         self.sync_list()
@@ -1211,7 +1298,7 @@ class App(tk.Tk):
             messagebox.showinfo("Học từ ảnh này", "Hãy chọn ảnh trước.")
             return
         if not self.connected.get():
-            messagebox.showinfo("Học từ ảnh này", "Hãy bật \"Chỉ xóa nền nối với mép ảnh\": việc học áp dụng cho các khoảng nền kín.")
+            messagebox.showinfo("Học từ ảnh này", "Hãy bật \"Chỉ xóa nền nối với mép ảnh\" (trong mục Nâng cao): việc học áp dụng cho các khoảng nền kín.")
             return
         if not self._learn_warned:
             if not messagebox.askyesno(
@@ -1291,7 +1378,7 @@ class App(tk.Tk):
         if new:
             lines = [f"Đã đề xuất xóa {new} khoảng nền kín (ngưỡng {th})."]
         else:
-            lines = [f"Không có khoảng nền kín nào đạt ngưỡng {th}.", "Thử giảm \"Ngưỡng đề xuất\" để có thêm đề xuất."]
+            lines = [f"Không có khoảng nền kín nào đạt ngưỡng {th}.", "Thử giảm \"Ngưỡng đề xuất\" (trong mục Nâng cao) để có thêm đề xuất."]
         if dropped:
             lines.append(f"Đã bỏ {dropped} đề xuất của lần trước.")
         if rejected:

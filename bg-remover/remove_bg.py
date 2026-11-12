@@ -62,6 +62,8 @@ class Remover:
         self._auto = None
         self._dist = {}
         self._regions = {}
+        self._wide = {}           # bo dem: phan sang rong (khong phai khe hep), khong phu thuoc vung dang xoa
+        self._base = None         # bo dem: ket qua truoc buoc lam min vien, de doi "Lam min vien" khong tinh lai tu dau
         self.barrier = None       # net chan nguoi dung ve (mang bool H x W): nen khong duoc thong qua
         self._barrier_ver = 0
 
@@ -161,6 +163,22 @@ class Remover:
 
         flips: cac diem (x, y) tren anh ma nguoi dung bam de doi xoa/giu vung nen do.
         """
+        # Moi thu truoc buoc lam min vien duoc luu lai: chi doi "Lam min vien" thi khong phai tinh lai
+        key = (o.bg, o.tolerance, o.opaque, o.connected, o.close_gaps, o.bridge, o.corners, o.corner_light,
+               tuple((int(x), int(y)) for x, y in flips), self._barrier_ver)
+        cached = self._base
+        if cached is not None and cached[0] == key:
+            out = cached[1]
+        else:
+            out = self._compose(o, flips)
+            self._base = (key, out)
+        if o.smooth > 0:
+            out = out.copy()
+            self._feather(out, o.smooth)
+        return Image.fromarray(out, "RGBA")
+
+    def _compose(self, o, flips):
+        """Ket qua RGBA (mang uint8) truoc buoc lam min vien."""
         bg = self.background(o.bg)
         dist = self.distance(bg)
         tol = o.tolerance
@@ -172,13 +190,20 @@ class Remover:
             gone = remove[labels]
             # Dai vien lan tu vung nen da xoa nhung khong vuot qua net chan (mask: khong lan vao pixel net chan)
             free = None if self.barrier is None else ~self.barrier
-            zone = ndimage.binary_dilation(gone, iterations=GROW + (CLOSE if o.close_gaps else 0), mask=free)
+            # near_gone(n): pixel cach vung da xoa toi da n buoc. Khong co net chan thi tinh mot lan khoang cach
+            # toi vung da xoa roi so nguong (nhanh hon nhieu so voi gian no lap lai, ket qua y het)
+            if free is None:
+                gd = _steps_to(gone)
+                near_gone = lambda n: gd <= n
+            else:
+                near_gone = lambda n: ndimage.binary_dilation(gone, iterations=n, mask=free)
+            zone = near_gone(GROW + (CLOSE if o.close_gaps else 0))
             # Chi pixel net ve (nhan 0) moi can tinh lai do trong suot; khoang nen duoc giu nam sat vung bi xoa
             # (cach mot net rat manh) phai giu nguyen, neu khong se thanh lo li ti tren vung trang
             ring = zone & (labels == 0)
             fill = None
             if o.corners:
-                specks, fill = self._corner_specks(dist, labels, gone, ring, o)
+                specks, fill = self._corner_specks(dist, labels, gone, ring, o, near_gone)
                 gone = gone | specks   # vet sot trong khe goc nhon xoa han (khong tinh do trong suot theo do trang)
                 ring &= ~specks
         else:
@@ -200,11 +225,27 @@ class Remover:
         out[ring, 3] = (alpha * self.a_in[ring] + 0.5).astype(np.uint8)
         if o.connected and fill is not None and fill.any():
             self._paint_dark(out, fill, dist > JOIN_DARK, max(2, round(max(self.h, self.w) / 1000) + 1) * 2)
-        if o.smooth > 0:
-            self._feather(out, o.smooth)
-        return Image.fromarray(out, "RGBA")
+        return out
 
-    def _corner_specks(self, dist, labels, gone, ring, o):
+    def _wide_light(self, bg, loose, r):
+        """Phan sang rong (con lai sau mo hinh thai ban kinh r) cua cac pixel gan mau nen. Vung da xoa luon nam
+        trong cac pixel gan mau nen, nen ket qua khong phu thuoc vung nao dang xoa hay giu: luu lai dung chung."""
+        key = (bg, loose, r, self._barrier_ver)
+        cached = self._wide.get(key)
+        if cached is None:
+            light = self.distance(bg) < loose
+            if self.barrier is not None:
+                light &= ~self.barrier
+                wide = ndimage.binary_opening(light, iterations=r)
+            else:
+                # Co r lan = cach pixel toi (hoac mep anh) hon r buoc; gian r lan = cach phan con lai toi da r buoc
+                core = ndimage.distance_transform_cdt(np.pad(light, 1), metric="taxicab")[1:-1, 1:-1] > r
+                wide = _steps_to(core) <= r
+            cached = (light, wide)
+            self._wide = {key: cached}
+        return cached
+
+    def _corner_specks(self, dist, labels, gone, ring, o, near_gone):
         """Pixel sang nam trong khe hep (goc nhon giua hai net vien) va noi lien voi vung nen da xoa.
 
         Khe qua hep nen khong duoc tinh la nen, lai nam ngoai dai vien nen con lai vet trang. Chi lay phan
@@ -218,13 +259,11 @@ class Remover:
         r = max(2, round(max(self.h, self.w) / 1000) + 1)
         free = None if self.barrier is None else ~self.barrier
         loose = max(o.corner_light, FLANK_LIGHT)
-        light = (dist < loose) | gone
-        if free is not None:
-            light &= free   # duong noi qua cac pixel sang khong duoc vuot qua net chan
+        # Pixel sang (gan mau nen, khong nam tren net chan) va phan rong cua chung; vung da xoa nam ca trong do
+        light, wide = self._wide_light(self.background(o.bg), loose, r)
         # Chi xet pixel net ve sang (khong thuoc vung nen nao); vung nen duoc giu lai thi khong bao gio dung toi
         cand = labels == 0
-        reach = ndimage.binary_dilation(gone, iterations=FAR * r, mask=free)
-        thin = light & ~ndimage.binary_opening(light, iterations=r) & cand & reach & ~gone
+        thin = light & ~wide & cand & near_gone(FAR * r) & ~gone
         empty = np.zeros_like(thin)
         if not thin.any():
             return empty, empty
@@ -234,7 +273,7 @@ class Remover:
         flanked = flank >= FLANK_DARK
         # Chi pixel o dau khe (sat nen da xoa) moi duoc xoa theo do nhay tuyet doi; chi tiet sang ben trong
         # hinh (diem highlight...) nam xa hon, chi xoa khi nam giua hai net dam
-        near = ndimage.binary_dilation(gone, iterations=2 * r, mask=free)[ys, xs]
+        near = near_gone(2 * r)[ys, xs]
         ok = flanked & ((d < o.corner_light) | (d < FLANK_REL * flank))
         ok |= near & ~ring[ys, xs] & (d < o.corner_light)
         thin = empty
@@ -242,7 +281,11 @@ class Remover:
         if not thin.any():
             return thin, empty
         comp, n = ndimage.label(thin, structure=np.ones((3, 3), bool))
-        touch = np.unique(comp[ndimage.binary_dilation(gone | ring) & thin])
+        # Thanh phan nao cham (4 huong) vao vung da xoa hoac dai vien: xet ngay tai cac pixel cua khe
+        ys, xs = np.nonzero(thin)
+        edge = np.pad(gone | ring, 1)
+        hit = edge[ys + 1, xs + 1] | edge[ys, xs + 1] | edge[ys + 2, xs + 1] | edge[ys + 1, xs] | edge[ys + 1, xs + 2]
+        touch = np.unique(comp[ys[hit], xs[hit]])
         keep = np.zeros(n + 1, bool)
         keep[touch] = True
         keep[0] = False
@@ -252,7 +295,7 @@ class Remover:
         # vien nguc va vien chan thu): xoa se thanh lo thung vao phan trang. Phan khe nam gan khoang trang do
         # (do theo duong di qua pixel sang) khong xoa ma to bang mau net ben canh, de hai net lien nhau.
         kept_inside = (labels > 0) & ~gone
-        if kept_inside.any():
+        if kept_inside.any() and specks.any():
             guard = ndimage.binary_dilation(kept_inside, iterations=2 * r, mask=light & ~gone) & specks
             if guard.any():
                 specks &= ~guard
@@ -362,6 +405,13 @@ def _flank(dist, ys, xs, reach):
             np.maximum(b, pad[ys + reach - dy * k, xs + reach - dx * k], out=b)
         np.maximum(best, np.minimum(a, b), out=best)
     return best
+
+
+def _steps_to(mask):
+    """So buoc (len/xuong/trai/phai) tu moi pixel toi pixel True gan nhat cua mask; rat lon neu mask rong."""
+    if not mask.any():
+        return np.full(mask.shape, 1 << 30, np.int32)
+    return ndimage.distance_transform_cdt(~mask, metric="taxicab")
 
 
 def barrier_mask(strokes, size, scale=1.0):
