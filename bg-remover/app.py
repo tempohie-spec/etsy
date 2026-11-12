@@ -11,10 +11,11 @@ from tkinter import font as tkfont
 
 import numpy as np
 from PIL import Image, ImageTk
+from scipy import ndimage
 
 from compare import fit_view, render_view
 from cursors import FALLBACK as FALLBACK_CURSORS, cursor_specs
-from learn import MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, suggest_points
+from learn import MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, representative_point, suggest_points
 from remove_bg import EXTS, SUFFIX, Options, Remover, auto_bridge, barrier_mask
 from settings import Store
 from version import VERSION
@@ -30,6 +31,8 @@ HISTORY_MAX = 100
 STROKE_COLOR = "#ff2fd0"   # màu hiển thị nét chắn
 PANEL_WIDTH = 340    # bề rộng bảng tùy chọn bên phải
 DESC_WRAP = PANEL_WIDTH - 40
+POCKET_MIN = 12      # px: khoảng nền kín nhỏ hơn mức này là đốm nhiễu, "Xóa tất cả khoảng nền kín" bỏ qua
+POCKET_MIN_SHARE = 2e-6   # ... hoặc nhỏ hơn tỉ lệ này của diện tích ảnh (khoảng 40 px với ảnh 4500 px)
 CACHE_SIZE = 4       # số ảnh vừa mở được giữ sẵn trong bộ nhớ để chuyển lại gần như tức thì
 BATCH_WORKERS = max(1, min(4, (os.cpu_count() or 2) - 1))   # luồng xử lý cả lô, chừa một nhân cho giao diện
 
@@ -586,6 +589,9 @@ class App(tk.Tk):
         self.slider_feature(p, "Làm mịn viền (px)", self.smooth, 0, 2, 0.1,
                             "Thêm quầng mềm ở ngoài mép để bớt răng cưa; mặc định 1, ảnh nhỏ (khoảng 2000 px) nên dùng 0,6.")
         ttk.Separator(p).pack(fill="x", pady=(4, 10))
+        self.button_feature(p, "Xóa tất cả khoảng nền kín", self.remove_all_pockets,
+                            "Xóa mọi khoảng nền kín đang được giữ trên ảnh này (phần trắng/đen nằm bên trong hình). "
+                            "Sau đó bấm vào những vùng muốn giữ để lấy lại; Ctrl+Z để hủy cả lượt.")
         self.button_feature(p, "Đề xuất vùng nền", self.suggest_now,
                             "Tự chọn các khoảng nền kín nên xóa theo những gì ứng dụng đã học.")
         self.button_feature(p, "Học từ ảnh này", self.learn_now,
@@ -1268,6 +1274,34 @@ class App(tk.Tk):
             return
         self.flips.setdefault(self.path, []).append((x, y))
         self.schedule()   # hiện ngay bản xem nhanh (thu nhỏ), kết quả đầy đủ tính ở nền sau đó
+
+    def remove_all_pockets(self):
+        """Đổi mọi khoảng nền kín đang được giữ sang xóa (một bước Ctrl+Z); bỏ qua các đốm nhiễu rất nhỏ."""
+        if self.remover is None:
+            messagebox.showinfo("Xóa tất cả khoảng nền kín", "Hãy chọn ảnh trước.")
+            return
+        self.flush()
+        if not self.connected.get():
+            self.connected.set(True)
+        self.busy(True)
+        try:
+            o = self.options()
+            flips = self.flips.get(self.path, [])
+            labels, remove = self.remover.decide(o, flips)
+            _, areas, border = self.remover._regions_for(o)
+            small = max(POCKET_MIN, round(POCKET_MIN_SHARE * labels.size))
+            ids = np.nonzero(~remove & ~border & (areas >= small))[0]
+            ids = ids[ids > 0]
+            objs = ndimage.find_objects(labels) if len(ids) else None
+            points = [representative_point(labels, int(i), objs) for i in ids]
+        finally:
+            self.busy(False)
+        if not points:
+            self.status.config(text="Ảnh này không còn khoảng nền kín nào đang được giữ.")
+            return
+        self.flips[self.path] = list(flips) + points
+        self.schedule()
+        self.status.config(text=f"Đã chọn xóa {len(points)} khoảng nền kín. Bấm vào vùng muốn giữ để lấy lại, Ctrl+Z để hủy cả lượt.")
 
     # --- Học từ lựa chọn của người dùng ---
     def update_learn_label(self):
