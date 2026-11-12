@@ -2261,6 +2261,7 @@ Các bí danh trong **bảng chuẩn** hiện tại (bản 1):
 | Bella Canvas Youth | `Blossom/Light Pink` (cả tổ hợp) | `Pink` |
 | Sweatshirt/Hoodie | `Blue` | `Light Blue` |
 | Sweatshirt/Hoodie | `Pink` | `Light Pink` |
+| Sweatshirt/Hoodie | `Forest` | `Forest Green` (v3.8) |
 
 ### Dùng chung 1 bảng cho nhiều shop (mỗi shop 1 trình duyệt)
 

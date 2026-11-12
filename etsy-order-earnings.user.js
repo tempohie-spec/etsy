@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.7
+// @version      3.8
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -114,7 +114,7 @@
       'pepper/dark heather': 'Vintage Smoke',
       'moss/military green': 'Military Green'
     },
-    sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' },
+    sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink', 'forest': 'Forest Green' },
     // Ao Gildan (Adult + Youth, title chua "Gildan"): chi quy doi to hop, chua co bang mau chuan
     gildan: { 'ivory/natural': 'Natural' }
   };
