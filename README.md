@@ -2316,6 +2316,7 @@ và Sheet phải là Google Sheets gốc (không phải file `.xlsx` tải lên 
   phía trước khi xuất Excel/clipboard — `M` → `YM`, `XL` → `YXL` (không thêm lại nếu đã có `Y`;
   size không phải dạng chữ như `5-6T` giữ nguyên; Gildan Adult không đổi).
 - Quy đổi màu mới cho áo Gildan (Adult và Youth): `Ivory/Natural` → `Natural` (bảng `BI_DANH_MAU.gildan`).
+- v3.9.1 (chỉ đổi màu): Gildan thêm `Moss/Military Green` → `Military Green`.
 
 ## Đóng bảng "Order details" sau mỗi đơn
 
