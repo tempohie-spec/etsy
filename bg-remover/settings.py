@@ -10,26 +10,40 @@ class Store:
         self.path = Path(path)
         self.profiles = {}
         self.default = None
+        self.extra = {}           # các mục khác trong file (ví dụ cấu hình có sẵn đã thêm)
         self.load()
 
     def load(self):
-        profiles, default = {}, None
+        profiles, default, extra = {}, None, {}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(data.get("profiles"), dict):
                 profiles = data["profiles"]
             default = data.get("default")
+            extra = {k: v for k, v in data.items() if k not in ("profiles", "default")}
         except (OSError, ValueError, AttributeError):
             pass  # chưa có file hoặc file hỏng: bắt đầu với danh sách trống
         self.profiles = {str(k): v for k, v in profiles.items() if isinstance(v, dict)}
         self.default = default if default in self.profiles else None
+        self.extra = extra if isinstance(extra, dict) else {}
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
-        payload = {"profiles": self.profiles, "default": self.default}
+        payload = dict(self.extra, profiles=self.profiles, default=self.default)
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(self.path)
+
+    def add_presets(self, presets):
+        """Thêm các cấu hình có sẵn (mỗi bản chỉ thêm một lần: người dùng xóa đi thì không thêm lại)."""
+        added = set(self.extra.get("presets_added", []))
+        new = [n for n in presets if n not in added]
+        if not new:
+            return
+        for n in new:
+            self.profiles.setdefault(n, dict(presets[n]))
+        self.extra["presets_added"] = sorted(added | set(new))
+        self.save()
 
     @property
     def names(self):

@@ -74,3 +74,10 @@ Bấm chọn xóa/giữ một khoảng nền kín không còn hiện bản xem n
 Mô hình dùng cây sâu hơn (độ sâu 8). Kiểm tra chéo theo ảnh trên 27 ảnh (22 ảnh của người dùng và 5 ảnh mẫu): tìm đúng khoảng 51% vùng cần xóa, xóa nhầm khoảng 7% vùng cần giữ ở ngưỡng 0,45.
 
 Đề xuất lần nữa sau khi sửa tay sẽ được điều chỉnh theo chính ảnh đó: nếu bạn đã bấm xóa ít nhất 2 vùng bị sót và bấm giữ lại ít nhất 2 vùng bị đề xuất nhầm, các vùng còn lại giống chúng sẽ được cân nhắc lại (ngưỡng tự nâng thêm 0,2). Mô phỏng trên 27 ảnh với 5 vùng mỗi loại: số vùng sai (nhầm cộng sót) giảm khoảng 23% (977 xuống 751); càng sửa nhiều vùng càng tốt (8 vùng mỗi loại: 649, giảm khoảng 34%). Chỉ có một loại (chỉ xóa hoặc chỉ giữ) thì không điều chỉnh.
+
+## Cấu hình có sẵn
+
+Ứng dụng thêm sẵn hai cấu hình (chọn ở ô Cấu hình trên thanh trên cùng; xóa đi thì không bị thêm lại):
+
+- **Viền gọn (sát bản final):** Độ nhạy 0,15, Độ đặc 1, Làm mịn viền 0,6. Dò từ cặp ảnh gốc / bản final (ảnh chú sóc): so với bản người dùng tự làm bằng cấu hình mặc định, số pixel lệch so với bản final giảm từ khoảng 12.100 xuống khoảng 1.300; các khoảng nền kín người dùng chọn xóa thì trùng hoàn toàn với bản final, phần lệch chỉ là quầng sáng ở viền. Độ đặc 1 là thay đổi quan trọng nhất (một mình nó giảm từ khoảng 13.900 xuống 4.400).
+- **Viền mềm (giữ màu nhạt):** Độ nhạy 0,06, Độ đặc 0,8, Làm mịn viền 1, giống mặc định. Dùng cho ảnh có mảng trắng hoặc màu rất nhạt chạm nền ngoài: trên 5 cặp ảnh mẫu trước đó, "Viền gọn" ăn mất nhiều phần nhạt (ví dụ ảnh Monsters lệch 13.500 pixel so với 1.100).

@@ -36,6 +36,14 @@ POCKET_MIN_SHARE = 2e-6   # ... hoặc nhỏ hơn tỉ lệ này của diện t�
 CACHE_SIZE = 4       # số ảnh vừa mở được giữ sẵn trong bộ nhớ để chuyển lại gần như tức thì
 BATCH_WORKERS = max(1, min(4, (os.cpu_count() or 2) - 1))   # luồng xử lý cả lô, chừa một nhân cho giao diện
 
+# Cấu hình có sẵn. "Viền gọn" dò từ cặp ảnh gốc / bản final của người dùng (ảnh chú sóc, khoảng 2000 px): viền cắt sát,
+# không còn quầng sáng; với ảnh có mảng màu rất nhạt chạm nền ngoài nó có thể ăn vào màu nhạt, khi đó dùng "Viền mềm".
+_BASE = {"bg": "auto", "connected": True, "close_gaps": False, "bridge_on": False, "corners": True, "corner_light": 0.45}
+PRESETS = {
+    "Viền gọn (sát bản final)": dict(_BASE, tolerance=0.15, opaque=1.0, smooth=0.6),
+    "Viền mềm (giữ màu nhạt)": dict(_BASE, tolerance=0.06, opaque=0.8, smooth=1.0),
+}
+
 PREVIEW_BGS = {
     "Ô caro (trong suốt)": None,
     "Đen": (0, 0, 0),
@@ -456,6 +464,7 @@ class App(tk.Tk):
         self.worker = PreviewWorker()        # tính bản xem nhanh
         self.full_worker = PreviewWorker()   # tính kết quả đầy đủ
         self.store = Store()
+        self.store.add_presets(PRESETS)
         self.learner = Learner()
         self._suggested = set()   # ảnh đã được đề xuất vùng nền, để không đề xuất lại sau khi người dùng khôi phục
         self.suggested = {}       # đường dẫn -> các điểm do ứng dụng đề xuất (cũng nằm trong flips)
