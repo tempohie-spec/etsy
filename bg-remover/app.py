@@ -15,7 +15,7 @@ from scipy import ndimage
 
 from compare import fit_view, render_view
 from cursors import FALLBACK as FALLBACK_CURSORS, cursor_specs
-from learn import MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, representative_point, suggest_points
+from learn import ADAPT_MIN_PER_CLASS, MIN_PER_CLASS, MIN_SAMPLES, Learner, region_features, representative_point, suggest_points
 from remove_bg import EXTS, SUFFIX, Options, Remover, auto_bridge, barrier_mask
 from settings import Store
 from version import VERSION
@@ -461,6 +461,8 @@ class App(tk.Tk):
         self.suggested = {}       # đường dẫn -> các điểm do ứng dụng đề xuất (cũng nằm trong flips)
         self.barriers = {}        # đường dẫn -> các nét chắn người dùng vẽ: [{"pts": [[x, y], ...], "w": px}]
         self._learn_warned = False
+        self._warm = None          # luồng tính sẵn dữ liệu cho lần bấm vùng tiếp theo
+        self._adapted = False      # lần đề xuất gần nhất có điều chỉnh theo các vùng người dùng đã sửa hay không
         self.profile = None       # tên cấu hình đang áp dụng
 
         self.bg = tk.StringVar(value="auto")
@@ -1015,7 +1017,7 @@ class App(tk.Tk):
             self.flush()
             self.doc_settings[self.path] = self.settings()
             if self.remover is not None:
-                self.remover._base = None   # bỏ kết quả trung gian của ảnh vừa rời để đỡ tốn bộ nhớ
+                self.remover.release()   # bỏ kết quả trung gian của ảnh vừa rời để đỡ tốn bộ nhớ
         self.index = i % len(self.files)
         path = self.path
         self.sync_list()
@@ -1241,6 +1243,10 @@ class App(tk.Tk):
             self._full_shown_gen = res[0]
             self.view.set_images(self.src, self.result)
             self.status.config(text=self.status_text())
+            # Tính sẵn dữ liệu cho lần bấm vùng tiếp theo ở luồng nền, để lần bấm đầu cũng nhanh
+            if not busy and (self._warm is None or not self._warm.is_alive()):
+                self._warm = threading.Thread(target=self.remover.prepare_clicks, args=(self.options(),), daemon=True)
+                self._warm.start()
         if busy:
             self._full_poll = self.after(POLL_MS, self.poll_full)
 
@@ -1273,7 +1279,7 @@ class App(tk.Tk):
                                     "Hãy chỉnh \"Bịt khe hở nét vẽ\" hoặc \"Độ nhạy\" nếu nền bị rò hay còn sót.")
             return
         self.flips.setdefault(self.path, []).append((x, y))
-        self.schedule()   # hiện ngay bản xem nhanh (thu nhỏ), kết quả đầy đủ tính ở nền sau đó
+        self.refresh()   # kết quả đầy đủ, chính xác (chỉ tính lại quanh vùng vừa bấm nên rất nhanh); không dùng bản xem nhanh thu nhỏ
 
     def remove_all_pockets(self):
         """Đổi mọi khoảng nền kín đang được giữ sang xóa (một bước Ctrl+Z); bỏ qua các đốm nhiễu rất nhỏ."""
@@ -1300,7 +1306,7 @@ class App(tk.Tk):
             self.status.config(text="Ảnh này không còn khoảng nền kín nào đang được giữ.")
             return
         self.flips[self.path] = list(flips) + points
-        self.schedule()
+        self.refresh()
         self.status.config(text=f"Đã chọn xóa {len(points)} khoảng nền kín. Bấm vào vùng muốn giữ để lấy lại, Ctrl+Z để hủy cả lượt.")
 
     # --- Học từ lựa chọn của người dùng ---
@@ -1383,7 +1389,16 @@ class App(tk.Tk):
             # Giữ cặp "đề xuất + người dùng bấm lại" của vùng bị từ chối để vùng đó vẫn được giữ
             keep_old = [p for lab in rejected for p in old_by_region[lab]]
             base = manual + keep_old
-            points = suggest_points(self.remover, o, base, self.learner, exclude=rejected)
+            # Các vùng người dùng đã tự quyết trên ảnh này: bấm để xóa (xóa) và bấm giữ lại đề xuất (giữ),
+            # dùng để điều chỉnh đề xuất cho các vùng còn lại
+            known = {lab: 0 for lab in rejected if lab}
+            labels, remove = self.remover.decide(o, base)
+            for p in manual:
+                lab = self.remover.region_at(o, *p)
+                if lab and lab not in rejected and remove[lab]:
+                    known[lab] = 1
+            points = suggest_points(self.remover, o, base, self.learner, exclude=rejected, known=known)
+            self._adapted = sum(1 for v in known.values() if v == 1) >= ADAPT_MIN_PER_CLASS and sum(1 for v in known.values() if v == 0) >= ADAPT_MIN_PER_CLASS
         finally:
             self.busy(False)
         self._suggested.add(path)
@@ -1417,6 +1432,11 @@ class App(tk.Tk):
             lines.append(f"Đã bỏ {dropped} đề xuất của lần trước.")
         if rejected:
             lines.append(f"Giữ nguyên {rejected} vùng bạn đã bấm giữ lại.")
+        if self._adapted:
+            lines.append("Đề xuất đã được điều chỉnh theo các vùng bạn tự chọn xóa hoặc giữ lại trên ảnh này.")
+        else:
+            lines.append(f"Mẹo: sửa vài vùng (bấm xóa vùng bị sót, bấm giữ lại vùng xóa nhầm; mỗi loại ít nhất {ADAPT_MIN_PER_CLASS} vùng) rồi bấm "
+                         "Đề xuất vùng nền lần nữa để đề xuất khớp hơn với ảnh này.")
         lines.append("Bấm vào vùng để đổi lại, Ctrl+Z để hủy.")
         self.status.config(text=" ".join(lines))
         messagebox.showinfo("Đề xuất vùng nền", "\n".join(lines))

@@ -21,6 +21,8 @@ CLOSE = 2         # px khe ho duoc bit khi bat close_gaps
 EDGE_REACH = 3    # px toi da de lay mau vien tu vung dac gan nhat
 CONNECT_MIN = 0.08
 JOIN_DARK = 0.45      # pixel khac nen hon muc nay coi la net ve dam khi to bu khe gan khoang nen duoc giu
+INC_MAX_REGIONS = 12  # bam toi da bay nhieu vung moi lan thi tinh tung phan; nhieu hon thi tinh lai ca anh
+INC_MAX_SHARE = 0.45  # manh tinh lai chiem qua ty le nay cua anh thi tinh lai ca anh
 POCKET_LIGHT = 0.2     # khoang kin duoc xoa lan them qua pixel khac nen it hon muc nay (nen nga xam sat net vien)
 POCKET_GREY = 26      # ... va chi qua pixel gan nhu khong mau: chenh lech giua cac kenh mau toi da muc nay (0-255)
 FAR = 6               # khe hep co the keo dai toi FAR * r px tinh tu nen da xoa (r ti le voi kich thuoc anh)
@@ -65,7 +67,11 @@ class Remover:
         self._dist = {}
         self._regions = {}
         self._wide = {}           # bo dem: phan sang rong (khong phai khe hep), khong phu thuoc vung dang xoa
-        self._base = None         # bo dem: ket qua truoc buoc lam min vien, de doi "Lam min vien" khong tinh lai tu dau
+        self._state = None        # bo dem: (tuy chon, diem bam, vung xoa, anh truoc buoc lam min vien) cua lan tinh gan nhat
+        self._final = None        # bo dem: anh da lam min vien tuong ung voi _state
+        self._objs = None         # bo dem: (labels, find_objects(labels)) de tinh khung bao cua tung vung
+        self._soft = None         # bo dem: cac mang nen nga xam lien nhau (xem _soft_info)
+        self._ref = max(self.h, self.w)   # kich thuoc tham chieu de doi cac don vi theo pixel (cua ca anh, ke ca khi tinh tren mot manh)
         self.barrier = None       # net chan nguoi dung ve (mang bool H x W): nen khong duoc thong qua
         self._barrier_ver = 0
 
@@ -95,6 +101,7 @@ class Remover:
         self.barrier = mask if mask is not None and mask.any() else None
         self._barrier_ver += 1
         self._regions = {}
+        self._state = self._final = self._objs = self._soft = None
 
     def regions(self, bg, threshold, close, bridge=0):
         """Chia cac pixel gan mau nen thanh cac vung lien thong. Tra ve (labels, areas, cham_mep)."""
@@ -160,27 +167,145 @@ class Remover:
         remove[0] = False
         return labels, remove
 
+    def prepare_clicks(self, o):
+        """Tinh san cac du lieu can de bam chon vung nhanh (goi o luong nen sau khi co ket qua day du)."""
+        if not o.connected:
+            return
+        labels = self._regions_for(o)[0]
+        if self._objs is None or self._objs[0] is not labels:
+            self._objs = (labels, ndimage.find_objects(labels))
+        self._soft_info(o)
+
+    def release(self):
+        """Bo cac bo dem lon (ket qua trung gian) khi khong dung toi nua de do ton bo nho."""
+        self._state = self._final = self._objs = self._soft = None
+        self._wide = {}
+
+    def _unit(self):
+        """Don vi do theo pixel, ti le voi kich thuoc cua ca anh (khong doi khi chi tinh tren mot manh)."""
+        return max(2, round(self._ref / 1000) + 1)
+
     def render(self, o, flips=()):
         """Tra ve anh RGBA nen trong suot.
 
         flips: cac diem (x, y) tren anh ma nguoi dung bam de doi xoa/giu vung nen do.
-        """
-        # Moi thu truoc buoc lam min vien duoc luu lai: chi doi "Lam min vien" thi khong phai tinh lai
-        key = (o.bg, o.tolerance, o.opaque, o.connected, o.close_gaps, o.bridge, o.corners, o.corner_light,
-               tuple((int(x), int(y)) for x, y in flips), self._barrier_ver)
-        cached = self._base
-        if cached is not None and cached[0] == key:
-            out = cached[1]
-        else:
-            out = self._compose(o, flips)
-            self._base = (key, out)
-        if o.smooth > 0:
-            out = out.copy()
-            self._feather(out, o.smooth)
-        return Image.fromarray(out, "RGBA")
 
-    def _compose(self, o, flips):
-        """Ket qua RGBA (mang uint8) truoc buoc lam min vien."""
+        Ket qua truoc buoc lam min vien duoc luu lai: chi doi "Lam min vien" thi khong tinh lai tu dau, va bam them
+        mot vung nen thi chi tinh lai quanh vung do (ket qua giong het tinh lai toan anh).
+        """
+        nof = (o.bg, o.tolerance, o.opaque, o.connected, o.close_gaps, o.bridge, o.corners, o.corner_light, self._barrier_ver)
+        flips = tuple((int(x), int(y)) for x, y in flips)
+        labels = remove = border = None
+        soft = None
+        if o.connected:
+            labels, remove = self.decide(o, flips)
+            border = self._regions_for(o)[2]
+        st = self._state
+        # Mang nen xam chi can khi co khoang nen kin dang bi xoa (luc do moi phai tim va luu chung)
+        if o.connected and ((remove & ~border).any() or (st is not None and st[0] == nof and st[2] is not None and (st[2] & ~border).any())):
+            soft = self._soft_info(o)
+        out = prev = box = None
+        if st is not None and st[0] == nof:
+            if st[1] == flips:
+                out = st[3]
+            elif o.connected:
+                inc = self._incremental(o, st, labels, remove, border, soft)
+                if inc is not None:
+                    out, box = inc
+                    prev = st[3]
+        if out is None:
+            out = self._compose(o, labels, remove, border, None if soft is None else (soft[0], self._flood_flags(soft, remove, border)))
+        self._state = (nof, flips, remove, out)
+
+        if o.smooth <= 0:
+            arr = out
+        else:
+            fin = self._final
+            if fin is not None and fin[0] == o.smooth and fin[1] is out:
+                arr = fin[2]
+            elif fin is not None and fin[0] == o.smooth and box is not None and fin[1] is prev:
+                arr = fin[2].copy()
+                H, W = out.shape[:2]
+                y0, y1, x0, x1 = box
+                py0, py1, px0, px1 = max(y0 - 8, 0), min(y1 + 8, H), max(x0 - 8, 0), min(x1 + 8, W)   # vung doi sau lam min
+                wy0, wy1, wx0, wx1 = max(y0 - 16, 0), min(y1 + 16, H), max(x0 - 16, 0), min(x1 + 16, W)
+                part = out[wy0:wy1, wx0:wx1].copy()
+                self._feather(part, o.smooth)
+                arr[py0:py1, px0:px1] = part[py0 - wy0:py1 - wy0, px0 - wx0:px1 - wx0]
+            else:
+                arr = out.copy()
+                self._feather(arr, o.smooth)
+            self._final = (o.smooth, out, arr)
+        return Image.fromarray(arr, "RGBA")
+
+    def _incremental(self, o, st, labels, remove, border, soft):
+        """Chi tinh lai quanh cac vung nen vua doi xoa/giu. Tra ve (anh moi, khung bao vung doi) hoac None neu
+        phai tinh lai toan anh (doi nhieu vung, vung qua lon, hoac anh huong lan toi mep manh tinh)."""
+        remove_old, out_old = st[2], st[3]
+        changed = np.nonzero(remove != remove_old)[0]
+        if not len(changed):
+            return out_old, None
+        flag_new, flag_old = self._flood_flags(soft, remove, border), self._flood_flags(soft, remove_old, border)
+        flooded = np.nonzero(flag_new != flag_old)[0]     # mang nen xam doi tu "giu" sang "xoa" hoac nguoc lai
+        if len(changed) > INC_MAX_REGIONS:
+            return None
+        objs = self._objs
+        if objs is None or objs[0] is not labels:
+            objs = self._objs = (labels, ndimage.find_objects(labels))
+        slices = [objs[1][int(i) - 1] for i in changed if int(i) >= 1 and objs[1][int(i) - 1] is not None]
+        slices += [soft[2][int(i) - 1] for i in flooded if int(i) >= 1 and soft[2][int(i) - 1] is not None]
+        if not slices:
+            return None
+        y0 = min(sl[0].start for sl in slices); y1 = max(sl[0].stop for sl in slices)
+        x0 = min(sl[1].start for sl in slices); x1 = max(sl[1].stop for sl in slices)
+        H, W = labels.shape
+        r = self._unit()
+        margin = 20 * r + 40
+        for _ in range(2):
+            wy0, wy1, wx0, wx1 = max(y0 - margin, 0), min(y1 + margin, H), max(x0 - margin, 0), min(x1 + margin, W)
+            if (wy1 - wy0) * (wx1 - wx0) > INC_MAX_SHARE * H * W:
+                return None
+            win = (slice(wy0, wy1), slice(wx0, wx1))
+            sub = self._crop(win, o)
+            lab = labels[win]
+            sl_lab = soft[0][win]
+            new = sub._compose(o, lab, remove, border, (sl_lab, flag_new))
+            old = sub._compose(o, lab, remove_old, border, (sl_lab, flag_old))
+            diff = (new != old).any(axis=2)
+            if not diff.any():
+                return out_old, None
+            # Hai manh tinh co chung sai lech o sat mep manh, nen sai lech sat mep (khong phai mep anh that) la dau hieu
+            # anh huong con lan ra ngoai manh: mo rong manh, neu van vay thi tinh lai toan anh
+            band = 8 * r + 16
+            bad = ((wy0 > 0 and diff[:band].any()) or (wy1 < H and diff[-band:].any()) or
+                   (wx0 > 0 and diff[:, :band].any()) or (wx1 < W and diff[:, -band:].any()))
+            if not bad:
+                break
+            margin *= 3
+        else:
+            return None
+        out = out_old.copy()
+        view = out[win]
+        view[diff] = new[diff]
+        ys, xs = np.nonzero(diff)
+        return out, (wy0 + int(ys.min()), wy0 + int(ys.max()) + 1, wx0 + int(xs.min()), wx0 + int(xs.max()) + 1)
+
+    def _crop(self, win, o):
+        """Bo tach nen chi tren mot manh cua anh (dung chung du lieu, khong sao chep)."""
+        sub = Remover.__new__(Remover)
+        sub.rgb, sub.a_in = self.rgb[win], self.a_in[win]
+        sub.h, sub.w = sub.rgb.shape[:2]
+        bg = self.background(o.bg)
+        sub._auto = self._auto
+        sub._dist = {bg: self.distance(bg)[win]}
+        sub._regions, sub._wide, sub._state, sub._final, sub._objs, sub._soft = {}, {}, None, None, None, None
+        sub.barrier = None if self.barrier is None else self.barrier[win]
+        sub._barrier_ver = self._barrier_ver
+        sub._ref = self._ref
+        return sub
+
+    def _compose(self, o, labels, remove, border, soft):
+        """Ket qua RGBA (mang uint8) truoc buoc lam min vien. labels/remove/border: xem decide(); soft: xem _fill_pockets."""
         bg = self.background(o.bg)
         dist = self.distance(bg)
         tol = o.tolerance
@@ -188,9 +313,8 @@ class Remover:
 
         # gone: xoa han. ring: vien can tinh alpha. Phan con lai giu nguyen.
         if o.connected:
-            labels, remove = self.decide(o, flips)
             gone = remove[labels]
-            gone = self._fill_pockets(o, dist, labels, remove, gone)
+            gone = self._fill_pockets(gone, soft)
             # Dai vien lan tu vung nen da xoa nhung khong vuot qua net chan (mask: khong lan vao pixel net chan)
             free = None if self.barrier is None else ~self.barrier
             # near_gone(n): pixel cach vung da xoa toi da n buoc. Khong co net chan thi tinh mot lan khoang cach
@@ -227,25 +351,62 @@ class Remover:
         out[ring, :3] = (fg * 255 + 0.5).astype(np.uint8)
         out[ring, 3] = (alpha * self.a_in[ring] + 0.5).astype(np.uint8)
         if o.connected and fill is not None and fill.any():
-            self._paint_dark(out, fill, dist > JOIN_DARK, max(2, round(max(self.h, self.w) / 1000) + 1) * 2)
+            self._paint_dark(out, fill, dist > JOIN_DARK, self._unit() * 2)
         return out
 
-    def _fill_pockets(self, o, dist, labels, remove, gone):
+    def _soft_info(self, o):
+        """Cac mang nen nga xam: pixel chua phai nen ma rat nhat va gan nhu khong mau (bong do, chuyen mau sat net).
+        Tra ve (nhan mang theo 4 huong, so mang, danh sach khung bao, cac cap (mang, vung nen) ke nhau).
+        Chi phu thuoc tuy chon, khong phu thuoc vung nao dang xoa hay giu nen duoc luu dung chung."""
+        bg = self.background(o.bg)
+        key = (bg, round(max(o.tolerance, CONNECT_MIN), 4), CLOSE if o.close_gaps else 0, o.bridge, self._barrier_ver)
+        cached = self._soft
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        labels = self._regions_for(o)[0]
+        soft = (labels == 0) & (self.distance(bg) <= POCKET_LIGHT)
+        if soft.any():
+            soft &= (self.rgb.max(axis=-1) - self.rgb.min(axis=-1)) <= POCKET_GREY
+        if self.barrier is not None:
+            soft &= ~self.barrier
+        # Mang rong, dai hep 1-2 px sat net la vien khu rang cua cua net (de buoc tinh do trong suot xu ly)
+        soft_lab, n = ndimage.label(soft)
+        pairs = np.zeros((0, 2), np.int64)
+        if n:
+            nl = int(labels.max()) + 1
+            ys, xs = np.nonzero(soft)             # chi xet pixel cua cac mang (it hon nhieu so voi ca anh)
+            lab_p = np.pad(labels, 1)
+            codes = []
+            for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nb = lab_p[ys + 1 + dy, xs + 1 + dx]
+                m = nb > 0
+                codes.append(np.unique(soft_lab[ys[m], xs[m]].astype(np.int64) * nl + nb[m]))
+            code = np.unique(np.concatenate(codes))
+            pairs = np.stack([code // nl, code % nl], axis=1)
+        info = (soft_lab, n, ndimage.find_objects(soft_lab) if n else [], pairs)
+        self._soft = (key, info)
+        return info
+
+    @staticmethod
+    def _flood_flags(soft, remove, border):
+        """flag[c] = True neu mang nen xam c ke voi mot khoang nen kin dang bi xoa (khi do mang cung bi xoa)."""
+        flag = np.zeros(soft[1] + 1, bool)
+        pairs = soft[3]
+        if len(pairs):
+            sel = (remove & ~border)[pairs[:, 1]]
+            flag[pairs[sel, 0]] = True
+        return flag
+
+    def _fill_pockets(self, gone, soft):
         """Khoang nen kin duoc chon xoa thi xoa tron toi net vien: phan nen nga xam (bong do, chuyen mau gan net)
         khong du gan mau nen de thuoc khoang do nhung van lien voi no. Chi lan qua pixel nhat va gan nhu khong
         mau (xam), khong lan vao mang mau nhat (hong, xanh nhat) va khong ap dung cho nen ngoai."""
-        inner = remove & ~self._regions_for(o)[2]
-        if not inner.any():
+        if soft is None:
             return gone
-        soft = (labels == 0) & (dist <= POCKET_LIGHT)
-        if not soft.any():
+        soft_lab, flag = soft
+        if not flag.any():
             return gone
-        soft &= (self.rgb.max(axis=-1) - self.rgb.min(axis=-1)) <= POCKET_GREY
-        if self.barrier is not None:
-            soft &= ~self.barrier
-        seeds = inner[labels]
-        extra = ndimage.binary_dilation(seeds, iterations=0, mask=soft) & ~seeds
-        # Chi lay mang rong; dai hep 1-2 px sat net la vien khu rang cua cua net, de buoc tinh do trong suot xu ly
+        extra = flag[soft_lab]
         return gone | ndimage.binary_opening(extra, iterations=2)
 
     def _wide_light(self, bg, loose, r):
@@ -277,7 +438,7 @@ class Remover:
         net dam (hai ben deu co net dam) duoc so voi chinh hai net do: nhat hon han net thi coi la vet sot.
         Tra ve (specks, fill): specks bi xoa han, fill la phan khe gan khoang nen duoc giu thi to bang mau net.
         """
-        r = max(2, round(max(self.h, self.w) / 1000) + 1)
+        r = self._unit()
         free = None if self.barrier is None else ~self.barrier
         loose = max(o.corner_light, FLANK_LIGHT)
         # Pixel sang (gan mau nen, khong nam tren net chan) va phan rong cua chung; vung da xoa nam ca trong do
@@ -297,7 +458,7 @@ class Remover:
         near = near_gone(2 * r)[ys, xs]
         ok = flanked & ((d < o.corner_light) | (d < FLANK_REL * flank))
         ok |= near & ~ring[ys, xs] & (d < o.corner_light)
-        thin = empty
+        thin = empty.copy()   # (khong dung chung bo nho voi empty: empty con duoc tra ve lam mask rong)
         thin[ys[ok], xs[ok]] = True
         if not thin.any():
             return thin, empty

@@ -64,3 +64,13 @@ Mỗi lần cập nhật, bản build trên GitHub tự đặt tên phiên bản
 ## Mặc định rút ra từ ảnh mẫu
 
 Các giá trị mặc định được dò từ 5 cặp ảnh gốc / ảnh mong muốn của người dùng (ảnh khoảng 2000 px): Độ nhạy 0,06, Độ đặc 0,8, Làm mịn viền 1 (với ảnh khoảng 2000 px thì 0,6 khớp nhất), Xóa vệt trắng ở góc nhọn bật, Bịt khe hở nét vẽ tắt, Xuyên nét mảnh tắt (bật lên làm mất nhiều phần trắng cần giữ trên các ảnh mẫu). Khi một khoảng nền kín được chọn xóa, ứng dụng xóa trọn tới nét viền, kể cả phần nền ngả xám liền với nó (bóng đổ, chuyển màu), nhưng không lan vào mảng màu nhạt như hồng hay xanh nhạt và không áp dụng cho nền ngoài.
+
+## Bấm chọn vùng nhanh và chính xác
+
+Bấm chọn xóa/giữ một khoảng nền kín không còn hiện bản xem nhanh thu nhỏ: ứng dụng chỉ tính lại phần quanh vùng vừa bấm trên ảnh gốc rồi ghép vào kết quả, nên hiện ngay kết quả đúng (ảnh 4500 px: khoảng 0,3 giây thay vì vài giây). Kết quả luôn giống hệt tính lại toàn ảnh; nếu ảnh hưởng của lần bấm lan rộng hoặc đổi nhiều vùng cùng lúc thì ứng dụng tự tính lại toàn ảnh. Lần bấm đầu sau khi đổi tùy chọn có thể chậm hơn một chút vì ứng dụng còn đang tính sẵn dữ liệu ở nền. Kéo thanh trượt vẫn hiện bản xem nhanh rồi thay bằng kết quả đầy đủ.
+
+## Đề xuất vùng nền
+
+Mô hình dùng cây sâu hơn (độ sâu 8). Kiểm tra chéo theo ảnh trên 27 ảnh (22 ảnh của người dùng và 5 ảnh mẫu): tìm đúng khoảng 51% vùng cần xóa, xóa nhầm khoảng 7% vùng cần giữ ở ngưỡng 0,45.
+
+Đề xuất lần nữa sau khi sửa tay sẽ được điều chỉnh theo chính ảnh đó: nếu bạn đã bấm xóa ít nhất 2 vùng bị sót và bấm giữ lại ít nhất 2 vùng bị đề xuất nhầm, các vùng còn lại giống chúng sẽ được cân nhắc lại (ngưỡng tự nâng thêm 0,2). Mô phỏng trên 27 ảnh với 5 vùng mỗi loại: số vùng sai (nhầm cộng sót) giảm khoảng 23% (977 xuống 751); càng sửa nhiều vùng càng tốt (8 vùng mỗi loại: 649, giảm khoảng 34%). Chỉ có một loại (chỉ xóa hoặc chỉ giữ) thì không điều chỉnh.

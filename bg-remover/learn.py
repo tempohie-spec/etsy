@@ -22,6 +22,11 @@ MIN_SAMPLES = 20
 MIN_PER_CLASS = 3
 MAX_SAMPLES = 30000
 EVAL_TRAIN_MAX = 4000   # số mẫu tối đa dùng để huấn luyện khi kiểm tra chéo
+FOREST = dict(depth=8, leaf=3)   # cỡ cây: sâu hơn mặc định cũ (6, 2), kiểm tra chéo theo ảnh cho kết quả tốt hơn
+ADAPT_BANDWIDTH = 0.3   # độ rộng "giống nhau" khi điều chỉnh đề xuất theo các vùng người dùng đã sửa trên chính ảnh đó
+ADAPT_GAIN = 3.0        # độ mạnh của điều chỉnh đó
+ADAPT_THRESHOLD_UP = 0.2   # nâng ngưỡng đề xuất chừng này khi đã điều chỉnh (kiểm tra chéo: ít sai nhất ở ngưỡng cao hơn)
+ADAPT_MIN_PER_CLASS = 2   # cần ít nhất chừng này vùng "xóa" và "giữ" đã sửa thì mới điều chỉnh (chỉ có một loại sẽ làm lệch hẳn)
 
 
 def region_features(rem, o):
@@ -106,11 +111,13 @@ def representative_point(labels, label, objs=None):
     return int(xs[k] + sl[1].start), int(ys[k] + sl[0].start)
 
 
-def suggest_points(rem, o, flips, learner, threshold=None, exclude=()):
+def suggest_points(rem, o, flips, learner, threshold=None, exclude=(), known=None):
     """Các điểm (x, y) nằm trong những khoảng nền kín mà mô hình cho là nên xóa (hiện đang được giữ).
 
     threshold: xác suất tối thiểu để đề xuất xóa; mặc định là ngưỡng người dùng đã chọn (learner.threshold).
     exclude: nhãn các vùng không được đề xuất (người dùng đã bấm giữ lại sau khi được đề xuất).
+    known: {nhãn vùng: 1 (nên xóa) hoặc 0 (nên giữ)} các vùng người dùng đã tự quyết trên chính ảnh này; đủ cả hai loại
+           thì điều chỉnh đề xuất cho các vùng còn lại theo những vùng giống chúng.
     """
     threshold = learner.threshold if threshold is None else threshold
     if not learner.ready:
@@ -120,6 +127,16 @@ def suggest_points(rem, o, flips, learner, threshold=None, exclude=()):
     if not len(ids):
         return []
     prob = learner.predict(X)
+    adapted = False
+    if known:
+        pos = {int(i): k for k, i in enumerate(ids)}
+        rows = [(pos[int(lab)], int(v)) for lab, v in known.items() if int(lab) in pos]
+        if rows:
+            new = learner.adjust(X, prob, [r for r, _ in rows], [v for _, v in rows])
+            adapted = new is not prob
+            prob = new
+    if adapted:
+        threshold = min(threshold + ADAPT_THRESHOLD_UP, 0.95)   # sau điều chỉnh xác suất cao lên chung, nên nâng ngưỡng tương ứng
     chosen = [int(i) for i, p in zip(ids, prob) if p >= threshold and not remove[i] and int(i) not in exclude]
     objs = ndimage.find_objects(labels) if chosen else None
     return [representative_point(labels, i, objs) for i in chosen]
@@ -249,11 +266,30 @@ class Learner:
         """Dựng mô hình ngay (gọi trước khi dùng predict từ nhiều luồng cùng lúc)."""
         if self._forest is None:
             X0, y0 = self._data()
-            self._forest = Forest().fit(X0, y0)
+            self._forest = Forest(**FOREST).fit(X0, y0)
+            self._mu, self._sd = X0.mean(0), X0.std(0) + 1e-9
         return self._forest
 
     def predict(self, X):
         return self.prepare().predict_proba(np.asarray(X, float))
+
+    def adjust(self, X, prob, rows, labels):
+        """Điều chỉnh xác suất của mọi vùng theo các vùng đã biết đáp án trên cùng ảnh (rows: chỉ số trong X, labels: 0/1).
+
+        Phần mô hình đoán sai ở vùng đã biết được lan sang các vùng giống nó (cách nhau gần trong không gian đặc trưng).
+        Cần cả hai loại với ít nhất ADAPT_MIN_PER_CLASS vùng mỗi loại; thiếu một loại thì giữ nguyên (chỉ có vùng \"xóa\"
+        sẽ kéo cả những vùng cần giữ lên)."""
+        labels = np.asarray(labels, float)
+        if (labels == 1).sum() < ADAPT_MIN_PER_CLASS or (labels == 0).sum() < ADAPT_MIN_PER_CLASS:
+            return prob
+        self.prepare()
+        Z = (np.asarray(X, float) - self._mu) / self._sd
+        rows = np.asarray(rows, int)
+        d2 = ((Z[:, None, :] - Z[rows][None, :, :]) ** 2).sum(2)
+        K = np.exp(-d2 / (2 * ADAPT_BANDWIDTH ** 2 * Z.shape[1]))
+        resid = labels - np.asarray(prob, float)[rows]
+        adj = ADAPT_GAIN * (K * resid[None, :]).sum(1) / (1 + ADAPT_GAIN * K.sum(1))
+        return np.clip(np.asarray(prob, float) + adj, 0.0, 1.0)
 
     def _cross_validate(self):
         """Xác suất dự đoán của từng mẫu khi mô hình được huấn luyện trên các ảnh KHÁC ảnh chứa mẫu đó.
@@ -273,7 +309,7 @@ class Learner:
                     Xr, yr = Xr[keep], yr[keep]
                     if yr.sum() == 0 or yr.sum() == len(yr):
                         continue
-                probs.append(Forest(trees=20, seed=f).fit(Xr, yr).predict_proba(Xt))
+                probs.append(Forest(trees=20, seed=f, **FOREST).fit(Xr, yr).predict_proba(Xt))
                 truth.append(yt > 0.5)
             self._cv = (np.concatenate(probs), np.concatenate(truth)) if probs else None
         return self._cv
