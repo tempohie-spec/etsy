@@ -11,3 +11,7 @@
   có thay đổi chức năng mới tăng `3.10`, `4.0`... Không dùng hậu tố chữ (vd `3.9a`) vì trình quản
   lý script có thể coi là bản cũ hơn và không cập nhật. Vẫn phải tăng `@version` mỗi lần (nếu giữ
   nguyên thì Violentmonkey không nhận bản mới) và ghi chú vào README là "chỉ đổi màu".
+
+- Quy trình merge (người dùng đã cho phép lâu dài): sau mỗi thay đổi, commit + push lên nhánh phiên
+  rồi TẠO PR và squash-merge vào `main` luôn, không cần hỏi "có merge không". Sau đó báo link file
+  trên `main` và nhắc bấm "⟳ Cập nhật" ở từng shop. Panel hiển thị đầy đủ `@version` (vd `v3.9.1`).
