@@ -2490,6 +2490,14 @@ mở tab. Nếu script báo `⚠️ Worker chưa vào được file`: share file
 thông báo (Sheet đơn: Editor, file ZooTop: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
 ghi đè lên mục cùng tên trong biến `STORES` / `ZOOTOP`.
 
+## Đơn thiếu link design không còn bị "dính" Merchize (v1.58)
+
+Trước đây đơn đủ SKU ZooTop nhưng thiếu link design bị báo lỗi, đồng thời nút **2. Kiểm tra** vẫn điền
+SKU **Merchize** vào cột AB. Dán link design xong bấm gửi thì AB đã có SKU Merchize nên đơn bị ép sang
+Merchize dù có SKU ZooTop. Từ v1.58, đơn thiếu link design **không bị điền SKU vào AB** (giữ nguyên ô AB),
+nên sau khi dán link design script tra lại bình thường và đơn đi ZooTop. Đơn ĐÃ bị điền SKU Merchize từ
+trước: xoá ô AB của các dòng đó rồi Kiểm tra / Gửi lại.
+
 ## Chỉ định bằng dấu # (v1.57)
 
 Chỉ định nhà cung cấp ở cột AC giờ dùng `#ZooTop` / `#Merchize` (gõ `@` trong Google Sheets hay bật menu smart chip).
