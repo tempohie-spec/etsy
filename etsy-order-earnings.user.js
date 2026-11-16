@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.9.1
+// @version      3.9.2
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -103,7 +103,7 @@
   // CHINH THUC se dien ra.
   const BI_DANH_MAU = {
     comfort_adult: { 'orange': 'Burnt Orange', 'yam/orange': 'Yam' },
-    comfort_youth: {},
+    comfort_youth: { 'navy': 'True Navy' },
     bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue' },
     bella_youth: { 'dark heather': 'Dark Grey Heather', 'blossom/light pink': 'Pink' },
     toddler: {
@@ -128,7 +128,7 @@
       return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU.sweatshirt_hoodie, apDungMauDon: true };
     }
     if (t.includes('comfort') && t.includes('youth')) {
-      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU.comfort_youth };
+      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU.comfort_youth, apDungMauDon: true };
     }
     if (t.includes('comfort') && t.includes('adult')) {
       return { mau: BANG_MAU_COMFORT_ADULT, biDanh: BI_DANH_MAU.comfort_adult };
@@ -158,7 +158,7 @@
     const thongTinAo = xacDinhBangMauTheoAo(title);
     if (!thongTinAo) return colorRaw;
     const { mau: bangMau, biDanh } = thongTinAo;
-    // Mau DON (khong co "/"): mac dinh giu nguyen; chi Sweatshirt/Hoodie (apDungMauDon) moi
+    // Mau DON (khong co "/"): mac dinh giu nguyen; chi Sweatshirt/Hoodie va Comfort Youth (apDungMauDon) moi
     // quy doi theo bang bi danh (vd "Forest" -> "Forest Green", "Blue" -> "Light Blue").
     if (!colorRaw.includes('/')) {
       if (!thongTinAo.apDungMauDon) return colorRaw;
