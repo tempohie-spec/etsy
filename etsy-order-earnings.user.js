@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.9.2
+// @version      3.9.3
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -103,7 +103,7 @@
   // CHINH THUC se dien ra.
   const BI_DANH_MAU = {
     comfort_adult: { 'orange': 'Burnt Orange', 'yam/orange': 'Yam' },
-    comfort_youth: { 'navy': 'True Navy' },
+    comfort_youth: { 'navy': 'True Navy', 'red': 'Ko có' },
     bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue' },
     bella_youth: { 'dark heather': 'Dark Grey Heather', 'blossom/light pink': 'Pink' },
     toddler: {
