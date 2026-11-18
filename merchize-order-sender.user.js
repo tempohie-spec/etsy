@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.57
+// @version      1.58
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.57';
+  const SCRIPT_VERSION = '1.58';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -936,8 +936,20 @@
     });
   }
 
+  // ============ DON LOI BUOC 1 (cho gui lai o buoc 2) ============
+  function docDonLoiBuoc1() {
+    try { return JSON.parse(GM_getValue('mz_loi_buoc1', '{}')) || {}; } catch (e) { return {}; }
+  }
+  function luuDonLoiBuoc1(tab, dsMa) {
+    const all = docDonLoiBuoc1();
+    if (dsMa.length) all[tab] = dsMa; else delete all[tab];
+    GM_setValue('mz_loi_buoc1', JSON.stringify(all));
+  }
+
   // ============ 3 CHUC NANG CHINH ============
-  async function kiemTraHoacGui(statusEl, guiThat) {
+  // cheDo: 'buoc1' = don chua chi dinh di ZooTop (neu tab co sheet ZooTop), don loi duoc luu lai;
+  //        'buoc2' = gui lai cac don loi da luu o buoc 1, uu tien ZooTop roi Merchize, con loi thi bo qua.
+  async function kiemTraHoacGui(statusEl, guiThat, cheDo = '') {
     const catalog = docCatalogDaLuu();
     if (!catalog) throw new Error('Chưa có catalog. Bấm "1. Catalog SKU" > "Cập nhật catalog Merchize" trước.');
 
@@ -945,11 +957,18 @@
     const { spreadsheetId, title } = await layTrangTinhDangMo();
     const store = layStore(title);
     if (guiThat && !store) throw new Error(`Tab "${title}" chưa cài store Merchize (Base URL + Access Token).`);
-    const rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
+    let rows = await docTrangTinh(spreadsheetId, title, SO_DONG_CUOI);
+    const donCho = new Set(docDonLoiBuoc1()[title] || []);
+    if (cheDo === 'buoc2') {
+      if (!donCho.size) throw new Error('Không có đơn lỗi nào đang chờ từ Bước 1 (bấm "3. Gửi đơn" trước).');
+      // Don da luu: dong nao dang ghi "Lỗi: ..." thi coi nhu da sua xong, xet lai tu dau.
+      rows = rows.map((r, i) => (i > 0 && donCho.has(cell(r, COL.orderNumber)) && cell(r, COL.status).startsWith(STATUS_ERROR_PREFIX.trim())
+        ? Object.assign(r.slice(), { [COL.status]: '' }) : r));
+    }
     const zooTarget = docCacSheetZooTop()[title];
     const bangZoo = zooTarget ? await docBangZooTop() : null;
     const daBiet = bangSkuDaBiet(bangZoo, catalog);
-    const tatCa = gomDon(rows).map((d0) => {
+    const tatCa = gomDon(rows).filter((d) => cheDo !== 'buoc2' || donCho.has(d.orderNumber)).map((d0) => {
       const skuTay = d0.rows.map(({ r }) => cell(r, COL.merchizeSku));
       let d = d0;
       if (skuTay.some(Boolean)) {
@@ -973,12 +992,16 @@
           // Merchize: cac dong co SKU tu dien gui dung SKU do, dong con lai tra catalog.
         d = { ...d0, chiDinh: 'Merchize', skuTay };
       }
+      // Buoc 1: don chua chi dinh gi thi coi nhu #ZooTop (chi khi tab co sheet ZooTop).
+      const epBuoc1 = cheDo === 'buoc1' && zooTarget && !d.chiDinh;
+      if (epBuoc1) d = { ...d, chiDinh: 'ZooTop' };
       // Don chi dinh nha cung cap (#ZooTop / #Merchize o cot AC).
       if (d.chiDinh === 'Merchize') return { ...d, zooSkus: null };
       if (d.chiDinh === 'ZooTop') {
         const zooSkus = bangZoo ? zootopSkuCuaDon(d, bangZoo) : null;
+        const tienTo = epBuoc1 ? 'bước 1 đi ZooTop nhưng' : 'chỉ định #ZooTop nhưng';
         const loiChiDinh = zooSkus ? '' : !zooTarget ? 'chỉ định #ZooTop nhưng tab chưa gắn sheet ZooTop'
-          : 'chỉ định #ZooTop nhưng không có SKU ZooTop: ' + d.rows.filter(({ r }) => !zootopSkuDong(r, bangZoo, d.rows[0].r))
+          : tienTo + ' không có SKU ZooTop: ' + d.rows.filter(({ r }) => !zootopSkuDong(r, bangZoo, d.rows[0].r))
             .map(({ r }) => lyDoKhongCoZooTop(r, bangZoo, d.rows[0].r)).join('; ');
         return { ...d, zooSkus, loiChiDinh };
       }
@@ -996,7 +1019,10 @@
       const kq = dungDon(d, catalog, title);
       return { ...d, ...kq, loi: d.loiChiDinh ? [d.loiChiDinh] : kq.loi };
     });
-    if (donList.length === 0 && dsZoo.length === 0) return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
+    if (donList.length === 0 && dsZoo.length === 0) {
+      if (cheDo === 'buoc2') luuDonLoiBuoc1(title, []);
+      return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
+    }
     const dongBaoCao = [];
     if (zooTarget) {
       dongBaoCao.unshift(`${dsZoo.length} đơn đi ZooTop` + (dsZoo.length ? `: ${dsZoo.map((d) => d.orderNumber).join(', ')}` : '.'));
@@ -1034,7 +1060,14 @@
     }
 
     if (hopLe.length === 0 && dsZoo.length === 0) {
-      return [`Không có đơn hợp lệ để gửi (${coLoi.length} đơn lỗi):`, ...dongLoi].join('\n');
+      if (cheDo) {
+        await damBaoTieuDe(spreadsheetId, title, rows);
+        await ghiKetQua(spreadsheetId, title, coLoi.flatMap((d) => d.rows.map(({ rowNumber }, i) => (
+          { row: rowNumber, values: [d.skus[i], STATUS_ERROR_PREFIX + d.loi.join('; '), ''] }))));
+        luuDonLoiBuoc1(title, cheDo === 'buoc1' ? coLoi.map((d) => d.orderNumber) : []);
+      }
+      return [`Không có đơn hợp lệ để gửi (${coLoi.length} đơn lỗi):`, ...dongLoi,
+        ...(cheDo === 'buoc1' && coLoi.length ? ['Đã lưu các đơn lỗi. Sửa xong bấm "4. Bước 2: gửi lại đơn lỗi".'] : [])].join('\n');
     }
     const ok = W.confirm(
       `Sẽ gửi ${hopLe.length} đơn lên Merchize (${tenStore(store)})` +
@@ -1056,6 +1089,7 @@
 
     // Don ZooTop: ghi sheet fulfill ZooTop, roi AB = SKU ZooTop, AC = "ZooTop" cho moi dong cua don.
     let loiZoo = '';
+    const maLoiBuoc1 = coLoi.map((d) => d.orderNumber);
     if (dsZoo.length) {
       const dongAc = (trangThai) => dsZoo.flatMap((d) => d.rows.map(({ rowNumber }, i) => ({ row: rowNumber, values: [d.zooSkus[i], trangThai, ''] })));
       try {
@@ -1066,6 +1100,7 @@
           ? 'tài khoản Google đang dùng không có quyền sửa sheet ZooTop'
           : e.message.slice(0, 200);
         await ghiKetQua(spreadsheetId, title, dongAc(STATUS_ERROR_PREFIX + 'không ghi được sheet ZooTop - ' + loiZoo));
+        dsZoo.forEach((d) => maLoiBuoc1.push(d.orderNumber));
       }
     }
 
@@ -1089,7 +1124,7 @@
       } catch (e) {
         trangThai = STATUS_ERROR_PREFIX + e.message;
       }
-      if (trangThai !== STATUS_SENT) ketQuaGui.push(`• ${d.orderNumber}: ${trangThai}`);
+      if (trangThai !== STATUS_SENT) { ketQuaGui.push(`• ${d.orderNumber}: ${trangThai}`); maLoiBuoc1.push(d.orderNumber); }
       // Ghi ngay sau moi don de lo dong tab giua chung van biet don nao da gui.
       await ghiKetQua(spreadsheetId, title, d.rows.map(({ rowNumber }, j) => ({
         row: rowNumber, values: [d.skus[j], trangThai, maMerchize]
@@ -1097,13 +1132,16 @@
       await sleep(300);
     }
 
+    if (cheDo) luuDonLoiBuoc1(title, cheDo === 'buoc1' ? maLoiBuoc1 : []);
     return [
+      ...(cheDo === 'buoc1' ? ['BƯỚC 1 (ưu tiên ZooTop) xong.'] : cheDo === 'buoc2' ? ['BƯỚC 2 (ZooTop rồi Merchize) xong, đơn còn lỗi đã bỏ qua.'] : []),
       `Trang "${title}": gửi thành công ${thanhCong}/${hopLe.length} đơn lên Merchize.`,
       ...(dsZoo.length && !loiZoo ? [`Đã ghi ${dsZoo.length} đơn vào sheet ZooTop "${zooTarget.fileTitle || zooTarget.sheetTitle}".`] : []),
       ...(loiZoo ? [`❌ ${dsZoo.length} đơn ZooTop chưa ghi được: ${loiZoo}. Sửa xong thì xoá ô AC các đơn đó và gửi lại.`] : []),
       ...ketQuaGui,
       coLoi.length ? `${coLoi.length} đơn không gửi vì lỗi dữ liệu:` : '',
-      ...dongLoi
+      ...dongLoi,
+      cheDo === 'buoc1' && maLoiBuoc1.length ? `Đã lưu ${maLoiBuoc1.length} đơn lỗi. Sửa xong bấm "4. Bước 2: gửi lại đơn lỗi".` : ''
     ].filter(Boolean).join('\n');
   }
 
@@ -1241,14 +1279,15 @@
     });
     [xemCatalogBtn, xemCatalogBox, taiCatalogBtn].forEach((x) => catalogBox.appendChild(x));
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
-    const sendBtn = nut('3. Gửi đơn (ZooTop / Merchize)', '#4CAF50');
+    const sendBtn = nut('3. Gửi đơn - Bước 1 (ưu tiên ZooTop)', '#4CAF50');
+    const buoc2Btn = nut('4. Bước 2: gửi lại đơn lỗi (ZooTop rồi Merchize)', '#ef6c00');
     const workerBtn = nut('Cài Worker (link + key, 1 lần)', '#455a64');
     const capNhatBtn = nut(`Cập nhật script (đang dùng v${SCRIPT_VERSION})`, '#5d4037');
 
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [storeInfo, storeBox, zooInfo, zooBox, catalogInfo, catalogBtn, catalogBox, checkBtn, sendBtn, capNhatBtn, workerBtn, statusEl]
+    [storeInfo, storeBox, zooInfo, zooBox, catalogInfo, catalogBtn, catalogBox, checkBtn, sendBtn, buoc2Btn, capNhatBtn, workerBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
 
@@ -1340,7 +1379,7 @@
       }
     });
 
-    const tatCaNut = [saveTokenBtn, boStoreBtn, zooBtn, catalogBtn, taiCatalogBtn, checkBtn, sendBtn, capNhatBtn, workerBtn];
+    const tatCaNut = [saveTokenBtn, boStoreBtn, zooBtn, catalogBtn, taiCatalogBtn, checkBtn, sendBtn, buoc2Btn, capNhatBtn, workerBtn];
     async function chay(task) {
       tatCaNut.forEach((b) => { b.disabled = true; });
       try {
@@ -1481,7 +1520,8 @@
     });
     taiCatalogBtn.addEventListener('click', () => chay(() => capNhatCatalog(statusEl)));
     checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
-    sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true)));
+    sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true, 'buoc1')));
+    buoc2Btn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true, 'buoc2')));
     const caiWorkerVaHien = async () => {
       const kq = await caiWorker();
       if (tabDaHien) hienStore(tabDaHien);
