@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.9.5
+// @version      3.10
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -11,6 +11,7 @@
 // @grant        GM_xmlhttpRequest
 // @connect      docs.google.com
 // @connect      accounts.google.com
+// @connect      raw.githubusercontent.com
 // @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js
@@ -2679,7 +2680,41 @@
       window.open(UPDATE_URL, '_blank', 'noopener');
       hienThongBao('🔄 Đã mở trang cập nhật — bấm "Cài đặt/Xác nhận" trong hộp thoại Violentmonkey, rồi tải lại trang (F5).', '#2563EB');
     };
+    kiemTraBanMoi(nutCapNhat);
 
+  }
+
+  // So sanh 2 so phien ban dang "3.9.4" / "3.10" theo tung so (khong theo chu): tra ve >0 neu a moi hon b.
+  function soSanhPhienBan(a, b) {
+    const pa = String(a).split('.').map((x) => parseInt(x, 10) || 0);
+    const pb = String(b).split('.').map((x) => parseInt(x, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d;
+    }
+    return 0;
+  }
+
+  // Tu kiem tra ban moi tren GitHub (main) moi lan mo trang, ke ca ban nho (3.9.4 -> 3.9.5). Script
+  // khong the tu cai ban moi (Violentmonkey bat buoc xac nhan), nen khi co ban moi thi doi nut
+  // "Cap nhat" thanh "⬆ Co ban X" noi bat; bam vao la mo trang cai dat nhu thuong.
+  function kiemTraBanMoi(nut) {
+    if (typeof GM_xmlhttpRequest === 'undefined' || !nut) return;
+    GM_xmlhttpRequest({
+      method: 'GET',
+      url: UPDATE_URL,
+      timeout: 15000,
+      onload: (res) => {
+        if (res.status < 200 || res.status >= 300) return;
+        const m = String(res.responseText || '').match(/@version\s+([0-9.]+)/);
+        if (!m || soSanhPhienBan(m[1], SCRIPT_VERSION) <= 0) return;
+        nut.textContent = `⬆ ${m[1]}`;
+        nut.style.background = '#F59E0B';
+        nut.style.color = '#111';
+        nut.title = `Đang dùng v${SCRIPT_VERSION}, bản mới nhất là v${m[1]} — bấm để cập nhật`;
+        hienThongBao(`⬆ Có bản mới v${m[1]} (đang dùng v${SCRIPT_VERSION}) — bấm nút vàng trên thanh tiêu đề để cập nhật.`, '#D97706');
+      },
+    });
   }
 
   // Chi hien panel tren cac trang thuoc "/your/orders" (vd trang mac dinh cua Etsy la

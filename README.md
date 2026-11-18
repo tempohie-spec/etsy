@@ -2322,6 +2322,15 @@ và Sheet phải là Google Sheets gốc (không phải file `.xlsx` tải lên 
 - v3.9.4 (chỉ đổi màu): Bella Canvas Adult thêm `Blossom/Light Pink` → `Pink` (Bella Youth đã có từ trước).
 - v3.9.5 (chỉ đổi màu): Gildan thêm `Pepper/Dark Heather` → `Dark Heather`.
 
+## Tự báo có bản mới, kể cả bản nhỏ (v3.10)
+
+Mỗi lần mở trang đơn hàng, script tự đọc `@version` mới nhất trên GitHub (`main`) và so với bản đang chạy
+theo từng số (3.9.4 < 3.9.5 < 3.10). Có bản mới thì nút **⟳ Cập nhật** đổi thành nút vàng **⬆ 3.9.5**
+kèm thông báo; bấm vào để mở trang cài đặt rồi xác nhận trong Violentmonkey + F5. Script KHÔNG thể tự cài
+thầm lặng (Violentmonkey bắt buộc xác nhận). Muốn Violentmonkey tự cập nhật nền: Violentmonkey → Settings →
+đặt "Auto update interval" (số ngày, mặc định 1) và bấm "Check for updates" khi cần. Thêm
+`@connect raw.githubusercontent.com` để đọc được phiên bản (Violentmonkey có thể hỏi cho phép 1 lần).
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
