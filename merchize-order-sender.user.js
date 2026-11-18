@@ -1308,6 +1308,7 @@
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
     const sendBtn = nut('3. Gửi đơn - Bước 1 (ZooTop)', '#4CAF50');
     const buoc2Btn = nut('4. Bước 2: gửi lại đơn lỗi', '#ef6c00');
+    buoc2Btn.style.display = 'none'; // chi hien sau Buoc 1 khi tab co don loi da luu
     sendBtn.title = 'Bước 1: đơn chưa chỉ định đi ZooTop, đơn lỗi được lưu lại';
     buoc2Btn.title = 'Bước 2: gửi lại các đơn lỗi đã lưu, ưu tiên ZooTop rồi Merchize';
     const hangGui = el('div', 'display:flex;gap:6px;');
@@ -1422,6 +1423,7 @@
       } finally {
         if (nutChay) nutChay.classList.remove('mz-busy');
         tatCaNut.forEach((b) => { b.disabled = false; });
+        hienNutBuoc2();
         capNhatCatalogInfo();
       }
     }
@@ -1461,6 +1463,13 @@
       return hienStore(title);
     }
 
+    // Nut 4 chi hien khi tab dang mo co don loi do Buoc 1 luu lai.
+    function hienNutBuoc2() {
+      const so = ((docDonLoiBuoc1()[tabDaHien || tenTabNhanh() || ''] || []).length);
+      buoc2Btn.style.display = so ? '' : 'none';
+      if (so) buoc2Btn.textContent = `4. Bước 2: gửi lại ${so} đơn lỗi`;
+    }
+
     // Tu cap nhat dong trang thai store khi doi tab (kiem tra moi 0.5 giay khi panel dang mo).
     let tabDaHien = null;
     function capNhatStoreTheoTab() {
@@ -1475,6 +1484,7 @@
       }
       if (ten === tabDaHien) return;
       tabDaHien = ten;
+      hienNutBuoc2();
       moSuaStore = false;
       moSuaZoo = false;
       hienStore(ten);
