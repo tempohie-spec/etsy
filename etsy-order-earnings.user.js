@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.5
+// @version      3.10
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -11,6 +11,7 @@
 // @grant        GM_xmlhttpRequest
 // @connect      docs.google.com
 // @connect      accounts.google.com
+// @connect      raw.githubusercontent.com
 // @require      https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-order-earnings.user.js
@@ -103,8 +104,8 @@
   // CHINH THUC se dien ra.
   const BI_DANH_MAU = {
     comfort_adult: { 'orange': 'Burnt Orange', 'yam/orange': 'Yam' },
-    comfort_youth: {},
-    bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue' },
+    comfort_youth: { 'navy': 'True Navy', 'red': 'Ko có' },
+    bella_adult: { 'dark heather': 'Dark Grey Heather', 'blue': 'Baby Blue', 'blossom/light pink': 'Pink' },
     bella_youth: { 'dark heather': 'Dark Grey Heather', 'blossom/light pink': 'Pink' },
     toddler: {
       'violet': 'Lavender',
@@ -114,7 +115,9 @@
       'pepper/dark heather': 'Vintage Smoke',
       'moss/military green': 'Military Green'
     },
-    sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink' }
+    sweatshirt_hoodie: { 'blue': 'Light Blue', 'pink': 'Light Pink', 'forest': 'Forest Green' },
+    // Ao Gildan (Adult + Youth, title chua "Gildan"): chi quy doi to hop, chua co bang mau chuan
+    gildan: { 'ivory/natural': 'Natural', 'moss/military green': 'Military Green', 'pepper/dark heather': 'Dark Heather' }
   };
   // Xac dinh loai ao tu "title" (phan chu cua "Style & Size", vd "Comfort-Adult Tee",
   // "Bella-Youth Tee", "Toddler Tee", "Sweatshirt-Adult", "Hoodie-Adult"...) de chon dung
@@ -123,10 +126,10 @@
     const t = (title || '').toLowerCase();
     if (t.includes('toddler')) return { mau: BANG_MAU_TODDLER, biDanh: BI_DANH_MAU.toddler };
     if (t.includes('sweatshirt') || t.includes('hoodie')) {
-      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU.sweatshirt_hoodie };
+      return { mau: BANG_MAU_SWEATSHIRT_HOODIE, biDanh: BI_DANH_MAU.sweatshirt_hoodie, apDungMauDon: true };
     }
     if (t.includes('comfort') && t.includes('youth')) {
-      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU.comfort_youth };
+      return { mau: BANG_MAU_COMFORT_YOUTH, biDanh: BI_DANH_MAU.comfort_youth, apDungMauDon: true };
     }
     if (t.includes('comfort') && t.includes('adult')) {
       return { mau: BANG_MAU_COMFORT_ADULT, biDanh: BI_DANH_MAU.comfort_adult };
@@ -137,6 +140,7 @@
     if (t.includes('bella') && t.includes('adult')) {
       return { mau: BANG_MAU_BELLA_ADULT, biDanh: BI_DANH_MAU.bella_adult };
     }
+    if (t.includes('gildan')) return { mau: [], biDanh: BI_DANH_MAU.gildan };
     return null;
   }
 
@@ -151,10 +155,18 @@
   // dien, bang cach so tung manh voi bang mau chuan (va bang bi danh) cua dung loai ao. Xem
   // giai thich o tren.
   function resolveColorForGarment(colorRaw, title) {
-    if (!colorRaw || !colorRaw.includes('/')) return colorRaw;
+    if (!colorRaw) return colorRaw;
     const thongTinAo = xacDinhBangMauTheoAo(title);
     if (!thongTinAo) return colorRaw;
     const { mau: bangMau, biDanh } = thongTinAo;
+    // Mau DON (khong co "/"): mac dinh giu nguyen; chi Sweatshirt/Hoodie va Comfort Youth (apDungMauDon) moi
+    // quy doi theo bang bi danh (vd "Forest" -> "Forest Green", "Blue" -> "Light Blue").
+    if (!colorRaw.includes('/')) {
+      if (!thongTinAo.apDungMauDon) return colorRaw;
+      const chuanDon = chuanHoaTenMau(colorRaw);
+      const khoaKhop = Object.keys(biDanh).find((k) => chuanHoaTenMau(k) === chuanDon);
+      return khoaKhop !== undefined ? biDanh[khoaKhop] : colorRaw;
+    }
 
     const biDanhChuanHoa = {};
     Object.keys(biDanh).forEach((k) => { biDanhChuanHoa[chuanHoaTenMau(k)] = biDanh[k]; });
@@ -781,6 +793,12 @@
     return size.replace(/^(\d+)-(\d+)([A-Za-z]*)$/, '$1/$2$3');
   }
 
+  // Ao Gildan Youth: them "Y" vao truoc size chu (M -> YM, XL -> YXL). Khong them lai neu da co Y.
+  function themYChoGildanYouth(title, size) {
+    if (!size || !/gildan/i.test(title || '') || !/youth/i.test(title || '')) return size;
+    return /^(XXS|XS|S|M|L|XL|XXL|[2-5]XL)$/i.test(size.trim()) ? 'Y' + size.trim().toUpperCase() : size;
+  }
+
   // Thay dau nhay don cong (’) bang dau nhay don thang (') trong tat ca cac cot dang chu.
   function fixCurlyApostrophe(value) {
     if (typeof value !== 'string') return value;
@@ -792,6 +810,7 @@
     const cleanData = data.map((row) => {
       const out = {};
       HEADERS.forEach((h) => { out[h] = fixCurlyApostrophe(row[h] !== undefined ? row[h] : ''); });
+      out.size = themYChoGildanYouth(out.title, out.size);
       out.title = cleanTitleForExport(out.title);
       out.size = cleanSizeForExport(out.size);
       out.mockUpFront = fixCFormatUrl(out.mockUpFront);
@@ -1784,11 +1803,12 @@
       return { sheetId: idMatch[1], gid: gidMatch ? gidMatch[1] : '0' };
     }
 
-    function gmFetchTextOnce(url) {
+    function gmFetchTextOnce(url, anonymous) {
       return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
           method: 'GET',
           url,
+          anonymous: !!anonymous, // true = khong gui cookie Google (tranh 401 do dang nhap nhieu tai khoan)
           timeout: 15000,
           onload: (res) => {
             if (res.status >= 200 && res.status < 300) resolve(res.responseText);
@@ -1804,11 +1824,15 @@
     // (e.g. 403/404) won't get better by retrying, so it fails immediately.
     async function gmFetchText(url) {
       try {
-        return await gmFetchTextOnce(url);
+        return await gmFetchTextOnce(url, false);
       } catch (e) {
+        // 401/403 thuong do cookie cua tai khoan Google dang dang nhap trong trinh duyet khong
+        // co quyen (dang nhap nhieu tai khoan) du Sheet da chia se "Anyone with the link" ->
+        // thu lai KHONG gui cookie (nac danh). Sheet han che thi van dung cookie o lan dau.
+        if (/^HTTP 40[13]/.test(e.message)) return gmFetchTextOnce(url, true);
         if (/^HTTP 4/.test(e.message)) throw e;
         await sleep(1500);
-        return gmFetchTextOnce(url);
+        return gmFetchTextOnce(url, false);
       }
     }
 
@@ -2129,7 +2153,8 @@
       try {
         text = await gmFetchText(exportUrl);
       } catch (e) {
-        return { ok: false, error: `không tải được (${e.message})` };
+        const loiQuyen = /^HTTP 40[13]/.test(e.message);
+        return { ok: false, error: loiQuyen ? `không có quyền đọc (${e.message}) — kiểm tra Sheet đã chia sẻ "Bất kỳ ai có đường liên kết" chưa, và phải là Google Sheets gốc (không phải file Excel .xlsx tải lên Drive)` : `không tải được (${e.message})` };
       }
 
       if (/^\s*<(!DOCTYPE|html)/i.test(text)) {
@@ -2655,7 +2680,41 @@
       window.open(UPDATE_URL, '_blank', 'noopener');
       hienThongBao('🔄 Đã mở trang cập nhật — bấm "Cài đặt/Xác nhận" trong hộp thoại Violentmonkey, rồi tải lại trang (F5).', '#2563EB');
     };
+    kiemTraBanMoi(nutCapNhat);
 
+  }
+
+  // So sanh 2 so phien ban dang "3.9.4" / "3.10" theo tung so (khong theo chu): tra ve >0 neu a moi hon b.
+  function soSanhPhienBan(a, b) {
+    const pa = String(a).split('.').map((x) => parseInt(x, 10) || 0);
+    const pb = String(b).split('.').map((x) => parseInt(x, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d;
+    }
+    return 0;
+  }
+
+  // Tu kiem tra ban moi tren GitHub (main) moi lan mo trang, ke ca ban nho (3.9.4 -> 3.9.5). Script
+  // khong the tu cai ban moi (Violentmonkey bat buoc xac nhan), nen khi co ban moi thi doi nut
+  // "Cap nhat" thanh "⬆ Co ban X" noi bat; bam vao la mo trang cai dat nhu thuong.
+  function kiemTraBanMoi(nut) {
+    if (typeof GM_xmlhttpRequest === 'undefined' || !nut) return;
+    GM_xmlhttpRequest({
+      method: 'GET',
+      url: UPDATE_URL,
+      timeout: 15000,
+      onload: (res) => {
+        if (res.status < 200 || res.status >= 300) return;
+        const m = String(res.responseText || '').match(/@version\s+([0-9.]+)/);
+        if (!m || soSanhPhienBan(m[1], SCRIPT_VERSION) <= 0) return;
+        nut.textContent = `⬆ ${m[1]}`;
+        nut.style.background = '#F59E0B';
+        nut.style.color = '#111';
+        nut.title = `Đang dùng v${SCRIPT_VERSION}, bản mới nhất là v${m[1]} — bấm để cập nhật`;
+        hienThongBao(`⬆ Có bản mới v${m[1]} (đang dùng v${SCRIPT_VERSION}) — bấm nút vàng trên thanh tiêu đề để cập nhật.`, '#D97706');
+      },
+    });
   }
 
   // Chi hien panel tren cac trang thuoc "/your/orders" (vd trang mac dinh cua Etsy la

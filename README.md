@@ -828,6 +828,23 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Dọn code: bỏ phần kiểm tra tạm đã xong (v9.71)
+
+Bỏ các thứ chỉ dùng cho đợt chuyển đổi Sheet vừa rồi (không đổi chức năng đang dùng):
+
+- **Bỏ cảnh báo "mã Apps Script cũ"** (v9.70): thông báo vàng, chữ "mã Sheet cũ" trên panel, dòng cảnh báo trong hộp 🏷️ và số `phienBanMa` trong mã Apps Script. Cảnh báo này còn báo nhầm khi mã dán đã có cột "Tên sản phẩm" nhưng thiếu số phiên bản.
+- **Bỏ hàm `doiIdThanhLink`** khỏi mã Apps Script (chỉ chạy 1 lần để đổi các dòng cũ từ số ID thành link). Script vẫn đọc được cả dòng cũ (số ID) lẫn dòng mới (link).
+- Vẫn giữ: nút **Kiểm tra kết nối**, cột **Tên sản phẩm**, thông báo lỗi Google chi tiết và tự giãn nhịp khi đồng bộ lỗi (v9.61).
+- Mã Apps Script đã triển khai trên Sheet **không cần dán lại**: bỏ số phiên bản chỉ làm mã gọn hơn, bản đang chạy vẫn tương thích.
+
+### Tự báo khi mã Apps Script trên Sheet còn bản cũ (v9.70)
+
+Cập nhật userscript **không** tự cập nhật mã Apps Script trên Google (2 thứ riêng) — nên sau v9.69 có thể Sheet vẫn chạy mã cũ, không có cột "Tên sản phẩm". Mã Apps Script giờ trả về số phiên bản (`phienBanMa`), script so với số cần có:
+
+- Mã cũ: hiện thông báo vàng kèm cách cập nhật (1 lần mỗi lần tải trang), nút trên panel đổi thành **"· ⚠️ mã Sheet cũ"**, và hộp 🏷️ Đánh dấu listing ghi rõ cảnh báo.
+- Bấm **Kiểm tra** trong hộp 🏷️: báo "Mã Apps Script là bản mới (có cột "Tên sản phẩm")" nếu đã đúng bản.
+- Lưu ý: phải dán **mã copy từ bản script ≥ 9.70** (nút 📋 Copy mã Apps Script) rồi **Triển khai → Phiên bản mới**; copy từ bản script cũ thì vẫn ra mã cũ.
+
 ### Thêm cột "Tên sản phẩm" vào Sheet (v9.69)
 
 - Mỗi dòng ✅ "đã đăng" ghi thêm **cột F: Tên sản phẩm** (tiêu đề listing lúc dán, gọn khoảng trắng, tối đa 300 ký tự). Các cột A–E giữ nguyên nên script đọc Sheet không bị ảnh hưởng.
@@ -2244,6 +2261,9 @@ Các bí danh trong **bảng chuẩn** hiện tại (bản 1):
 | Bella Canvas Youth | `Blossom/Light Pink` (cả tổ hợp) | `Pink` |
 | Sweatshirt/Hoodie | `Blue` | `Light Blue` |
 | Sweatshirt/Hoodie | `Pink` | `Light Pink` |
+| Sweatshirt/Hoodie | `Forest` | `Forest Green` (v3.8) |
+
+Từ v3.9, riêng **Sweatshirt/Hoodie** các bí danh trên áp dụng cả cho **màu đơn không có `/`** (vd `Forest` → `Forest Green`, `Blue` → `Light Blue`, `Pink` → `Light Pink`). Các loại áo khác vẫn giữ nguyên màu đơn.
 
 ### Dùng chung 1 bảng cho nhiều shop (mỗi shop 1 trình duyệt)
 
@@ -2281,6 +2301,35 @@ Dòng hướng dẫn "Lấy Earnings theo danh sách mã đơn (nhập tay)" ph�
 - Dòng log trong panel Auto Tracking chuyển sang tiếng Việt ngắn gọn (vd `Đơn 4222… (Tên)...`,
   `Thấy: mã / DVVC`, `✓ Đã điền xong.`, `✗ Lỗi khi điền: …`). Console (F12) vẫn giữ thông báo
   kỹ thuật gốc cho việc debug.
+
+## Auto Tracking: lỗi HTTP 401 dù Sheet đã chia sẻ công khai (v3.6)
+
+Script đọc Sheet bằng `GM_xmlhttpRequest`, mặc định gửi kèm cookie Google của trình duyệt. Khi trình
+duyệt đang đăng nhập (nhiều) tài khoản Google không có quyền, Google trả **401** kể cả với Sheet đã
+để "Anyone with the link". Từ v3.6, gặp 401/403 script **tự thử lại không gửi cookie** (nặc danh);
+Sheet hạn chế vẫn đọc được ở lần đầu nhờ cookie. Nếu vẫn lỗi, thông báo nói rõ cần kiểm tra chia sẻ
+và Sheet phải là Google Sheets gốc (không phải file `.xlsx` tải lên Drive).
+
+## Gildan: thêm "Y" cho size Youth + quy đổi màu Ivory/Natural (v3.7)
+
+- Title có **Gildan** và **Youth** (vd `Gildan Youth`, `Gildan-Youth Tee`): size chữ tự thêm `Y`
+  phía trước khi xuất Excel/clipboard — `M` → `YM`, `XL` → `YXL` (không thêm lại nếu đã có `Y`;
+  size không phải dạng chữ như `5-6T` giữ nguyên; Gildan Adult không đổi).
+- Quy đổi màu mới cho áo Gildan (Adult và Youth): `Ivory/Natural` → `Natural` (bảng `BI_DANH_MAU.gildan`).
+- v3.9.1 (chỉ đổi màu): Gildan thêm `Moss/Military Green` → `Military Green`.
+- v3.9.2 (chỉ đổi màu): Comfort Colors Youth `Navy` → `True Navy` (áp dụng cả màu đơn lẫn từng mảnh trong màu ghép).
+- v3.9.3 (chỉ đổi màu): Comfort Colors Youth `Red` → `Ko có` (xưởng không có màu này).
+- v3.9.4 (chỉ đổi màu): Bella Canvas Adult thêm `Blossom/Light Pink` → `Pink` (Bella Youth đã có từ trước).
+- v3.9.5 (chỉ đổi màu): Gildan thêm `Pepper/Dark Heather` → `Dark Heather`.
+
+## Tự báo có bản mới, kể cả bản nhỏ (v3.10)
+
+Mỗi lần mở trang đơn hàng, script tự đọc `@version` mới nhất trên GitHub (`main`) và so với bản đang chạy
+theo từng số (3.9.4 < 3.9.5 < 3.10). Có bản mới thì nút **⟳ Cập nhật** đổi thành nút vàng **⬆ 3.9.5**
+kèm thông báo; bấm vào để mở trang cài đặt rồi xác nhận trong Violentmonkey + F5. Script KHÔNG thể tự cài
+thầm lặng (Violentmonkey bắt buộc xác nhận). Muốn Violentmonkey tự cập nhật nền: Violentmonkey → Settings →
+đặt "Auto update interval" (số ngày, mặc định 1) và bấm "Check for updates" khi cần. Thêm
+`@connect raw.githubusercontent.com` để đọc được phiên bản (Violentmonkey có thể hỏi cho phép 1 lần).
 
 ## Đóng bảng "Order details" sau mỗi đơn
 
@@ -2451,6 +2500,14 @@ của từng store, không cần thêm vào `SECRET_KEYS`). Tab đã cài từ t
 mở tab. Nếu script báo `⚠️ Worker chưa vào được file`: share file cho email service account trong
 thông báo (Sheet đơn: Editor, file ZooTop: quyền xem). Worker lưu trong KV `cfg` (`GET/POST /config`),
 ghi đè lên mục cùng tên trong biến `STORES` / `ZOOTOP`.
+
+## Đơn thiếu link design không còn bị "dính" Merchize (v1.58)
+
+Trước đây đơn đủ SKU ZooTop nhưng thiếu link design bị báo lỗi, đồng thời nút **2. Kiểm tra** vẫn điền
+SKU **Merchize** vào cột AB. Dán link design xong bấm gửi thì AB đã có SKU Merchize nên đơn bị ép sang
+Merchize dù có SKU ZooTop. Từ v1.58, đơn thiếu link design **không bị điền SKU vào AB** (giữ nguyên ô AB),
+nên sau khi dán link design script tra lại bình thường và đơn đi ZooTop. Đơn ĐÃ bị điền SKU Merchize từ
+trước: xoá ô AB của các dòng đó rồi Kiểm tra / Gửi lại.
 
 ## Chỉ định bằng dấu # (v1.57)
 

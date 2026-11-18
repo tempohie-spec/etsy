@@ -1012,12 +1012,15 @@
       if (!d.zooSkus) return d;
       const thieu = d.rows.map(({ r }, i) => (!laLink(cell(r, COL.designFront)) && !laLink(cell(r, COL.designBack)) ? i + 1 : 0)).filter(Boolean);
       if (!thieu.length) return d;
-      return { ...d, zooSkus: null, loiChiDinh: 'thiếu link design' + (d.rows.length > 1 ? ` (dòng ${thieu.join(', ')})` : '') };
+      // thieuDesign: don DANG DUOC DI ZooTop (du SKU ZooTop) nhung thieu link design -> KHONG duoc dien SKU
+      // Merchize vao AB (neu dien, lan gui sau AB da co SKU Merchize nen don bi ep sang Merchize du co SKU ZooTop).
+      return { ...d, zooSkus: null, thieuDesign: true, loiChiDinh: 'thiếu link design' + (d.rows.length > 1 ? ` (dòng ${thieu.join(', ')})` : '') };
     });
     const dsZoo = tatCa.filter((d) => d.zooSkus);
     const donList = tatCa.filter((d) => !d.zooSkus).map((d) => {
       const kq = dungDon(d, catalog, title);
-      return { ...d, ...kq, loi: d.loiChiDinh ? [d.loiChiDinh] : kq.loi };
+      const skus = d.thieuDesign ? d.rows.map(({ r }) => cell(r, COL.merchizeSku)) : kq.skus;
+      return { ...d, ...kq, skus, loi: d.loiChiDinh ? [d.loiChiDinh] : kq.loi };
     });
     if (donList.length === 0 && dsZoo.length === 0) {
       if (cheDo === 'buoc2') luuDonLoiBuoc1(title, []);
