@@ -1163,10 +1163,34 @@
   }
 
   function nut(text, mau) {
-    return el('button', `width:100%;padding:8px;background:${mau};color:#fff;border:none;border-radius:4px;cursor:pointer;margin-bottom:6px;`, text);
+    const b = el('button', `width:100%;padding:8px;background:${mau};color:#fff;border:none;border-radius:4px;cursor:pointer;margin-bottom:6px;`, text);
+    b.className = 'mz-btn';
+    return b;
+  }
+
+  // Hieu ung "dang chay" giong Auto Tracking: nut dang chay co vien + vet sang chay ngang, cac nut khac mo di.
+  function chenCssNut() {
+    if (document.getElementById('mz-style')) return;
+    const st = document.createElement('style');
+    st.id = 'mz-style';
+    st.textContent = `
+      .mz-btn { position:relative; overflow:hidden; transition:filter .15s, box-shadow .15s; }
+      .mz-btn:hover:not(:disabled) { filter:brightness(1.08); }
+      .mz-btn:disabled { opacity:.5; cursor:not-allowed; }
+      .mz-btn.mz-busy:disabled { opacity:1; cursor:progress; }
+      .mz-btn.mz-busy { box-shadow:0 0 0 2px #fff, 0 0 0 4px #1565c0; }
+      .mz-btn.mz-busy::after {
+        content:''; position:absolute; top:0; right:0; bottom:0; left:0; transform:translateX(-100%);
+        background:linear-gradient(110deg, transparent 25%, rgba(255,255,255,.45) 50%, transparent 75%);
+        animation:mz-sheen 1.1s linear infinite;
+      }
+      @keyframes mz-sheen { to { transform:translateX(100%); } }
+    `;
+    document.head.appendChild(st);
   }
 
   function buildUi() {
+    chenCssNut();
     const btn = el('button', `position:fixed!important;bottom:80px;right:24px;z-index:${MAX_Z}!important;
       padding:10px 16px;background:#ff6f00;color:#fff;border:none;border-radius:6px;cursor:grab;font-size:13px;
       font-family:Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.4);user-select:none;`, `Merchize v${SCRIPT_VERSION}`);
@@ -1279,15 +1303,19 @@
     });
     [xemCatalogBtn, xemCatalogBox, taiCatalogBtn].forEach((x) => catalogBox.appendChild(x));
     const checkBtn = nut('2. Kiểm tra (điền SKU, chưa gửi)', '#8e24aa');
-    const sendBtn = nut('3. Gửi đơn - Bước 1 (ưu tiên ZooTop)', '#4CAF50');
-    const buoc2Btn = nut('4. Bước 2: gửi lại đơn lỗi (ZooTop rồi Merchize)', '#ef6c00');
+    const sendBtn = nut('3. Gửi đơn - Bước 1 (ZooTop)', '#4CAF50');
+    const buoc2Btn = nut('4. Bước 2: gửi lại đơn lỗi', '#ef6c00');
+    sendBtn.title = 'Bước 1: đơn chưa chỉ định đi ZooTop, đơn lỗi được lưu lại';
+    buoc2Btn.title = 'Bước 2: gửi lại các đơn lỗi đã lưu, ưu tiên ZooTop rồi Merchize';
+    const hangGui = el('div', 'display:flex;gap:6px;');
+    [sendBtn, buoc2Btn].forEach((x) => { x.style.flex = '1'; x.style.minWidth = '0'; hangGui.appendChild(x); });
     const workerBtn = nut('Cài Worker (link + key, 1 lần)', '#455a64');
     const capNhatBtn = nut(`Cập nhật script (đang dùng v${SCRIPT_VERSION})`, '#5d4037');
 
 
     const statusEl = el('pre', 'white-space:pre-wrap;margin-top:8px;max-height:280px;overflow:auto;font-size:12px;color:#333;');
 
-    [storeInfo, storeBox, zooInfo, zooBox, catalogInfo, catalogBtn, catalogBox, checkBtn, sendBtn, buoc2Btn, capNhatBtn, workerBtn, statusEl]
+    [storeInfo, storeBox, zooInfo, zooBox, catalogInfo, catalogBtn, catalogBox, checkBtn, hangGui, capNhatBtn, workerBtn, statusEl]
       .forEach((x) => panel.appendChild(x));
     document.body.appendChild(btn);
 
@@ -1380,14 +1408,16 @@
     });
 
     const tatCaNut = [saveTokenBtn, boStoreBtn, zooBtn, catalogBtn, taiCatalogBtn, checkBtn, sendBtn, buoc2Btn, capNhatBtn, workerBtn];
-    async function chay(task) {
+    async function chay(task, nutChay) {
       tatCaNut.forEach((b) => { b.disabled = true; });
+      if (nutChay) nutChay.classList.add('mz-busy');
       try {
         log(statusEl, '✅ ' + await task());
       } catch (e) {
         log(statusEl, '❌ Lỗi: ' + e.message);
         console.error('[Merchize]', e);
       } finally {
+        if (nutChay) nutChay.classList.remove('mz-busy');
         tatCaNut.forEach((b) => { b.disabled = false; });
         capNhatCatalogInfo();
       }
@@ -1518,17 +1548,17 @@
     catalogBtn.addEventListener('click', () => {
       catalogBox.style.display = catalogBox.style.display === 'none' ? 'block' : 'none';
     });
-    taiCatalogBtn.addEventListener('click', () => chay(() => capNhatCatalog(statusEl)));
-    checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false)));
-    sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true, 'buoc1')));
-    buoc2Btn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true, 'buoc2')));
+    taiCatalogBtn.addEventListener('click', () => chay(() => capNhatCatalog(statusEl), taiCatalogBtn));
+    checkBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, false), checkBtn));
+    sendBtn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true, 'buoc1'), sendBtn));
+    buoc2Btn.addEventListener('click', () => chay(() => kiemTraHoacGui(statusEl, true, 'buoc2'), buoc2Btn));
     const caiWorkerVaHien = async () => {
       const kq = await caiWorker();
       if (tabDaHien) hienStore(tabDaHien);
       return kq;
     };
-    workerBtn.addEventListener('click', () => chay(caiWorkerVaHien));
-    capNhatBtn.addEventListener('click', () => chay(kiemTraCapNhat));
+    workerBtn.addEventListener('click', () => chay(caiWorkerVaHien, workerBtn));
+    capNhatBtn.addEventListener('click', () => chay(kiemTraCapNhat, capNhatBtn));
   }
 
   function safeInit() {
