@@ -27,8 +27,8 @@
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
-  // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
-  const SO_DONG_CUOI = 100;
+  // Gui don / dien cost chi doc 200 dong cuoi cua tab (nhanh hon voi tab dai).
+  const SO_DONG_CUOI = 200;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
