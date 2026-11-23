@@ -2592,7 +2592,7 @@ dòng đó để script tra lại.
 ## Gửi đơn 2 bước (v1.58)
 
 - **3. Gửi đơn - Bước 1:** đơn chưa chỉ định gì được coi như `#ZooTop` (chỉ khi tab đã gắn sheet ZooTop; tab không có ZooTop thì chạy như cũ). Đơn có `#Merchize` hoặc SKU tự điền vẫn đi đúng nhà cung cấp đã chỉ định. Đơn lỗi (thiếu SKU ZooTop, thiếu link design, Merchize/ZooTop từ chối...) được ghi `Lỗi: ...` ở AC và lưu lại danh sách theo từng tab.
-- Khi báo "không có đơn nào chờ gửi", script in thêm phần chẩn đoán (số dòng đã đọc, các ô AC giống `#ZooTop`/`#Merchize` nhưng không nhận ra kèm mã ký tự, 3 dòng cuối) (v1.60).
+- Khi báo "không có đơn nào chờ gửi", script nhắc thêm rằng chỉ quét 100 dòng cuối có mã đơn và cho biết đang đọc từ dòng nào đến dòng nào (v1.60).
 - **4. Bước 2: gửi lại đơn lỗi** (chỉ hiện sau khi Bước 1 lưu đơn lỗi, nằm cạnh nút 3; nút đang chạy có viền và vệt sáng chạy ngang như Auto Tracking)**:** sau khi sửa xong các đơn lỗi, bấm nút này. Chỉ các đơn đã lưu ở Bước 1 được xét lại, dòng đang ghi `Lỗi: ...` được coi như đã sửa, ưu tiên ZooTop rồi mới đến Merchize. Đơn nào vẫn lỗi thì bỏ qua, báo rõ lỗi gì và xóa danh sách chờ.
 
 ## Quy tắc tra SKU
