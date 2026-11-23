@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.59
+// @version      1.60
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.59';
+  const SCRIPT_VERSION = '1.60';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -936,6 +936,25 @@
     });
   }
 
+  // Khi khong thay don nao cho gui: cho biet da doc nhung dong nao + cac o AC "giong" #ZooTop / #Merchize
+  // nhung khong duoc nhan ra (ky tu la, dau nhay...) de de tim nguyen nhan.
+  function chanDoanKhongCoDon(rows) {
+    const so = [];
+    rows.forEach((r, i) => { if (i > 0 && r) so.push(i + 1); });
+    if (!so.length) return ['Chẩn đoán: không đọc được dòng dữ liệu nào (cột C không có mã đơn).'];
+    const moTa = (v) => JSON.stringify(v) + (/[^\x20-\x7E]/.test(v) ? ` [mã ký tự: ${Array.from(v).map((c) => c.codePointAt(0)).join(',')}]` : '');
+    const dong = [`Chẩn đoán: đã đọc ${so.length} dòng (từ dòng ${so[0]} đến dòng ${so[so.length - 1]}).`];
+    const nghi = [];
+    rows.forEach((r, i) => {
+      const st = i > 0 && r ? cell(r, COL.status) : '';
+      if (st && /merchize|zootop/i.test(st) && !chiDinhNcc(st) && !/^(merchize|zootop)$/i.test(st)) nghi.push(`• dòng ${i + 1} (đơn ${cell(r, COL.orderNumber)}): AC = ${moTa(st)}`);
+    });
+    if (nghi.length) dong.push('Ô AC giống chỉ định nhưng không được nhận ra:', ...nghi.slice(0, 5));
+    const cuoi = rows.map((r, i) => (i > 0 && r ? i : 0)).filter(Boolean).slice(-3);
+    dong.push('3 dòng cuối đã đọc:', ...cuoi.map((i) => `• dòng ${i + 1}: đơn ${cell(rows[i], COL.orderNumber)}, AC = ${moTa(cell(rows[i], COL.status))}`));
+    return dong;
+  }
+
   // ============ DON LOI BUOC 1 (cho gui lai o buoc 2) ============
   function docDonLoiBuoc1() {
     try { return JSON.parse(GM_getValue('mz_loi_buoc1', '{}')) || {}; } catch (e) { return {}; }
@@ -1024,7 +1043,7 @@
     });
     if (donList.length === 0 && dsZoo.length === 0) {
       if (cheDo === 'buoc2') luuDonLoiBuoc1(title, []);
-      return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
+      return [`Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`, ...chanDoanKhongCoDon(rows)].join('\n');
     }
     const dongBaoCao = [];
     if (zooTarget) {
