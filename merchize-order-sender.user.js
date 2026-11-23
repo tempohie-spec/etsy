@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.59
+// @version      1.60
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,12 +23,12 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.59';
+  const SCRIPT_VERSION = '1.60';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
-  // Gui don / dien cost chi doc 100 dong cuoi cua tab (nhanh hon voi tab dai).
-  const SO_DONG_CUOI = 100;
+  // Gui don / dien cost chi doc 200 dong cuoi cua tab (nhanh hon voi tab dai).
+  const SO_DONG_CUOI = 200;
   // Moi tab account = 1 store Merchize rieng (Base URL + Access Token rieng), luu theo TEN TAB.
   // Base URL mac dinh goi y khi tab chua cai dat (store dau tien).
   const BASE_URL_GOI_Y = 'https://bo-group-1-2.merchize.com/zoi24ff/bo-api';
@@ -1024,7 +1024,9 @@
     });
     if (donList.length === 0 && dsZoo.length === 0) {
       if (cheDo === 'buoc2') luuDonLoiBuoc1(title, []);
-      return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).`;
+      const dongDoc = rows.map((r, i) => (i > 0 && r ? i + 1 : 0)).filter(Boolean);
+      return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).` +
+        (dongDoc.length ? `\nLưu ý: script chỉ quét ${SO_DONG_CUOI} dòng cuối có mã đơn (đang đọc từ dòng ${dongDoc[0]} đến dòng ${dongDoc[dongDoc.length - 1]}). Đơn nằm phía trên dòng ${dongDoc[0]} sẽ không được quét.` : '');
     }
     const dongBaoCao = [];
     if (zooTarget) {
