@@ -2589,6 +2589,10 @@ dòng đó để script tra lại.
 - Teb Print đã được gỡ khỏi script và Worker ở v1.56 (không còn ghi sheet Teb, không còn biến `TEB`). Dòng cũ có AC =
   `Teb` vẫn được giữ nguyên và Worker bỏ qua chúng khi tra Merchize.
 
+## Mockup back cho đơn ZooTop (v1.61)
+
+Đơn ZooTop: dòng nào có link design_back (cột G) thì ngoài mockup_front (cột W của sheet ZooTop) còn điền thêm mockup_back (cột X), dùng chính ảnh mockup ở cột D của sheet đơn. Dòng không có design_back thì cột X để trống.
+
 ## Gửi đơn 2 bước (v1.58)
 
 - **3. Gửi đơn - Bước 1:** đơn chưa chỉ định gì được coi như `#ZooTop` (chỉ khi tab đã gắn sheet ZooTop; tab không có ZooTop thì chạy như cũ). Đơn có `#Merchize` hoặc SKU tự điền vẫn đi đúng nhà cung cấp đã chỉ định. Đơn lỗi (thiếu SKU ZooTop, thiếu link design, Merchize/ZooTop từ chối...) được ghi `Lỗi: ...` ở AC và lưu lại danh sách theo từng tab.
