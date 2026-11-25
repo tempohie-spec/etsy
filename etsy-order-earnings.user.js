@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.12
+// @version      3.13
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -1798,7 +1798,7 @@
     // ---------------------------------------------------------------------
 
     let sheetMap = null; // orderId -> { tracking, carrier }
-    let sheetMapByName = null; // normalized customer name -> { tracking, carrier } (fallback)
+    let sheetMapByName = null; // normalized customer name -> [{ code, tracking, carrier }, ...] (fallback)
     let sheetTatCaId = null; // Set moi ma don XUAT HIEN tren Sheet (ke ca dong chua co tracking)
     let sheetTatCaTen = null; // Set ten khach (chuan hoa) cua moi dong tren Sheet
 
@@ -1991,6 +1991,8 @@
         const carrier = colCarrier !== -1 ? (cells[colCarrier] || '').trim() : '';
         if (orderId) {
           tatCaId.add(orderId);
+          const goc = maDonGoc(orderId);
+          if (goc) tatCaId.add(goc); // "12345a" cung tinh la co don 12345 tren Sheet
           if (colName !== -1) {
             const tenDong = normalizeName(cells[colName]);
             if (tenDong) tatCaTen.add(tenDong);
@@ -2016,26 +2018,36 @@
         map[orderId] = { tracking, carrier };
         if (colName !== -1) {
           const name = normalizeName(cells[colName]);
-          if (name) mapByName[name] = { tracking, carrier };
+          if (name) (mapByName[name] = mapByName[name] || []).push({ code: orderId, tracking, carrier });
         }
         count++;
       }
       return { ok: true, map, mapByName, order, tatCaId, tatCaTen, count, rowCount: rows.length - 1, skippedOld, skippedNotTracking };
     }
 
+    // Ma don tren Sheet co the co hau to chu cai khi 1 don tach nhieu goi: "12345", "12345a", "12345b".
+    // Tra ve phan so ("12345") de so voi ma don that tren Etsy.
+    function maDonGoc(code) {
+      const m = String(code || '').trim().match(/^(\d+)\s*[a-z]?$/i);
+      return m ? m[1] : null;
+    }
+
     function lookupTracking(orderId, customerName) {
       if (!sheetMap) return { orderId, found: false };
       let entry = sheetMap[orderId];
       let byName = false;
+      // Khong khop ma don hoan toan -> so den TEN khach; trung ten thi PHAI so lai ma don tren Sheet:
+      // chi nhan khi ma do la ma don Etsy + (tuy chon) 1 chu cai ("12345", "12345a", "12345b").
+      // Ten trung nhung ma don khac han (don khac cua cung 1 khach) -> KHONG nhan.
       if (!entry && customerName && sheetMapByName) {
-        entry = sheetMapByName[normalizeName(customerName)];
+        const dsTheoTen = sheetMapByName[normalizeName(customerName)] || [];
+        const khop = dsTheoTen.filter((e) => maDonGoc(e.code) === String(orderId));
+        entry = khop.length ? khop[khop.length - 1] : null;
         byName = !!entry;
       }
-      if (entry) return { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName };
+      if (entry) return { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName, maSheet: entry.code };
       // Khong co tracking hop le: phan biet "co dong tren Sheet nhung chua co tracking" va "khong co tren Sheet".
-      const coTrenSheet =
-        !!(sheetTatCaId && sheetTatCaId.has(orderId)) ||
-        !!(customerName && sheetTatCaTen && sheetTatCaTen.has(normalizeName(customerName)));
+      const coTrenSheet = !!(sheetTatCaId && sheetTatCaId.has(orderId));
       return { orderId, found: false, coTrenSheet };
     }
 
@@ -2065,7 +2077,7 @@
         }
         return false;
       }
-      log(`  Thấy${result.byName ? ' (theo tên)' : ''}: ${result.tracking} / ${result.carrier || '?'}`);
+      log(`  Thấy${result.byName ? ' (theo tên + mã đơn ' + result.maSheet + ')' : ''}: ${result.tracking} / ${result.carrier || '?'}`);
 
       if (!result.carrier) {
         log('  Thiếu DVVC trong Sheet → bỏ qua.');
@@ -2313,7 +2325,7 @@
           if (!(orderId in combinedMap)) combinedOrder.push(orderId);
           combinedMap[orderId] = result.map[orderId];
         }
-        Object.assign(combinedMapByName, result.mapByName);
+        Object.keys(result.mapByName).forEach((k) => { combinedMapByName[k] = (combinedMapByName[k] || []).concat(result.mapByName[k]); });
         (result.tatCaId || []).forEach((x) => combinedTatCaId.add(x));
         (result.tatCaTen || []).forEach((x) => combinedTatCaTen.add(x));
       }

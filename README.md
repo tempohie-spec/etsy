@@ -2345,6 +2345,14 @@ quay lại luật cũ, đặt `LUON_DTG = false` trong `xacDinhPhuongPhapInTheoT
 - Khi chạy **xong toàn bộ** (không bị bấm Dừng), nếu có đơn không tìm thấy trên Sheet thì hiện **1 bảng**
   liệt kê mã đơn + tên khách, có nút **📋 Copy mã đơn** và **Đóng**. Đơn chỉ thiếu tracking không vào bảng này.
 
+## Điền tracking: so khớp tên phải kèm mã đơn dạng 12345 / 12345a / 12345b (v3.13)
+
+Thứ tự khớp: (1) mã đơn Etsy khớp **hoàn toàn** mã đơn trên Sheet → dùng luôn; (2) không khớp thì so **tên khách**,
+và nếu trùng tên thì **phải so lại mã đơn trên Sheet**: chỉ nhận khi mã đó là mã đơn Etsy + tuỳ chọn 1 chữ cái
+(`12345`, `12345a`, `12345b`). Trùng tên nhưng mã đơn khác hẳn (đơn khác của cùng 1 khách) thì **không nhận** và
+báo "Chưa tìm được trên Sheet". Nếu có nhiều dòng thoả (vd `12345a` và `12345b`), lấy dòng nằm **sau cùng** trên
+Sheet. Log ghi rõ mã đơn trên Sheet đã khớp, vd `Thấy (theo tên + mã đơn 12345a): ...`.
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
