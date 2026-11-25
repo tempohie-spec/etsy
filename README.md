@@ -2603,6 +2603,10 @@ dòng đó để script tra lại.
 - Teb Print đã được gỡ khỏi script và Worker ở v1.56 (không còn ghi sheet Teb, không còn biến `TEB`). Dòng cũ có AC =
   `Teb` vẫn được giữ nguyên và Worker bỏ qua chúng khi tra Merchize.
 
+## Telegram: shop quét được / shop lỗi
+
+Dưới dòng "Cập nhật tự động lúc ..." của tin tóm tắt có thêm 2 mục: "Quét được các shop" (liệt kê tab gọi API Merchize thành công, không có lỗi nào) và "Các shop lỗi" (kèm lỗi cụ thể, vd `Merchize 403: Something went wrong. Please sign in again.` là token hết hạn; hoặc `chưa có Base URL hoặc token`). Shop lỗi: cập nhật lại Access Token trong panel Merchize của tab đó. Kết quả `/run` cũng có trường `shop`.
+
 ## Đơn Etsy bị tách thành nhiều đơn Merchize (Worker)
 
 Merchize có thể tách 1 đơn Etsy thành nhiều đơn với mã Etsy + 1 chữ cái (`4238855261a`, `4238855261b`...). Quy tắc khớp mã đơn trên Sheet với Merchize:
