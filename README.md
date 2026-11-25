@@ -2658,6 +2658,7 @@ Dưới dòng "Cập nhật tự động lúc ..." của tin tóm tắt có thê
 ## Gợi ý kiểu in DTG / DTF cho đơn Merchize (v1.66)
 
 Khi bấm "3. Gửi đơn" (hoặc Bước 2), các đơn gửi Merchize hợp lệ (cột A là DTG hoặc DTF) cũng được gợi ý kiểu in như đơn ZooTop, chung 1 hộp thoại (mỗi dòng ghi `[Merchize]` hoặc `[ZooTop]`, kèm ảnh mockup, mặc định không đổi): ưu tiên DTG, DTG đắt hơn DTF quá 0.5$ thì gợi ý DTF. Giá lấy từ file `merchize-gia.json` trên GitHub (tạo từ 7 file "SKU information" của Merchize: Bella 3001, Youth 3001Y, Comfort 1717, Youth 9018, Gildan 18000, Gildan 18500, Toddler 3321; Tier 1, 0 đến 999 sản phẩm), script tự tải và nhớ 6 giờ.
+- Hộp thoại (v1.67): dòng mô tả "Các đơn sau đang in DTG, tích vào đơn muốn in DTF cho rẻ hơn (>0.5$)", ô "Chọn tất cả" nằm đầu cột tích, chỉ có 1 nút "Chốt và Gửi đơn" (đơn nào không tích thì giữ nguyên kiểu in).
 - Chi phí 1 đơn = sản phẩm đầu: base + phí ship sản phẩm đầu; sản phẩm tiếp theo (và mỗi cái thêm khi số lượng lớn hơn 1): base + phí ship thêm. Vùng ship: US, EU (27 nước EU), còn lại là ROW. Phí ship giống nhau giữa DTG và DTF nên chênh lệch chính là chênh base cost.
 - Chưa có giá cho Gildan 5000 (`5000US`, `500BUS`) và 1717 Made in AU (`1717AU`), nên các đơn này không được gợi ý. File chưa có phí mặt thứ 2 (design_back) nên chưa tính. Đơn có dòng cột A không phải DTG/DTF cũng bỏ qua.
 - Đơn nào được tích sẽ đổi kiểu in, ghi lại vào cột A rồi gửi với `printing_method` mới. Khi Merchize đổi giá hoặc có thêm sản phẩm: gửi file "SKU information" mới để cập nhật `merchize-gia.json`.
