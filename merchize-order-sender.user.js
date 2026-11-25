@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.65
+// @version      1.66
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.65';
+  const SCRIPT_VERSION = '1.66';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -949,7 +949,76 @@
       const nen = dtg && dtf ? (dtg.gia - dtf.gia > NGUONG_DTG_DAT ? dtf : dtg) : ung[0];
       if (d.rows.every(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) === nen.pm)) return;
       const hienTai = Array.from(new Set(d.rows.map(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) || '?'))).join('+');
-      kq.push({ don: d, moi: nen.pm, hienTai, giaDtg: dtg ? dtg.gia : null, giaDtf: dtf ? dtf.gia : null });
+      kq.push({ don: d, moi: nen.pm, hienTai, giaDtg: dtg ? dtg.gia : null, giaDtf: dtf ? dtf.gia : null, ncc: 'ZooTop' });
+    });
+    return kq;
+  }
+
+  // ============ GIA MERCHIZE THEO KIEU IN (file merchize-gia.json tren GitHub, tu 7 file SKU information cua Merchize) ============
+  const LINK_GIA_MERCHIZE = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-gia.json';
+  const NUOC_EU = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
+  const vungShipMerchize = (quocGia) => (quocGia === 'US' ? 'us' : NUOC_EU.has(quocGia) ? 'eu' : 'row');
+  // { V: { "<SKU variant>": [base DTF, base DTG] }, P: { "<ma san pham 6 ky tu>": { us|eu|row: [phi ship san pham dau, phi them] } } }
+  async function docBangGiaMerchize() {
+    let cu = null;
+    try { cu = JSON.parse(GM_getValue('mz_gia_merchize', 'null')); } catch (e) { cu = null; }
+    if (cu && cu.luc && cu.data && Date.now() - cu.luc < 6 * 3600 * 1000) return cu.data;
+    try {
+      const data = await new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: 'GET',
+          url: `${LINK_GIA_MERCHIZE}?_=${Date.now()}`,
+          timeout: 30000,
+          onload: (res) => {
+            try {
+              const j = JSON.parse(res.responseText);
+              if (res.status === 200 && j && j.V && j.P) resolve(j); else reject(new Error(`Không đọc được bảng giá Merchize trên GitHub (mã ${res.status}).`));
+            } catch (e) { reject(new Error('Bảng giá Merchize trên GitHub không đọc được.')); }
+          },
+          onerror: () => reject(new Error('Không kết nối được tới GitHub.')),
+          ontimeout: () => reject(new Error('GitHub không phản hồi.'))
+        });
+      });
+      GM_setValue('mz_gia_merchize', JSON.stringify({ luc: Date.now(), data }));
+      return data;
+    } catch (e) {
+      if (cu && cu.data) return cu.data;
+      throw e;
+    }
+  }
+
+  // Chi phi 1 don Merchize neu in het bang kieu `pm`: san pham dau = base + ship san pham dau, san pham tiep theo = base + ship them.
+  // (Ship giong nhau giua DTG va DTF nen chenh lech chi la chenh base cost.) null neu thieu gia.
+  function giaDonMerchize(don, skus, pm, bangGia, quocGia) {
+    const vung = vungShipMerchize(quocGia);
+    let tong = 0;
+    let dau = true;
+    for (let i = 0; i < don.rows.length; i++) {
+      const ma = str(skus[i]);
+      const v = (bangGia.V || {})[ma];
+      const sp = (bangGia.P || {})[ma.slice(0, 6)];
+      const base = v ? v[pm === 'DTF' ? 0 : 1] : null;
+      if (base === null || base === undefined || !sp || !sp[vung]) return null;
+      const sl = Math.max(1, parseInt(cell(don.rows[i].r, COL.quantity), 10) || 1);
+      for (let u = 0; u < sl; u++) { tong += base + (dau ? sp[vung][0] : sp[vung][1]); dau = false; }
+    }
+    return Math.round(tong * 100) / 100;
+  }
+
+  // Goi y kieu in cho cac don Merchize hop le: uu tien DTG, DTG dat hon DTF qua NGUONG_DTG_DAT thi goi y DTF.
+  function tinhGoiYMerchize(dsDon, bangGia) {
+    const kq = [];
+    dsDon.forEach(({ d, skus }) => {
+      if (d.rows.some(({ r }) => !phuongPhapIn(cell(r, COL.printingMethod)))) return; // cot A khong phai DTG/DTF: khong biet kieu in hien tai
+      const quocGia = maQuocGia(cell(d.rows[0].r, COL.country));
+      const ung = ['DTG', 'DTF'].map((pm) => ({ pm, gia: giaDonMerchize(d, skus, pm, bangGia, quocGia) })).filter((x) => x.gia !== null);
+      if (!ung.length) return;
+      const dtg = ung.find((x) => x.pm === 'DTG');
+      const dtf = ung.find((x) => x.pm === 'DTF');
+      const nen = dtg && dtf ? (dtg.gia - dtf.gia > NGUONG_DTG_DAT ? dtf : dtg) : ung[0];
+      if (d.rows.every(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) === nen.pm)) return;
+      const hienTai = Array.from(new Set(d.rows.map(({ r }) => phuongPhapIn(cell(r, COL.printingMethod))))).join('+');
+      kq.push({ don: d, moi: nen.pm, hienTai, giaDtg: dtg ? dtg.gia : null, giaDtf: dtf ? dtf.gia : null, ncc: 'Merchize' });
     });
     return kq;
   }
@@ -959,7 +1028,7 @@
     return new Promise((resolve) => {
       const lop = el('div', `position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:${MAX_Z};display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;`);
       const hop = el('div', 'background:#fff;border-radius:8px;padding:14px;width:520px;max-width:92vw;max-height:80vh;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:13px;color:#222;');
-      hop.appendChild(el('div', 'font-weight:bold;margin-bottom:4px;', `Gợi ý đổi kiểu in (${goiY.length} đơn ZooTop)`));
+      hop.appendChild(el('div', 'font-weight:bold;margin-bottom:4px;', `Gợi ý đổi kiểu in (${goiY.length} đơn)`));
       hop.appendChild(el('div', 'font-size:12px;color:#555;margin-bottom:8px;', `Ưu tiên DTG. DTG đắt hơn DTF quá ${NGUONG_DTG_DAT}$ thì gợi ý DTF. Tích đơn muốn đổi (mặc định giữ nguyên).`));
       const o = goiY.map((g) => {
         const dong = el('label', 'display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #eee;cursor:pointer;');
@@ -980,7 +1049,7 @@
           anh.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); window.open(link, '_blank', 'noopener'); });
           dong.appendChild(anh);
         }
-        dong.appendChild(el('span', 'flex:1;', `${g.don.orderNumber}: ${g.hienTai} → ${g.moi}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
+        dong.appendChild(el('span', 'flex:1;', `${g.ncc ? '[' + g.ncc + '] ' : ''}${g.don.orderNumber}: ${g.hienTai} → ${g.moi}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
         hop.appendChild(dong);
         return { g, cb };
       });
@@ -1161,22 +1230,34 @@
       // Merchize vao AB (neu dien, lan gui sau AB da co SKU Merchize nen don bi ep sang Merchize du co SKU ZooTop).
       return { ...d, zooSkus: null, thieuDesign: true, loiChiDinh: 'thiếu link design' + (d.rows.length > 1 ? ` (dòng ${thieu.join(', ')})` : '') };
     });
-    // Goi y kieu in (chi khi gui that, chi don ZooTop tu tra SKU): nguoi dung chon don nao doi.
+    // Goi y kieu in (chi khi gui that): don ZooTop tu tra SKU va don Merchize hop le; 1 hop thoai de nguoi dung chon don nao doi.
     const ghiA = [];
     let ghiChuGia = '';
-    if (guiThat && zooTarget) {
+    if (guiThat) {
       try {
-        const bangGia = await docBangGia();
-        const goiY = tinhGoiYKieuIn(tatCa, bangZoo, bangGia);
+        let goiYZoo = [];
+        if (zooTarget) {
+          try {
+            goiYZoo = tinhGoiYKieuIn(tatCa, bangZoo, await docBangGia());
+          } catch (e) { ghiChuGia = 'Không gợi ý được kiểu in ZooTop (giữ nguyên): ' + e.message.slice(0, 120); }
+        }
+        let goiYMz = [];
+        try {
+          const bangGiaMz = await docBangGiaMerchize();
+          const ungMz = tatCa.filter((d) => !d.zooSkus && !d.loiChiDinh).map((d) => ({ d, kq: dungDon(d, catalog, title) }))
+            .filter((x) => x.kq.loi.length === 0).map((x) => ({ d: x.d, skus: x.kq.skus }));
+          goiYMz = tinhGoiYMerchize(ungMz, bangGiaMz);
+        } catch (e) { ghiChuGia = (ghiChuGia ? ghiChuGia + ' ' : '') + 'Không gợi ý được kiểu in Merchize (giữ nguyên): ' + e.message.slice(0, 120); }
+        const goiY = goiYZoo.concat(goiYMz);
         const chon = goiY.length ? await hoiDoiKieuIn(goiY) : new Set();
         const duocDoi = goiY.filter((g) => chon.has(g.don.orderNumber));
         duocDoi.forEach((g) => {
           const moi = donDoiKieuIn(g.don, g.moi);
-          const i = tatCa.indexOf(g.don);
-          tatCa[i] = { ...moi, zooSkus: zootopSkuCuaDon(moi, bangZoo) };
+          const i2 = tatCa.indexOf(g.don);
+          tatCa[i2] = g.ncc === 'Merchize' ? moi : { ...moi, zooSkus: zootopSkuCuaDon(moi, bangZoo) };
           moi.rows.forEach(({ rowNumber }) => ghiA.push({ row: rowNumber, pm: g.moi }));
         });
-        if (goiY.length) ghiChuGia = `Gợi ý đổi kiểu in: ${goiY.length} đơn, đã đổi ${duocDoi.length}.`;
+        if (goiY.length) ghiChuGia = (ghiChuGia ? ghiChuGia + ' ' : '') + `Gợi ý đổi kiểu in: ${goiY.length} đơn, đã đổi ${duocDoi.length}.`;
       } catch (e) {
         ghiChuGia = 'Không gợi ý được kiểu in (giữ nguyên): ' + e.message.slice(0, 150);
       }
