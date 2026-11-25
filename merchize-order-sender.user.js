@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.62
+// @version      1.63
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.62';
+  const SCRIPT_VERSION = '1.63';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -766,9 +766,10 @@
   const STATUS_ZOOTOP = 'ZooTop';
   // Bang SKU cho don NGOAI US (tra truoc cac bang khac): cot B "G5000-DTG" (ma loai ao - kieu in),
   // E Color, F Size, H SKU. Don ngoai US chi nhan SKU bat dau bang G hoac C (ma UT... chi di trong US).
-  const ZOOTOP_QT = { file: '1wsnF3NTXuax5ZFPswnJsokrIykDENvvvHNnKB9lYbwQ', gid: 0, cot: { loai: 1, color: 4, size: 5, sku: 7 } };
+  const ZOOTOP_QT = { file: '1mCPCCleDu4GuYZhmWr_-BAPdkUiuhvo2rqKYk9hELtI', gid: 1986553200, cot: { loai: 1, color: 4, size: 5, sku: 7 } };
   // Title tren Sheet -> ma loai ao trong bang quoc te.
-  const ZOOTOP_QT_MA = { 'gildan adult': 'G5000', 'comfort adult': 'C1717' };
+  // (hoodie / sweatshirt dat truoc de title "Gildan Adult Hoodie" khong bi nhan nham la gildan adult).
+  const ZOOTOP_QT_MA = { 'adult hoodie': 'G18500', 'adult sweatshirt': 'G18000', 'gildan adult': 'G5000', 'comfort adult': 'C1717' };
   const skuDiNgoaiUs = (sku) => /^[GC]/i.test(str(sku));
   // shipping_type ghi vao cot D sheet fulfill: 'PLATFORM' hoac 'SELLER'.
   const ZOOTOP_SHIPPING_TYPE = 'SELLER';
@@ -842,7 +843,9 @@
         const d = await sheetsApiFetch(`${ZOOTOP_QT.file}/values/${encodeURIComponent(`'${p.title}'`)}?valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
         soSku[`${p.title} (quốc tế)`] = 0;
         (d.values || []).forEach((r) => {
-          const m = str(r[ZOOTOP_QT.cot.loai]).match(/^(.+?)-(DTG|DTF)$/i);
+          // Cot B: "G5000-DTG" / "C1717-DTF" / "G5000" (khong hau to = DTF).
+          const loai = str(r[ZOOTOP_QT.cot.loai]);
+          const m = loai.match(/^(.+?)-(DTG|DTF)$/i) || (/^[A-Za-z]+\d+$/.test(loai) ? [loai, loai, 'DTF'] : null);
           const ma = str(r[ZOOTOP_QT.cot.sku]);
           if (!m || !ma) return;
           quocTe[[m[1].toUpperCase(), m[2].toUpperCase(), chuanHoaMau(r[ZOOTOP_QT.cot.color]), chuanHoaSize(r[ZOOTOP_QT.cot.size])].join('|')] = ma;
@@ -867,8 +870,130 @@
     if (maQuocGia(cell(r0, COL.country)) === 'US') return skuThuong;
     const maLoai = timTheoTitle(ZOOTOP_QT_MA, cell(r, COL.title));
     const skuQt = maLoai ? (bangZoo.quocTe || {})[[maLoai, pm, chuanHoaMau(cell(r, COL.color)), chuanHoaSize(cell(r, COL.size))].join('|')] || '' : '';
-    if (skuDiNgoaiUs(skuQt)) return skuQt;
-    return skuDiNgoaiUs(skuThuong) ? skuThuong : '';
+    return skuDiNgoaiUs(skuQt) ? skuQt : '';
+  }
+
+  // ============ BANG GIA ZOOTOP + GOI Y KIEU IN (DTG uu tien, DTF neu re hon tren NGUONG_DTG_DAT) ============
+  const ZOOTOP_GIA = { file: '1rEn1FYVfS9RW8Of8mL-262vQj6GDehYPhfJD2wRSBD0', gid: 445207736 };
+  // Cot (0-based) bang gia: C size, D tong DTF (ship by sellers), F tong DTG, H base DTF, I base DTG,
+  // J phi mat 2 DTF, O ship them DTF, P phi mat 2 DTG, S ship them DTG.
+  const GIA_COT = { size: 2, DTF: { tong: 3, base: 7, them2: 9, shipThem: 14 }, DTG: { tong: 5, base: 8, them2: 15, shipThem: 18 } };
+  const NGUONG_DTG_DAT = 0.5;
+  // Title tren Sheet -> ten san pham trong bang gia (dong Promotion cho Gildan 5000 va Comfort 1717).
+  const GIA_TEN = {
+    'adult hoodie': 'Gildan-18500',
+    'adult sweatshirt': 'Gildan-18000',
+    'gildan adult': 'Gildan-5000-Promotion',
+    'comfort adult': 'Comfort Color Unisex - C1717-Promotion',
+    'bella adult': 'Bella+Canvas-3001 (US)',
+    'gildan youth': 'Gildan 5000B Youth T-Shirt'
+  };
+  // "$9,70" / "$1,234.50" -> so (null neu trong).
+  function soUsd(v) {
+    const t = str(v).replace(/[$\s]/g, '');
+    if (!t) return null;
+    const n = Number(/,/.test(t) && !/\.\d{1,2}$/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, ''));
+    return isNaN(n) ? null : n;
+  }
+  // { "<ten san pham chuan hoa>": { "<size>": { DTF: {tong, base, them2, shipThem}, DTG: {...} } } }
+  async function docBangGia() {
+    const meta = await sheetsApiFetch(`${ZOOTOP_GIA.file}?fields=sheets.properties(sheetId,title)`, { method: 'GET' });
+    const p = (meta.sheets || []).map((x) => x.properties).find((x) => x.sheetId === ZOOTOP_GIA.gid);
+    if (!p) throw new Error('File bảng giá ZooTop không có tab đã khai báo (gid).');
+    const d = await sheetsApiFetch(`${ZOOTOP_GIA.file}/values/${encodeURIComponent(`'${p.title}'`)}?valueRenderOption=FORMATTED_VALUE`, { method: 'GET' });
+    const bang = {};
+    let ten = '';
+    (d.values || []).forEach((r, i) => {
+      if (i === 0) return;
+      if (str(r[0])) ten = chuanTen(r[0]);
+      const size = chuanHoaSize(r[GIA_COT.size]);
+      if (!ten || !size) return;
+      const lay = (c) => Object.fromEntries(Object.entries(c).map(([k, idx]) => [k, soUsd(r[idx])]));
+      (bang[ten] = bang[ten] || {})[size] = { DTF: lay(GIA_COT.DTF), DTG: lay(GIA_COT.DTG) };
+    });
+    return bang;
+  }
+
+  // Chi phi 1 don neu in het bang kieu `pm` ('DTF' | 'DTG'); null neu thieu gia / khong co san pham.
+  // San pham dau: tong (da gom ship by sellers); san pham tiep theo: base + ship them; co design_back: + phi mat 2.
+  function giaDonTheoKieu(don, pm, bangGia) {
+    let tong = 0;
+    let dauTien = true;
+    for (const { r } of don.rows) {
+      const tenSp = timTheoTitle(GIA_TEN, cell(r, COL.title));
+      const g = tenSp && ((bangGia[chuanTen(tenSp)] || {})[chuanHoaSize(cell(r, COL.size))] || {})[pm];
+      if (!g) return null;
+      const sl = Math.max(1, parseInt(cell(r, COL.quantity), 10) || 1);
+      for (let u = 0; u < sl; u++) {
+        if (dauTien) { if (g.tong == null) return null; tong += g.tong; dauTien = false; }
+        else { if (g.base == null || g.shipThem == null) return null; tong += g.base + g.shipThem; }
+        if (laLink(cell(r, COL.designBack))) { if (g.them2 == null) return null; tong += g.them2; }
+      }
+    }
+    return Math.round(tong * 100) / 100;
+  }
+
+  // Ban sao cua don voi cot A doi sang kieu in `pm`.
+  const donDoiKieuIn = (don, pm) => ({ ...don, rows: don.rows.map(({ rowNumber, r }) => ({ rowNumber, r: Object.assign(r.slice(), { [COL.printingMethod]: pm }) })) });
+
+  // Goi y cho cac don ZooTop tu tra SKU: uu tien DTG, DTG dat hon DTF qua NGUONG_DTG_DAT thi goi y DTF.
+  function tinhGoiYKieuIn(dsDon, bangZoo, bangGia) {
+    const kq = [];
+    dsDon.forEach((d) => {
+      if (!d.zooSkus || (d.skuTay && d.skuTay.some(Boolean))) return;
+      const ung = ['DTG', 'DTF'].map((pm) => ({ pm, gia: giaDonTheoKieu(d, pm, bangGia), sku: zootopSkuCuaDon(donDoiKieuIn(d, pm), bangZoo) }))
+        .filter((x) => x.gia != null && x.sku);
+      if (!ung.length) return;
+      const dtg = ung.find((x) => x.pm === 'DTG');
+      const dtf = ung.find((x) => x.pm === 'DTF');
+      const nen = dtg && dtf ? (dtg.gia - dtf.gia > NGUONG_DTG_DAT ? dtf : dtg) : ung[0];
+      if (d.rows.every(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) === nen.pm)) return;
+      const hienTai = Array.from(new Set(d.rows.map(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) || '?'))).join('+');
+      kq.push({ don: d, moi: nen.pm, hienTai, giaDtg: dtg ? dtg.gia : null, giaDtf: dtf ? dtf.gia : null });
+    });
+    return kq;
+  }
+
+  // Hop thoai chon don nao doi kieu in. Tra ve Set ma don duoc tich (mac dinh khong tich).
+  async function hoiDoiKieuIn(goiY) {
+    return new Promise((resolve) => {
+      const lop = el('div', `position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:${MAX_Z};display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;`);
+      const hop = el('div', 'background:#fff;border-radius:8px;padding:14px;width:520px;max-width:92vw;max-height:80vh;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:13px;color:#222;');
+      hop.appendChild(el('div', 'font-weight:bold;margin-bottom:4px;', `Gợi ý đổi kiểu in (${goiY.length} đơn ZooTop)`));
+      hop.appendChild(el('div', 'font-size:12px;color:#555;margin-bottom:8px;', `Ưu tiên DTG. DTG đắt hơn DTF quá ${NGUONG_DTG_DAT}$ thì gợi ý DTF. Tích đơn muốn đổi (mặc định giữ nguyên).`));
+      const o = goiY.map((g) => {
+        const dong = el('label', 'display:block;padding:5px 0;border-top:1px solid #eee;cursor:pointer;');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.style.marginRight = '6px';
+        const gia = (v) => (v == null ? 'n/a' : v.toFixed(2) + '$');
+        dong.appendChild(cb);
+        dong.appendChild(document.createTextNode(`${g.don.orderNumber}: ${g.hienTai} → ${g.moi}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
+        hop.appendChild(dong);
+        return { g, cb };
+      });
+      const hang = el('div', 'display:flex;gap:6px;margin-top:10px;');
+      const ap = nut('Áp dụng các đơn đã tích', '#4CAF50');
+      const giu = nut('Giữ nguyên tất cả', '#607d8b');
+      const tatCaBtn = nut('Tích tất cả', '#1976d2');
+      [ap, giu, tatCaBtn].forEach((x) => { x.style.flex = '1'; x.style.marginBottom = '0'; hang.appendChild(x); });
+      hop.appendChild(hang);
+      lop.appendChild(hop);
+      document.body.appendChild(lop);
+      const xong = (set) => { lop.remove(); resolve(set); };
+      tatCaBtn.addEventListener('click', () => o.forEach(({ cb }) => { cb.checked = true; }));
+      giu.addEventListener('click', () => xong(new Set()));
+      ap.addEventListener('click', () => xong(new Set(o.filter(({ cb }) => cb.checked).map(({ g }) => g.don.orderNumber))));
+    });
+  }
+
+  // Ghi kieu in moi vao cot A (A{row} = DTG / DTF).
+  async function ghiKieuIn(spreadsheetId, title, updates) {
+    if (!updates.length) return;
+    await sheetsApiFetch(`${spreadsheetId}/values:batchUpdate`, {
+      method: 'POST',
+      body: JSON.stringify({ valueInputOption: 'RAW', data: updates.map((u) => ({ range: `'${title}'!A${u.row}`, values: [[u.pm]] })) })
+    });
   }
 
   // Ly do 1 dong khong co SKU ZooTop (de bao loi ro rang).
@@ -876,7 +1001,7 @@
     const pm = phuongPhapIn(cell(r, COL.printingMethod));
     const moTa = `${cell(r, COL.printingMethod) || '?'} | ${cell(r, COL.title)} | ${cell(r, COL.color)} | ${cell(r, COL.size)}`;
     if (!pm) return `${moTa}: cột A không phải DTG/DTF`;
-    if (maQuocGia(cell(r0, COL.country)) !== 'US') return `${moTa} (${cell(r0, COL.country)}): không có SKU đi ngoài US (G/C) trong bảng quốc tế hay các bảng khác`;
+    if (maQuocGia(cell(r0, COL.country)) !== 'US') return `${moTa} (${cell(r0, COL.country)}): không có SKU đi ngoài US trong bảng quốc tế (chỉ có Gildan 5000, Comfort 1717, sweatshirt 18000, hoodie 18500, size S đến 3XL)`;
     const tenSp = (timTheoTitle(ZOOTOP_TEN, cell(r, COL.title)) || {})[pm];
     if (!tenSp) return `${moTa}: title chưa có trong danh sách ZooTop`;
     const cd = bangZoo.chanDoan || { sanPham: {} };
@@ -1018,6 +1143,26 @@
       // Merchize vao AB (neu dien, lan gui sau AB da co SKU Merchize nen don bi ep sang Merchize du co SKU ZooTop).
       return { ...d, zooSkus: null, thieuDesign: true, loiChiDinh: 'thiếu link design' + (d.rows.length > 1 ? ` (dòng ${thieu.join(', ')})` : '') };
     });
+    // Goi y kieu in (chi khi gui that, chi don ZooTop tu tra SKU): nguoi dung chon don nao doi.
+    const ghiA = [];
+    let ghiChuGia = '';
+    if (guiThat && zooTarget) {
+      try {
+        const bangGia = await docBangGia();
+        const goiY = tinhGoiYKieuIn(tatCa, bangZoo, bangGia);
+        const chon = goiY.length ? await hoiDoiKieuIn(goiY) : new Set();
+        const duocDoi = goiY.filter((g) => chon.has(g.don.orderNumber));
+        duocDoi.forEach((g) => {
+          const moi = donDoiKieuIn(g.don, g.moi);
+          const i = tatCa.indexOf(g.don);
+          tatCa[i] = { ...moi, zooSkus: zootopSkuCuaDon(moi, bangZoo) };
+          moi.rows.forEach(({ rowNumber }) => ghiA.push({ row: rowNumber, pm: g.moi }));
+        });
+        if (goiY.length) ghiChuGia = `Gợi ý đổi kiểu in: ${goiY.length} đơn, đã đổi ${duocDoi.length}.`;
+      } catch (e) {
+        ghiChuGia = 'Không gợi ý được kiểu in (giữ nguyên): ' + e.message.slice(0, 150);
+      }
+    }
     const dsZoo = tatCa.filter((d) => d.zooSkus);
     const donList = tatCa.filter((d) => !d.zooSkus).map((d) => {
       const kq = dungDon(d, catalog, title);
@@ -1086,6 +1231,7 @@
     if (!ok) return 'Đã hủy, chưa gửi đơn nào.';
 
     await damBaoTieuDe(spreadsheetId, title, rows);
+    await ghiKieuIn(spreadsheetId, title, ghiA);
 
     // Don loi: ghi ngay trang thai loi (sua xong thi xoa o AC de gui lai).
     const updLoi = [];
@@ -1141,6 +1287,7 @@
 
     if (cheDo) luuDonLoiBuoc1(title, cheDo === 'buoc1' ? maLoiBuoc1 : []);
     return [
+      ...(ghiChuGia ? [ghiChuGia] : []),
       ...(cheDo === 'buoc1' ? ['BƯỚC 1 (ưu tiên ZooTop) xong.'] : cheDo === 'buoc2' ? ['BƯỚC 2 (ZooTop rồi Merchize) xong, đơn còn lỗi đã bỏ qua.'] : []),
       `Trang "${title}": gửi thành công ${thanhCong}/${hopLe.length} đơn lên Merchize.`,
       ...(dsZoo.length && !loiZoo ? [`Đã ghi ${dsZoo.length} đơn vào sheet ZooTop "${zooTarget.fileTitle || zooTarget.sheetTitle}".`] : []),
@@ -1282,7 +1429,7 @@
       lienKet('Variant DTF (B Product Name, E Color, F Size, G SKU)', linkSheet(ZOOTOP_FILE_SKU, ZOOTOP_BANG_SKU[1].gid));
       lienKet('Variant DTG (B Product Name, E Color, F Size, G SKU)', linkSheet(ZOOTOP_FILE_SKU, ZOOTOP_BANG_SKU[2].gid));
       Object.entries(ZOOTOP_TEN).forEach(([t, m]) => dong(`• ${t} → DTF: "${m.DTF}" | DTG: "${m.DTG}"`));
-      dong('Đơn ngoài US: tra bảng quốc tế trước (B mã loại-kiểu in, E Color, F Size, H SKU), rồi các tab trên; chỉ nhận SKU bắt đầu bằng G hoặc C.');
+      dong('Đơn ngoài US: chỉ tra bảng quốc tế (B mã loại-kiểu in, E Color, F Size, H SKU), không dùng các tab trên.');
       lienKet('Bảng SKU quốc tế', linkSheet(ZOOTOP_QT.file, ZOOTOP_QT.gid));
       Object.entries(ZOOTOP_QT_MA).forEach(([t, m]) => dong(`• ${t} → ${m}`));
       dong(`shipping_type: ${ZOOTOP_SHIPPING_TYPE}. Màu không phân biệt hoa thường, size XXL = 2XL.`);
