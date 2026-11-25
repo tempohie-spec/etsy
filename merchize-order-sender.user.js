@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.67
+// @version      1.68
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.67';
+  const SCRIPT_VERSION = '1.68';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -1023,12 +1023,18 @@
     return kq;
   }
 
-  // Hop thoai chon don nao doi kieu in. Tra ve Set ma don duoc tich (mac dinh khong tich).
+  // Hop thoai chon don nao doi kieu in. Tra ve Set ma don duoc tich (mac dinh khong tich), hoac null neu nguoi dung tat bang.
   async function hoiDoiKieuIn(goiY) {
     return new Promise((resolve) => {
       const lop = el('div', `position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:${MAX_Z};display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;`);
       const hop = el('div', 'background:#fff;border-radius:8px;padding:14px;width:520px;max-width:92vw;max-height:80vh;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:13px;color:#222;');
-      hop.appendChild(el('div', 'font-weight:bold;margin-bottom:4px;', `Gợi ý đổi kiểu in (${goiY.length} đơn)`));
+      // Tieu de + nut tat bang (X): tat bang = khong gui don nao.
+      const hangTieuDe = el('div', 'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;');
+      hangTieuDe.appendChild(el('div', 'font-weight:bold;', `Gợi ý đổi kiểu in (${goiY.length} đơn)`));
+      const nutTat = el('button', 'border:none;background:transparent;font-size:18px;line-height:1;cursor:pointer;color:#666;padding:0 4px;', '✕');
+      nutTat.title = 'Tắt bảng (chưa gửi đơn nào)';
+      hangTieuDe.appendChild(nutTat);
+      hop.appendChild(hangTieuDe);
       const toanDtf = goiY.every((g) => g.moi === 'DTF' && g.hienTai === 'DTG');
       hop.appendChild(el('div', 'font-size:12px;color:#555;margin-bottom:8px;',
         toanDtf ? `Các đơn sau đang in DTG, tích vào đơn muốn in DTF cho rẻ hơn (>${NGUONG_DTG_DAT}$)` : 'Tích vào đơn muốn đổi kiểu in theo gợi ý (rẻ hơn hoặc ưu tiên DTG).'));
@@ -1069,7 +1075,10 @@
       hop.appendChild(ap);
       lop.appendChild(hop);
       document.body.appendChild(lop);
-      const xong = (set) => { lop.remove(); resolve(set); };
+      const xong = (set) => { lop.remove(); document.removeEventListener('keydown', khiNhanPhim, true); resolve(set); };
+      const khiNhanPhim = (e) => { if (e.key === 'Escape') xong(null); };
+      document.addEventListener('keydown', khiNhanPhim, true);
+      nutTat.addEventListener('click', () => xong(null));
       cbTatCa.addEventListener('change', () => o.forEach(({ cb }) => { cb.checked = cbTatCa.checked; }));
       o.forEach(({ cb }) => cb.addEventListener('change', () => { cbTatCa.checked = o.every((x) => x.cb.checked); }));
       ap.addEventListener('click', () => xong(new Set(o.filter(({ cb }) => cb.checked).map(({ g }) => g.don.orderNumber))));
@@ -1258,6 +1267,7 @@
         } catch (e) { ghiChuGia = (ghiChuGia ? ghiChuGia + ' ' : '') + 'Không gợi ý được kiểu in Merchize (giữ nguyên): ' + e.message.slice(0, 120); }
         const goiY = goiYZoo.concat(goiYMz);
         const chon = goiY.length ? await hoiDoiKieuIn(goiY) : new Set();
+        if (chon === null) return 'Đã tắt bảng gợi ý kiểu in, chưa gửi đơn nào.';
         const duocDoi = goiY.filter((g) => chon.has(g.don.orderNumber));
         duocDoi.forEach((g) => {
           const moi = donDoiKieuIn(g.don, g.moi);
