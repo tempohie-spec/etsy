@@ -2589,6 +2589,12 @@ dòng đó để script tra lại.
 - Teb Print đã được gỡ khỏi script và Worker ở v1.56 (không còn ghi sheet Teb, không còn biến `TEB`). Dòng cũ có AC =
   `Teb` vẫn được giữ nguyên và Worker bỏ qua chúng khi tra Merchize.
 
+## Bảng SKU ngoài US mới + gợi ý kiểu in (v1.63)
+
+- **Đơn ZooTop ngoài US** chỉ tra [bảng SKU quốc tế](https://docs.google.com/spreadsheets/d/1mCPCCleDu4GuYZhmWr_-BAPdkUiuhvo2rqKYk9hELtI/edit?gid=1986553200) (tab gid 1986553200, Made In US), không dùng các tab SKU thường nữa. Mẫu có sẵn: Gildan 5000 (`G5000`), Comfort 1717 (`C1717`), sweatshirt Gildan 18000, hoodie Gildan 18500, size S đến 3XL. Cột B: `<mã>-DTG` là DTG, `<mã>-DTF` hoặc `<mã>` (không hậu tố) là DTF. Mẫu/size khác (Bella, Youth, XS, 4XL, 5XL...) báo lỗi.
+- **Gợi ý kiểu in** khi bấm "3. Gửi đơn" / Bước 2, cho mọi đơn ZooTop tự tra SKU (đơn có SKU điền tay ở AB thì bỏ qua): so chi phí cả đơn theo [bảng giá](https://docs.google.com/spreadsheets/d/1rEn1FYVfS9RW8Of8mL-262vQj6GDehYPhfJD2wRSBD0/edit?gid=445207736) (ship by sellers): sản phẩm đầu dùng cột tổng, sản phẩm tiếp theo (và mỗi cái thêm khi số lượng > 1) dùng base + ship thêm, mỗi sản phẩm có design_back cộng phí mặt thứ 2. Ưu tiên DTG; DTG đắt hơn DTF quá 0.5$ thì gợi ý DTF. Dùng dòng Promotion cho Gildan 5000 và Comfort 1717. Chỉ gợi ý kiểu mà SKU và giá đều có.
+- Hộp thoại liệt kê đơn gợi ý đổi (mặc định không đổi). Đơn nào được tích sẽ đổi kiểu in, ghi lại vào cột A của sheet rồi tra SKU theo kiểu mới. Không đọc được bảng giá thì giữ nguyên kiểu in.
+
 ## Mockup back cho đơn ZooTop (v1.62)
 
 Đơn ZooTop: dòng nào có link design_back (cột G) thì chỉ điền mockup_back (cột X của sheet ZooTop) và để trống mockup_front (cột W); dòng không có design_back thì điền mockup_front (W) như cũ. Ảnh dùng là mockup ở cột D của sheet đơn.
