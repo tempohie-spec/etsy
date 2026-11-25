@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.11
+// @version      3.12
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -1799,6 +1799,8 @@
 
     let sheetMap = null; // orderId -> { tracking, carrier }
     let sheetMapByName = null; // normalized customer name -> { tracking, carrier } (fallback)
+    let sheetTatCaId = null; // Set moi ma don XUAT HIEN tren Sheet (ke ca dong chua co tracking)
+    let sheetTatCaTen = null; // Set ten khach (chuan hoa) cua moi dong tren Sheet
 
     function extractSheetIdAndGid(url) {
       const idMatch = (url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -1977,6 +1979,8 @@
       const map = {};
       const mapByName = {};
       const order = [];
+      const tatCaId = new Set();
+      const tatCaTen = new Set();
       let count = 0;
       let skippedOld = 0;
       let skippedNotTracking = 0;
@@ -1985,6 +1989,13 @@
         const orderId = (cells[colOrder] || '').trim();
         const tracking = (cells[colTracking] || '').trim();
         const carrier = colCarrier !== -1 ? (cells[colCarrier] || '').trim() : '';
+        if (orderId) {
+          tatCaId.add(orderId);
+          if (colName !== -1) {
+            const tenDong = normalizeName(cells[colName]);
+            if (tenDong) tatCaTen.add(tenDong);
+          }
+        }
         if (!orderId || !tracking) continue; // order not shipped yet -> skip
         if (!looksLikeTrackingNumber(tracking)) {
           // A note like "NGOÀI US" / "Priority" instead of a real tracking
@@ -2009,7 +2020,7 @@
         }
         count++;
       }
-      return { ok: true, map, mapByName, order, count, rowCount: rows.length - 1, skippedOld, skippedNotTracking };
+      return { ok: true, map, mapByName, order, tatCaId, tatCaTen, count, rowCount: rows.length - 1, skippedOld, skippedNotTracking };
     }
 
     function lookupTracking(orderId, customerName) {
@@ -2020,9 +2031,12 @@
         entry = sheetMapByName[normalizeName(customerName)];
         byName = !!entry;
       }
-      return entry
-        ? { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName }
-        : { orderId, found: false };
+      if (entry) return { orderId, found: true, tracking: entry.tracking, carrier: entry.carrier, byName };
+      // Khong co tracking hop le: phan biet "co dong tren Sheet nhung chua co tracking" va "khong co tren Sheet".
+      const coTrenSheet =
+        !!(sheetTatCaId && sheetTatCaId.has(orderId)) ||
+        !!(customerName && sheetTatCaTen && sheetTatCaTen.has(normalizeName(customerName)));
+      return { orderId, found: false, coTrenSheet };
     }
 
     // Returns true if a real "open modal / fill / submit" attempt happened
@@ -2043,7 +2057,12 @@
       const result = lookupTracking(orderId, customerName);
 
       if (!result.found) {
-        log('  Không có trong Sheet → bỏ qua.');
+        if (result.coTrenSheet) {
+          log('  Chưa tìm được Tracking → bỏ qua.');
+        } else {
+          log('  Chưa tìm được trên Sheet → bỏ qua.');
+          khongCoTrenSheet.push({ orderId, name: customerName || '' });
+        }
         return false;
       }
       log(`  Thấy${result.byName ? ' (theo tên)' : ''}: ${result.tracking} / ${result.carrier || '?'}`);
@@ -2072,6 +2091,7 @@
     // Co "dang co 1 vong runAll chay" - chan viec 2 vong chay SONG SONG tren cung cac don
     // (2 vong cung bam menu "Update progress" cua 1 don -> bam dong/mo chong nhau -> ket).
     let vongDangChay = false;
+    let khongCoTrenSheet = []; // don chua tim thay tren Sheet trong luot chay hien tai
     let dangKhoiDong = false; // dang tai Sheet sau khi bam Start, chua vao runAll
 
     async function runAll() {
@@ -2087,10 +2107,66 @@
       }
     }
 
+    // Bang thong bao cac don chua tim thay tren Sheet sau khi chay xong toan bo.
+    function hienBangKhongCoTrenSheet(ds) {
+      const cu = document.getElementById('eos-at-modal');
+      if (cu) cu.remove();
+      const nen = document.createElement('div');
+      nen.id = 'eos-at-modal';
+      nen.style.cssText =
+        'position:fixed; inset:0; z-index:2147483647; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; font-family:sans-serif;';
+      const hop = document.createElement('div');
+      hop.style.cssText =
+        'background:#fff; border-radius:10px; width:min(420px,92vw); max-height:80vh; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,.35); overflow:hidden;';
+      const dau = document.createElement('div');
+      dau.style.cssText = 'background:linear-gradient(135deg,#1a7f37,#22a745); color:#fff; padding:10px 12px; font-weight:700; font-size:14px;';
+      dau.textContent = `Chưa tìm được trên Sheet (${ds.length} đơn)`;
+      const than = document.createElement('div');
+      than.style.cssText = 'padding:8px 12px; overflow-y:auto; font-size:13px; color:#111;';
+      const bang = document.createElement('table');
+      bang.style.cssText = 'width:100%; border-collapse:collapse;';
+      bang.innerHTML = '<tr style="text-align:left; color:#6B7280; font-size:12px;"><th style="padding:4px 6px;">Mã đơn</th><th style="padding:4px 6px;">Tên khách</th></tr>';
+      ds.forEach((d) => {
+        const tr = document.createElement('tr');
+        tr.style.cssText = 'border-top:1px solid #E5E7EB;';
+        const td1 = document.createElement('td');
+        td1.style.cssText = 'padding:5px 6px; font-family:ui-monospace,monospace; user-select:text;';
+        td1.textContent = d.orderId;
+        const td2 = document.createElement('td');
+        td2.style.cssText = 'padding:5px 6px; user-select:text;';
+        td2.textContent = d.name;
+        tr.appendChild(td1);
+        tr.appendChild(td2);
+        bang.appendChild(tr);
+      });
+      than.appendChild(bang);
+      const chan = document.createElement('div');
+      chan.style.cssText = 'display:flex; gap:6px; padding:10px 12px; border-top:1px solid #E5E7EB;';
+      const nutChep = taoNut('📋 Copy mã đơn', '#2563EB');
+      nutChep.onclick = () => {
+        const text = ds.map((d) => d.orderId).join('\n');
+        if (typeof GM_setClipboard !== 'undefined') GM_setClipboard(text, 'text');
+        nutChep.textContent = '✓ Đã copy';
+      };
+      const nutDong = taoNut('Đóng', '#1a7f37');
+      nutDong.onclick = () => nen.remove();
+      chan.appendChild(nutChep);
+      chan.appendChild(nutDong);
+      hop.appendChild(dau);
+      hop.appendChild(than);
+      hop.appendChild(chan);
+      nen.appendChild(hop);
+      nen.addEventListener('click', (e) => { if (e.target === nen) nen.remove(); });
+      // Gan vao panel de dung chung CSS nut (.eos-btn); khung panel khong co transform nen van phu kin man hinh.
+      (document.getElementById('etsy-order-scraper-panel') || document.body).appendChild(nen);
+    }
+
     async function runAllImpl() {
       GM_setValue(RUN_KEY, true);
       GM_setValue(PAUSE_KEY, false);
       capNhatTrangThaiNut();
+      khongCoTrenSheet = [];
+      let biDung = false;
 
       if (!sheetMap) {
         log('Chưa có dữ liệu Sheet — dán link rồi bấm Bắt đầu.');
@@ -2104,6 +2180,7 @@
       for (const orderId of orderIds) {
         if (!GM_getValue(RUN_KEY)) {
           log('Đã dừng.');
+          biDung = true;
           break;
         }
 
@@ -2116,6 +2193,7 @@
         }
         if (!GM_getValue(RUN_KEY)) {
           log('Đã dừng.');
+          biDung = true;
           break;
         }
         capNhatTrangThaiNut();
@@ -2141,6 +2219,8 @@
       GM_setValue(PAUSE_KEY, false);
       capNhatTrangThaiNut();
       log('Xong hết.');
+      // Chay het toan bo (khong bi bam Dung): hien bang cac don chua tim thay tren Sheet.
+      if (!biDung && khongCoTrenSheet.length) hienBangKhongCoTrenSheet(khongCoTrenSheet);
     }
 
     // Fetches + parses a single sheet URL. Returns { ok:true, ...parseSheetCsv
@@ -2210,6 +2290,8 @@
       const combinedMap = {};
       const combinedMapByName = {};
       const combinedOrder = [];
+      const combinedTatCaId = new Set();
+      const combinedTatCaTen = new Set();
       const errors = [];
       let okCount = 0;
       let totalSkippedOld = 0;
@@ -2232,6 +2314,8 @@
           combinedMap[orderId] = result.map[orderId];
         }
         Object.assign(combinedMapByName, result.mapByName);
+        (result.tatCaId || []).forEach((x) => combinedTatCaId.add(x));
+        (result.tatCaTen || []).forEach((x) => combinedTatCaTen.add(x));
       }
 
       if (!okCount) {
@@ -2242,6 +2326,8 @@
 
       sheetMap = combinedMap;
       sheetMapByName = combinedMapByName;
+      sheetTatCaId = combinedTatCaId;
+      sheetTatCaTen = combinedTatCaTen;
       localStorage.setItem('at_sheet_urls', urlsText);
 
       let msg = `Đã tải ${combinedOrder.length} đơn từ ${okCount}/${urls.length} link.`;
