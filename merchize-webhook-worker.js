@@ -500,6 +500,27 @@ function moTaLoiMerchize(e) {
   return nguyenNhan ? `${nguyenNhan} (${goc})` : goc;
 }
 
+// Doc sheet fulfill ZooTop: chi cac cot can dung (C:D, AB:AC, AF) cho nhe va nhanh, ghep lai thanh dong theo chi so
+// cot cua ZOO_COT.
+async function docSheetZooTop(env, dem, cfg) {
+  const q = ['C:D', 'AB:AC', 'AF:AF'].map((r) => 'ranges=' + encodeURIComponent(`'${cfg.sheet}'!${r}`)).join('&');
+  const data = await sheetsFetch(env, dem, `/values:batchGet?${q}&valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
+  const vr = data.valueRanges || [];
+  const a = (vr[0] || {}).values || [];
+  const b = (vr[1] || {}).values || [];
+  const c = (vr[2] || {}).values || [];
+  const rows = [];
+  for (let i = 0; i < Math.max(a.length, b.length, c.length); i++) {
+    const x = a[i] || [];
+    const y = b[i] || [];
+    const z = c[i] || [];
+    const r = [];
+    r[2] = x[0]; r[3] = x[1]; r[27] = y[0]; r[28] = y[1]; r[31] = z[0];
+    rows.push(r);
+  }
+  return rows;
+}
+
 // Don bi huy fulfillment tren Merchize (vd "Canceled fulfillment", da duoc thay bang don ma + chu cai):
 // truong trang thai nao co chu cancel, hoac co ngay huy (canceled_at...). Don huy khong dung de khop ma / tracking / cost.
 function donBiHuy(o) {
@@ -695,6 +716,9 @@ async function chayLich(env, event, tuyChon = {}) {
     if (tuyChon.gioiHanMs && Date.now() - batDauMs > tuyChon.gioiHanMs) { dungSom = true; return true; }
     return false;
   };
+  const thoiGian = {}; // thoi gian tung buoc (giay), in ra tin /update de biet buoc nao cham
+  const batDauBuoc = () => Date.now();
+  const ketBuoc = (ten, t0) => { thoiGian[ten] = Math.round((Date.now() - t0) / 100) / 10; };
   const dem = taoBoDem();
   const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, zoo: [], zooCost: [], canXuLy: [] };
   // Moi muc thong ke: { tab, ma } (canXuLy them note) de tin Telegram ghi ro don nao cua tab nao.
@@ -714,14 +738,19 @@ async function chayLich(env, event, tuyChon = {}) {
   const shopLoi = (tab, e) => { const m = mucShop(tab); if (!m.loi) m.loi = moTaLoiMerchize(e); };
   tabs.forEach((tab) => { const st = stores[tab]; if (!st || !st.baseUrl || !st.token) shopLoi(tab, 'chưa có Base URL hoặc token'); });
   const viTri = viTriTab(env, stores);
+  let tBuoc = batDauBuoc();
   const duLieu = await docCacTab(env, dem, viTri);
+  ketBuoc('đọc Sheet', tBuoc);
   const boGhi = taoBoGhi(duLieu, viTri);
 
   // 1. Chay lai cac thong bao con cho.
+  tBuoc = batDauBuoc();
   const list = await env.EVENTS.list({ prefix: 'ev:' });
   const daXong = [];
-  for (const k of list.keys) {
-    const v = await env.EVENTS.get(k.name);
+  const giaTriEv = await Promise.all(list.keys.map((k) => env.EVENTS.get(k.name)));
+  for (let ik = 0; ik < list.keys.length; ik++) {
+    const k = list.keys[ik];
+    const v = giaTriEv[ik];
     if (!v) continue;
     let ev;
     try { ev = JSON.parse(v); } catch (e) { daXong.push(k.name); continue; }
@@ -729,6 +758,7 @@ async function chayLich(env, event, tuyChon = {}) {
     if (kqSk !== 'chuaThay') daXong.push(k.name);
     if (kqSk === 'xong') thongKe.cho++;
   }
+  ketBuoc('thông báo chờ', tBuoc);
 
   // 3. Don di ZooTop (AC = "ZooTop"): sheet fulfill ZooTop cua tab (D order_id, AB tracking_number hoac
   //     C Tracking Number, AC tracking_carrier, AF Total Cost; A DATE, B trang thai). Moi san pham 1 dong -> cost = tong AD cac
@@ -737,8 +767,10 @@ async function chayLich(env, event, tuyChon = {}) {
   const zooInfo = {};
   let cauHinhZoo = {};
   try { cauHinhZoo = JSON.parse(env.ZOOTOP || '{}') || {}; } catch (e) { zooInfo.loi = 'biến ZOOTOP không phải JSON hợp lệ'; }
+  tBuoc = batDauBuoc();
+  // Doc sheet ZooTop cua cac tab cung luc (nhanh hon doc tuan tu), roi xu ly lan luot.
+  const viecZoo = [];
   for (const tab of Object.keys(cauHinhZoo)) {
-    if (kiemHetGio()) break;
     const cfg = cauHinhZoo[tab];
     const rows = duLieu[tab];
     if (!rows || !cfg || !cfg.spreadsheetId || !cfg.sheet) { zooInfo[tab] = 'tab không có trong STORES hoặc thiếu sheet'; continue; }
@@ -757,9 +789,14 @@ async function chayLich(env, event, tuyChon = {}) {
       if (!ngay || ngay < moc) canZoo.delete(ma);
     });
     if (!canZoo.size) { zooInfo[tab] = `không có đơn nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất`; continue; }
+    viecZoo.push({ tab, canZoo, p: docSheetZooTop(env, dem, cfg).then((v) => ({ v }), (e) => ({ e })) });
+  }
+  for (const { tab, canZoo, p } of viecZoo) {
+    if (kiemHetGio()) break;
     try {
-      const data = await sheetsFetch(env, dem,
-        `/values/${encodeURIComponent(`'${cfg.sheet}'!A:AF`)}?valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
+      const kqDoc = await p;
+      if (kqDoc.e) throw kqDoc.e;
+      const data = { values: kqDoc.v };
       const theoMa = {};
       (data.values || []).forEach((r) => {
         const ma = cell(r, ZOO_COT.orderId);
@@ -795,9 +832,12 @@ async function chayLich(env, event, tuyChon = {}) {
     }
   }
 
+  ketBuoc('ZooTop', tBuoc);
+
   // 4. Don Merchize can xu ly (Request update): statistic-issues (1 request/store) -> neu co thi
   //    search/v3 lay danh sach -> yeu cau MOI thi lay note (require-attention), ghi AC + Telegram.
   //    Moi yeu cau chi bao 1 lan (KV "att:<id>", giu 30 ngay).
+  tBuoc = batDauBuoc();
   // Goi statistic-issues cua tat ca store cung luc (nhanh hon goi tuan tu tung store).
   const duDoanThongKe = {};
   tabs.forEach((tab) => {
@@ -873,6 +913,8 @@ async function chayLich(env, event, tuyChon = {}) {
     } catch (e) { shopLoi(tab, e); /* loi tam thoi, lan sau kiem tra lai */ }
   }
 
+  ketBuoc('Request update', tBuoc);
+  tBuoc = batDauBuoc();
   // 2. Tra API tracking. Don da co ma RX: gop 50 don/1 request. Don chua co ma RX: tra tung don,
   //    trong gioi han request con lai, xoay vong theo gio de lan luot tra het.
   const donLe = [];
@@ -1028,7 +1070,10 @@ async function chayLich(env, event, tuyChon = {}) {
     await env.EVENTS.put('cron:vitri', String(batDau + daXet));
   }
 
+  ketBuoc('tra tracking Merchize', tBuoc);
+  tBuoc = batDauBuoc();
   await ghiSheet(env, dem, boGhi);
+  ketBuoc('ghi Sheet', tBuoc);
   await Promise.all(daXong.map((k) => env.EVENTS.delete(k)));
   // Luu cost API (chi giu don con trong 10 ngay), chi ghi KV khi co thay doi.
   await Promise.all(Object.keys(costApi).map(async (tab) => {
@@ -1075,6 +1120,7 @@ async function chayLich(env, event, tuyChon = {}) {
     thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length}\n` +
       thongKe.canXuLy.map((x) => `  • ${x.tab} | ${x.ma}: ${x.note || 'xem trên Merchize'}`).join('\n') : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
+    tuyChon.gioiHanMs || dungSom ? 'Thời gian (giây): ' + Object.entries(thoiGian).map(([k, v]) => `${k} ${v}`).join(', ') : '',
     dungSom ? 'Dừng sớm vì sắp hết thời gian cho phép của lệnh /update (Cloudflare). Nhắn /update lần nữa để chạy tiếp phần còn lại.' : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
     `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.`,

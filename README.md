@@ -2613,7 +2613,7 @@ dòng đó để script tra lại.
 
 ## Lệnh /update trên Telegram
 
-Bot trả lời ngay "Đang cập nhật, kết quả sẽ gửi khi xong..." rồi mới chạy. Lệnh chạy trong thời gian Cloudflare cho phép sau khi trả lời (khoảng 30 giây), nên Worker giới hạn 20 giây: quá hạn thì dừng tra thêm, ghi Sheet và gửi tin tóm tắt kèm dòng "Dừng sớm ...", nhắn /update lần nữa để chạy tiếp (các đơn chưa tra được xoay vòng tiếp nối). Lệnh `statistic-issues` của các store được gọi song song để chạy nhanh hơn. Lịch tự động (cron) và link /run không bị giới hạn này.
+Bot trả lời ngay "Đang cập nhật, kết quả sẽ gửi khi xong..." rồi mới chạy. Lệnh chạy trong thời gian Cloudflare cho phép sau khi trả lời (khoảng 30 giây), nên Worker giới hạn 20 giây: quá hạn thì dừng tra thêm, ghi Sheet và gửi tin tóm tắt kèm dòng "Dừng sớm ...", nhắn /update lần nữa để chạy tiếp (các đơn chưa tra được xoay vòng tiếp nối). Lệnh `statistic-issues` của các store được gọi song song để chạy nhanh hơn. Lịch tự động (cron) và link /run không bị giới hạn này. Để nhanh hơn: các sheet ZooTop được đọc cùng lúc và chỉ đọc các cột cần dùng (C:D, AB:AC, AF), các thông báo chờ trong KV đọc song song. Tin /update có dòng "Thời gian (giây)" cho biết từng bước mất bao lâu (đọc Sheet, thông báo chờ, ZooTop, Request update, tra tracking Merchize, ghi Sheet).
 
 ## /debug chẩn đoán đơn không có tracking
 
