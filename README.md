@@ -2337,6 +2337,14 @@ Cột `PrintingMethod` khi xuất Excel/clipboard giờ **luôn là `DTG`** cho 
 title hay quốc gia (luật cũ: mặc định DTF, chỉ DTG với Comfort Youth / Bella Adult / đơn ngoài US). Muốn
 quay lại luật cũ, đặt `LUON_DTG = false` trong `xacDinhPhuongPhapInTheoTitle`.
 
+## Điền tracking: phân biệt "chưa có tracking" / "không có trên Sheet" + bảng tổng kết (v3.12)
+
+- Đơn **có dòng trên Sheet nhưng chưa có tracking** (ô trống, hoặc chỉ là ghi chú như `NGOÀI US`, hoặc cũ quá hạn):
+  log ghi **"Chưa tìm được Tracking → bỏ qua."**
+- Đơn **không có trên Sheet** (không khớp mã đơn lẫn tên khách): log ghi **"Chưa tìm được trên Sheet → bỏ qua."**
+- Khi chạy **xong toàn bộ** (không bị bấm Dừng), nếu có đơn không tìm thấy trên Sheet thì hiện **1 bảng**
+  liệt kê mã đơn + tên khách, có nút **📋 Copy mã đơn** và **Đóng**. Đơn chỉ thiếu tracking không vào bảng này.
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
