@@ -2595,6 +2595,14 @@ dòng đó để script tra lại.
 - Teb Print đã được gỡ khỏi script và Worker ở v1.56 (không còn ghi sheet Teb, không còn biến `TEB`). Dòng cũ có AC =
   `Teb` vẫn được giữ nguyên và Worker bỏ qua chúng khi tra Merchize.
 
+## Đơn Etsy bị tách thành nhiều đơn Merchize (Worker)
+
+Merchize có thể tách 1 đơn Etsy thành nhiều đơn với mã Etsy + 1 chữ cái (`4238855261a`, `4238855261b`...). Quy tắc khớp mã đơn trên Sheet với Merchize:
+- **Khớp chính xác từng ký tự trước.** Có đơn Merchize trùng đúng mã (vd `4238855261`) thì chỉ dùng đơn đó, không xét các đơn có thêm chữ cái.
+- **Chỉ khi không có đơn khớp chính xác** mới tìm các đơn Merchize có mã = mã Sheet + 1 chữ cái. Mã nào đã là một đơn riêng trên Sheet (vd Sheet có cả `4238855261` và `4238855261a`) thì không bị gộp vào đơn gốc.
+- Với đơn tách: AD ghi các mã RX cách nhau `, `; AE ghi tracking của các đơn con (cách nhau `, `); AF ghi hãng vận chuyển; Y ghi tổng cost các đơn con. Đơn con nào có tracking sau thì lần chạy sau tự bổ sung (đơn tách được tra lại trong 10 ngày).
+- Dữ liệu lấy từ 100 đơn mới nhất của store (đã dùng sẵn cho ma RX và cost), webhook vẫn chỉ khớp chính xác mã đơn.
+
 ## Bảng SKU ngoài US mới + gợi ý kiểu in (v1.63)
 
 - **Đơn ZooTop ngoài US** chỉ tra [bảng SKU quốc tế](https://docs.google.com/spreadsheets/d/1mCPCCleDu4GuYZhmWr_-BAPdkUiuhvo2rqKYk9hELtI/edit?gid=1986553200) (tab gid 1986553200, Made In US), không dùng các tab SKU thường nữa. Mẫu có sẵn: Gildan 5000 (`G5000`), Comfort 1717 (`C1717`), sweatshirt Gildan 18000, hoodie Gildan 18500, size S đến 3XL. Cột B: `<mã>-DTG` là DTG, `<mã>-DTF` hoặc `<mã>` (không hậu tố) là DTF. Mẫu/size khác (Bella, Youth, XS, 4XL, 5XL...) báo lỗi.
