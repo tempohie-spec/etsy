@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.63
+// @version      1.64
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.63';
+  const SCRIPT_VERSION = '1.64';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -962,13 +962,25 @@
       hop.appendChild(el('div', 'font-weight:bold;margin-bottom:4px;', `Gợi ý đổi kiểu in (${goiY.length} đơn ZooTop)`));
       hop.appendChild(el('div', 'font-size:12px;color:#555;margin-bottom:8px;', `Ưu tiên DTG. DTG đắt hơn DTF quá ${NGUONG_DTG_DAT}$ thì gợi ý DTF. Tích đơn muốn đổi (mặc định giữ nguyên).`));
       const o = goiY.map((g) => {
-        const dong = el('label', 'display:block;padding:5px 0;border-top:1px solid #eee;cursor:pointer;');
+        const dong = el('label', 'display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #eee;cursor:pointer;');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.style.marginRight = '6px';
         const gia = (v) => (v == null ? 'n/a' : v.toFixed(2) + '$');
+        cb.style.flex = 'none';
         dong.appendChild(cb);
-        dong.appendChild(document.createTextNode(`${g.don.orderNumber}: ${g.hienTai} → ${g.moi}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
+        // Anh mockup (cot D cua dong dau cua don); bam vao anh de mo anh lon o tab moi.
+        const link = cell(g.don.rows[0].r, COL.mockUpFront);
+        if (laLink(link)) {
+          const anh = document.createElement('img');
+          anh.src = link;
+          anh.alt = 'mockup';
+          anh.title = 'Bấm để xem ảnh lớn';
+          anh.style.cssText = 'width:72px;height:72px;object-fit:contain;flex:none;border:1px solid #ddd;border-radius:4px;background:#fafafa;cursor:zoom-in;';
+          anh.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); window.open(link, '_blank', 'noopener'); });
+          dong.appendChild(anh);
+        }
+        dong.appendChild(el('span', 'flex:1;', `${g.don.orderNumber}: ${g.hienTai} → ${g.moi}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
         hop.appendChild(dong);
         return { g, cb };
       });
@@ -1258,6 +1270,7 @@
     }
 
     let thanhCong = 0;
+    const maThanhCong = [];
     const ketQuaGui = [];
     for (let i = 0; i < hopLe.length; i++) {
       const d = hopLe[i];
@@ -1271,6 +1284,7 @@
           // Ma RX-... that se do webhook dien vao cot AD sau (API chi tra ve ID lan import).
           maMerchize = '';
           thanhCong++;
+          maThanhCong.push(d.orderNumber);
         } else {
           trangThai = STATUS_ERROR_PREFIX + (json.message || 'Merchize từ chối');
         }
@@ -1289,8 +1303,8 @@
     return [
       ...(ghiChuGia ? [ghiChuGia] : []),
       ...(cheDo === 'buoc1' ? ['BƯỚC 1 (ưu tiên ZooTop) xong.'] : cheDo === 'buoc2' ? ['BƯỚC 2 (ZooTop rồi Merchize) xong, đơn còn lỗi đã bỏ qua.'] : []),
-      `Trang "${title}": gửi thành công ${thanhCong}/${hopLe.length} đơn lên Merchize.`,
-      ...(dsZoo.length && !loiZoo ? [`Đã ghi ${dsZoo.length} đơn vào sheet ZooTop "${zooTarget.fileTitle || zooTarget.sheetTitle}".`] : []),
+      `Trang "${title}": gửi thành công ${thanhCong}/${hopLe.length} đơn lên Merchize` + (maThanhCong.length ? `: ${maThanhCong.join(', ')}.` : '.'),
+      ...(dsZoo.length && !loiZoo ? [`Đã ghi ${dsZoo.length} đơn vào sheet ZooTop "${zooTarget.fileTitle || zooTarget.sheetTitle}": ${dsZoo.map((d) => d.orderNumber).join(', ')}.`] : []),
       ...(loiZoo ? [`❌ ${dsZoo.length} đơn ZooTop chưa ghi được: ${loiZoo}. Sửa xong thì xoá ô AC các đơn đó và gửi lại.`] : []),
       ...ketQuaGui,
       coLoi.length ? `${coLoi.length} đơn không gửi vì lỗi dữ liệu:` : '',
