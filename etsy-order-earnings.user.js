@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.10
+// @version      3.11
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -196,13 +196,17 @@
   }
 
   // ====== XAC DINH PHUONG PHAP IN (COT "PrintingMethod") ======
-  // Mac dinh moi san pham la DTF. La DTG neu roi vao 1 trong 2 truong hop:
+  // TU v3.11: LUON LA DTG cho moi san pham (khong phan biet title / quoc gia). Muon quay lai luat cu
+  // (DTF mac dinh, chi DTG cho Comfort Youth / Bella Adult / don ngoai US) thi dat LUON_DTG = false.
+  // Luat cu: Mac dinh moi san pham la DTF. La DTG neu roi vao 1 trong 2 truong hop:
   //   - Title la "Comfort Youth" hoac "Bella Adult" (theo tu khoa, khong phan biet hoa/thuong).
   //   - Don KHONG giao o United States (dia chi "country" khac "United States").
   // Neu 1 don co NHIEU san pham ma co IT NHAT 1 san pham la DTG, thi TAT CA san pham con
   // lai trong CUNG DON DO cung phai in DTG (xu ly rieng, xem ham apDungPhuongPhapInChungChoDon
   // ben duoi, ap dung SAU KHI da xac dinh tung san pham rieng le).
+  const LUON_DTG = true;
   function xacDinhPhuongPhapInTheoTitle(title, country) {
+    if (LUON_DTG) return 'DTG';
     const t = (title || '').toLowerCase();
     if (country && country.trim().toLowerCase() !== 'united states') return 'DTG';
     if (t.includes('comfort') && t.includes('youth')) return 'DTG';
