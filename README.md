@@ -2611,6 +2611,10 @@ dòng đó để script tra lại.
 - Teb Print đã được gỡ khỏi script và Worker ở v1.56 (không còn ghi sheet Teb, không còn biến `TEB`). Dòng cũ có AC =
   `Teb` vẫn được giữ nguyên và Worker bỏ qua chúng khi tra Merchize.
 
+## /debug chẩn đoán đơn không có tracking
+
+`/debug?key=<key>&ma=<mã đơn Etsy>` (kể cả đơn chỉ có trên Merchize dưới dạng mã + chữ cái) in thêm: `top100` (số đơn trong danh sách 100 đơn mới nhất của store mà lịch chạy dùng, thời điểm đơn cũ nhất trong đó, và các đơn Merchize cùng mã), `dongTrenSheet` (AC, AD, AE, AF, ngày fulfill, base cost của các dòng đơn trên Sheet), `workerSeTraTracking` (đơn có đủ điều kiện để Worker tra tracking không) và `apiTrackingTheoAD` (kết quả API tracking theo các mã RX trong cột AD).
+
 ## Telegram: shop quét được / shop lỗi
 
 Dưới dòng "Cập nhật tự động lúc ..." của tin tóm tắt có thêm 2 mục: "Quét được các shop" (liệt kê tab gọi API Merchize thành công, không có lỗi nào) và "Các shop lỗi" (kèm lỗi cụ thể, vd `Merchize 403: Something went wrong. Please sign in again.` là token hết hạn; hoặc `chưa có Base URL hoặc token`). Lỗi được giải thích bằng tiếng Việt kèm lỗi gốc trong ngoặc: 401/403 là token hết hạn hoặc không hợp lệ; 404 là sai Base URL; 400/422 là yêu cầu không hợp lệ; 429 là quá nhiều request; 5xx là lỗi máy chủ Merchize; lỗi mạng; vượt giới hạn request của Cloudflare. Shop lỗi token: cập nhật lại Access Token trong panel Merchize của tab đó. Kết quả `/run` cũng có trường `shop`.

@@ -1185,7 +1185,8 @@ async function xuLyDebug(env, url) {
       const tim = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_DON_MOI.replace('external_number=', 'external_number=' + encodeURIComponent(ma)));
       const o = ((tim && tim.orders) || []).find((x) => str(x.external_order_number || (x.external_order_id || {}).id) === ma);
       const goiHang = await merchizeFetch(dem, store, 'GET', '/order/external/orders/tracking?external_number=' + encodeURIComponent(ma)).catch(() => []);
-      if (!o && !goiHang.length) continue;
+      const coBienThe = ((tim && tim.orders) || []).some((x) => { const m = str(x.external_order_number || (x.external_order_id || {}).id); return m.length > ma.length && m.startsWith(ma) && /^[a-z]$/i.test(m.slice(ma.length)); });
+      if (!o && !goiHang.length && !coBienThe) continue;
       kq.tab = tab;
       if (goiHang.length) {
         kq.apiTracking = chonTruongTien(goiHang);
@@ -1206,6 +1207,31 @@ async function xuLyDebug(env, url) {
       if (bienThe.length) {
         kq.donMaCongChuCai = bienThe.map((x) => ({ ma: str(x.external_order_number), code: str(x.code), daHuy: donBiHuy(x), ffm: (x.ffm_cost || {}).total }));
       }
+      // Chan doan lich chay: don co nam trong 100 don moi nhat (cron chi nhin danh sach nay) khong, dong tren Sheet,
+      // Worker co tra tracking cho don nay khong, va ket qua tra tracking theo cac ma RX trong cot AD.
+      try {
+        const dsMoi = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_DON_MOI);
+        const dsDon = (dsMoi && dsMoi.orders) || [];
+        const maCua = (x) => str(x.external_order_number || (x.external_order_id || {}).id);
+        const ngay = dsDon.map((x) => Date.parse(x.created || '')).filter((n) => !isNaN(n));
+        kq.top100 = {
+          soDon: dsDon.length,
+          donCuNhat: ngay.length ? new Date(Math.min(...ngay)).toISOString() : '',
+          cungMa: dsDon.filter((x) => maCua(x) === ma || (maCua(x).startsWith(ma) && /^[a-z]$/i.test(maCua(x).slice(ma.length))))
+            .map((x) => ({ ma: maCua(x), code: str(x.code), daHuy: donBiHuy(x), tao: str(x.created) }))
+        };
+        const duLieu = await docCacTab(env, dem, viTriTab(env, { [tab]: stores[tab] }));
+        const rows = duLieu[tab] || [];
+        const dong = rows.map((r, i) => ({ r, i })).filter(({ r, i }) => i > 0 && cell(r, COL.orderNumber) === ma);
+        kq.dongTrenSheet = dong.map(({ r, i }) => ({ dong: i + 1, AC: cell(r, COL.status), AD: cell(r, COL.merchizeId), AE: cell(r, COL.tracking),
+          AF: cell(r, COL.carrier), ngayFulfill: cell(r, COL.dateFulfill), baseCost: cell(r, COL.baseCost) }));
+        kq.workerSeTraTracking = donCanTra(rows).some(([m]) => m === ma) ? 'có' : 'không (đã có tracking, hoặc AC / Date Fulfill không đủ điều kiện)';
+        const codes = dong.length ? tachRx(cell(dong[0].r, COL.merchizeId)) : [];
+        if (codes.length) {
+          const goi2 = await merchizeFetch(dem, store, 'POST', '/order/external/orders/list-orders-tracking', { orders: codes.map((code) => ({ code, external_number: '', identifier: '' })) });
+          kq.apiTrackingTheoAD = goi2.map((g) => ({ name: str(g.name), tracking: str(g.tracking_number), hang: str(g.tracking_company) }));
+        }
+      } catch (e) { kq.loiChanDoan = moTaLoiMerchize(e); }
       break;
     } catch (e) { kq['loi_' + tab] = e.message.slice(0, 200); }
   }
