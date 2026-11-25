@@ -2605,7 +2605,7 @@ dòng đó để script tra lại.
 
 ## Telegram: shop quét được / shop lỗi
 
-Dưới dòng "Cập nhật tự động lúc ..." của tin tóm tắt có thêm 2 mục: "Quét được các shop" (liệt kê tab gọi API Merchize thành công, không có lỗi nào) và "Các shop lỗi" (kèm lỗi cụ thể, vd `Merchize 403: Something went wrong. Please sign in again.` là token hết hạn; hoặc `chưa có Base URL hoặc token`). Shop lỗi: cập nhật lại Access Token trong panel Merchize của tab đó. Kết quả `/run` cũng có trường `shop`.
+Dưới dòng "Cập nhật tự động lúc ..." của tin tóm tắt có thêm 2 mục: "Quét được các shop" (liệt kê tab gọi API Merchize thành công, không có lỗi nào) và "Các shop lỗi" (kèm lỗi cụ thể, vd `Merchize 403: Something went wrong. Please sign in again.` là token hết hạn; hoặc `chưa có Base URL hoặc token`). Lỗi được giải thích bằng tiếng Việt kèm lỗi gốc trong ngoặc: 401/403 là token hết hạn hoặc không hợp lệ; 404 là sai Base URL; 400/422 là yêu cầu không hợp lệ; 429 là quá nhiều request; 5xx là lỗi máy chủ Merchize; lỗi mạng; vượt giới hạn request của Cloudflare. Shop lỗi token: cập nhật lại Access Token trong panel Merchize của tab đó. Kết quả `/run` cũng có trường `shop`.
 
 ## Đơn Etsy bị tách thành nhiều đơn Merchize (Worker)
 
