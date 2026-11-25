@@ -828,6 +828,28 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Tự làm sạch tiêu đề + tag theo rule Etsy khi dán (v9.72)
+
+Khi **Alt+V**, script áp các rule của Etsy (Seller Handbook "New Guidance for Listing Titles" + Help Center) lên tiêu đề/tag lấy từ listing nguồn. **Không gọi API, không tốn tiền**, và chỉ là *đề xuất* — bạn xem/sửa trong hộp thoại trước khi dán.
+
+**Tiêu đề**
+- Bỏ cụm bán hàng: `free shipping`, `on sale`, `30% off`, `discount`, `bestseller`, `trending`...
+- Bỏ từ chủ quan: `perfect`, `beautiful`, `amazing`, `stunning`...
+- Bỏ cụm quà tặng (`Gift for Him`, `Gift for Dog Lovers`, chữ `Gift` lẻ); `gift box/card/bag...` là sản phẩm nên giữ. Cụm `gift for …` (≤ 20 ký tự) được chuyển xuống thành tag nếu còn chỗ.
+- Bỏ đoạn lặp (đoạn mà mọi từ đã có trong 1 đoạn trước đó), tự cắt nếu quá **140 ký tự** (bỏ dần đoạn cuối).
+- Chỉ **cảnh báo, không tự sửa**: từ 15 từ trở lên, từ lặp, nhiều danh từ sản phẩm (`shirt, tee, hoodie`), tên thương hiệu/nhân vật dễ dính bản quyền (script không tự thay/viết lại những từ này).
+
+**Tag**
+- Tối đa **13** tag, mỗi tag ≤ **20 ký tự** (dài hơn thì rút gọn bớt từ cuối, không được thì bỏ), bỏ tag trùng (không phân biệt hoa/thường, số ít/số nhiều), bỏ ký tự Etsy không cho phép, không để tag bắt đầu bằng `'` hay `-`.
+- Cảnh báo tag 1 từ và khi chưa đủ 13 tag.
+
+**Hộp thoại**
+- Chung hộp thoại chọn ảnh/Custom options nếu có (không thêm hộp thoại thứ hai); không có ảnh/Custom options thì hiện hộp thoại riêng. Có ô sửa tay tiêu đề + tag (đếm ký tự/tag trực tiếp), nút **↩ Bản gốc**, và danh sách việc đã làm / cảnh báo.
+- Dữ liệu đã sạch và không có cảnh báo tiêu đề thì **không hiện gì**, dán thẳng như cũ.
+- Bỏ tick **Luôn hiện phần này khi dán** → lần sau tự dán bản đã làm sạch (thông báo ghi "🧹 đã tự làm sạch"); **Alt+Shift+V** vẫn ép hiện hộp thoại.
+- Tiêu đề cuối cùng (sau khi làm sạch/sửa tay) cũng là tên sản phẩm ghi vào cột F của Google Sheet.
+- Chưa làm (mức 2): nhờ AI viết lại câu chữ — cần Claude API và tốn phí.
+
 ### Dọn code: bỏ phần kiểm tra tạm đã xong (v9.71)
 
 Bỏ các thứ chỉ dùng cho đợt chuyển đổi Sheet vừa rồi (không đổi chức năng đang dùng):

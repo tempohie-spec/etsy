@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.71
+// @version      9.72
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.71';
+  const PHIEN_BAN = '9.72';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1850,6 +1850,288 @@
     return String(chuoi).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   }
 
+  // ================== LAM SACH TIEU DE + TAG KHI DAN (v9.72, "muc 1": quy tac co dinh, KHONG goi API) ==================
+  // Ap cac rule cua Etsy (Seller Handbook "New Guidance for Listing Titles" + Help Center) len tieu de/tag lay tu
+  // listing nguon truoc khi dan: bo gia/ship/khuyen mai, tu chu quan, cum qua tang, doan lap; tag toi da 13 cai,
+  // moi tag <= 20 ky tu, khong lap, ky tu hop le. KHONG viet lai cau chu (viec cua AI) va KHONG tu y them thong tin.
+  // Ket qua chi la DE XUAT — nguoi dung xem/sua trong hop thoai truoc khi dan (hoac bat "tu ap dung").
+  const GIOI_HAN_TIEU_DE = 140;
+  const SO_TU_TIEU_DE_KHUYEN_NGHI = 15; // Etsy khuyen: duoi 15 tu
+  const SO_TAG_TOI_DA = 13;
+  const GIOI_HAN_KY_TU_TAG = 20;
+  const KHOA_HOI_LAM_SACH = 'etsy_auto_hoi_lam_sach_v1'; // '0' = tu ap dung ban lam sach, khong hoi
+
+  function dangHoiLamSach() {
+    return docGiaTriLuu(KHOA_HOI_LAM_SACH) !== '0';
+  }
+
+  // Cum "ban hang": gia, ship, khuyen mai (Etsy tu gan badge trong search) va tu chu quan -> xoa khoi tieu de
+  const RE_TIEU_DE_BAN_HANG = [
+    /\bfree\s+(?:us\s+|usa\s+)?(?:fast\s+)?(?:shipping|delivery)\b/gi,
+    /\b(?:fast|quick|express)\s+(?:shipping|delivery)\b/gi,
+    /\bships?\s+(?:free|fast)\b/gi,
+    /\bon\s+sale\b/gi,
+    /\b(?:flash|clearance|hot|big|summer|holiday)\s+sale\b/gi,
+    /\bSALE\b/g,
+    /\b\d{1,3}\s*%\s*off\b/gi,
+    /\b(?:discount(?:ed)?|cheap|coupon|best\s+price|limited\s+time|best[-\s]?seller|trending)\b/gi,
+  ];
+  const RE_TIEU_DE_CHU_QUAN =
+    /\b(?:perfect|beautiful|amazing|stunning|gorgeous|awesome|wonderful|fantastic|high[-\s]quality|top[-\s]quality|must[-\s]have)\b/gi;
+  // "Gift for him", "Gift for Dog Lovers"... (Etsy: cum qua tang khong de o tieu de, dua xuong tag)
+  const RE_TIEU_DE_QUA_TANG_CHO =
+    /\bgifts?\s+(?:for|to)\s+(?:the\s+)?(?:[a-z'’-]+\s+(?:lovers?|owners?|moms?|dads?|fans?|girls?|boys?|friends?|teachers?|nurses?|addicts?|enthusiasts?|mamas?|mothers?|fathers?)|[a-z'’-]+)\b/gi;
+  const RE_TIEU_DE_QUA_TANG_RIENG = /\bgift\s+ideas?\b|\bgifts?\b(?!\s+(?:card|box|bag|tag|wrap|basket|set|certificate|sleeve))/gi;
+  const TU_NOI = new Set(['and', 'or', 'the', 'a', 'an', 'for', 'of', 'with', 'in', 'to', 'on', 'at', 'by', 'is', 'my', 'your', '&', 'x']);
+  const DANH_TU_SAN_PHAM = [
+    't-shirt', 'tshirt', 'shirt', 'tee', 'sweatshirt', 'hoodie', 'sweater', 'crewneck', 'pullover', 'tank', 'onesie',
+    'mug', 'cup', 'tumbler', 'tote', 'poster', 'print', 'sticker', 'ornament', 'blanket', 'pillow', 'hat', 'cap',
+  ];
+  // Ten thuong hieu / nhan vat hay dinh ban quyen — CHI CANH BAO de nguoi dung tu xem lai, khong tu sua
+  const TU_THUONG_HIEU = [
+    'disney', 'mickey', 'minnie', 'pixar', 'marvel', 'pokemon', 'nintendo', 'nike', 'adidas', 'harry potter',
+    'hello kitty', 'sanrio', 'barbie', 'lego', 'star wars', 'nfl', 'nba', 'mlb', 'taylor swift', 'bluey', 'peppa',
+  ];
+
+  function gonKhoangTrang(chuoi) {
+    return String(chuoi || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function cacTuCua(chuoi) {
+    return (String(chuoi).toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).filter((t) => t.length > 0);
+  }
+
+  // Don dau cau thua sau khi xoa cum tu: ", ," / " ," / dau phan cach o dau-cuoi
+  function donDauCauTieuDe(chuoi) {
+    return gonKhoangTrang(
+      String(chuoi)
+        .replace(/\(\s*\)|\[\s*\]/g, ' ')
+        .replace(/\s+([,;:])/g, '$1')
+        .replace(/([,;])(?:\s*[,;])+/g, '$1')
+        .replace(/(\|)(?:\s*\|)+/g, '$1')
+        .replace(/^[\s,;:|/\-–—]+|[\s,;:|/\-–—]+$/g, '')
+    );
+  }
+
+  function lamSachTieuDe(tieuDeGoc) {
+    const thayDoi = [];
+    const canhBao = [];
+    const tagThem = [];
+    let td = gonKhoangTrang(tieuDeGoc);
+
+    // 1) gia / ship / khuyen mai
+    const boBanHang = [];
+    for (const re of RE_TIEU_DE_BAN_HANG) {
+      td = td.replace(re, (m) => (boBanHang.push(m.trim()), ' '));
+    }
+    if (boBanHang.length) thayDoi.push(`Bỏ cụm bán hàng (giá/ship/khuyến mãi): ${boBanHang.join(', ')}`);
+
+    // 2) tu chu quan
+    const boChuQuan = [];
+    td = td.replace(RE_TIEU_DE_CHU_QUAN, (m) => (boChuQuan.push(m.trim()), ' '));
+    if (boChuQuan.length) thayDoi.push(`Bỏ từ chủ quan: ${boChuQuan.join(', ')}`);
+
+    // 3) cum qua tang -> dua xuong tag
+    const boQuaTang = [];
+    td = td.replace(RE_TIEU_DE_QUA_TANG_CHO, (m) => {
+      const cum = gonKhoangTrang(m).toLowerCase();
+      boQuaTang.push(gonKhoangTrang(m));
+      if (cum.length <= GIOI_HAN_KY_TU_TAG) tagThem.push(cum);
+      return ' ';
+    });
+    td = td.replace(RE_TIEU_DE_QUA_TANG_RIENG, (m) => (boQuaTang.push(gonKhoangTrang(m)), ' '));
+    if (boQuaTang.length) {
+      thayDoi.push(`Bỏ cụm quà tặng khỏi tiêu đề: ${boQuaTang.join(', ')}${tagThem.length ? ' (cụm "gift for…" chuyển xuống tag nếu còn chỗ)' : ''}`);
+    }
+    td = donDauCauTieuDe(td);
+
+    // 4) doan lap: doan nao tat ca cac tu da co trong 1 doan truoc do -> bo
+    const manh = td.split(/(\s*[,|;]\s*|\s+[-–—/]\s+)/);
+    const doan = [];
+    const boLap = [];
+    for (let i = 0; i < manh.length; i += 2) {
+      const noiDung = manh[i];
+      const tu = cacTuCua(noiDung);
+      const phanCachTruoc = i > 0 ? manh[i - 1] : '';
+      const trung =
+        tu.length > 0 && doan.some((d) => d.tu.length > 0 && tu.every((x) => d.tu.includes(x)));
+      if (!tu.length || trung) {
+        if (tu.length) boLap.push(gonKhoangTrang(noiDung));
+        continue;
+      }
+      doan.push({ noiDung, tu, phanCachTruoc: doan.length ? phanCachTruoc : '' });
+    }
+    if (boLap.length) {
+      thayDoi.push(`Bỏ đoạn lặp: ${boLap.join(' | ')}`);
+      td = donDauCauTieuDe(doan.map((d) => d.phanCachTruoc + d.noiDung).join(''));
+    }
+
+    // 5) qua 140 ky tu: bo dan cac doan cuoi, con 1 doan van dai thi cat o khoang trang gan nhat
+    if (td.length > GIOI_HAN_TIEU_DE) {
+      const truoc = td;
+      const d2 = td.split(/(\s*[,|;]\s*|\s+[-–—/]\s+)/);
+      while (d2.length > 1 && d2.join('').length > GIOI_HAN_TIEU_DE) d2.splice(-2, 2);
+      td = donDauCauTieuDe(d2.join(''));
+      if (td.length > GIOI_HAN_TIEU_DE) {
+        td = td.slice(0, GIOI_HAN_TIEU_DE + 1);
+        td = donDauCauTieuDe(td.slice(0, Math.max(td.lastIndexOf(' '), 1)));
+      }
+      thayDoi.push(`Cắt tiêu đề từ ${truoc.length} xuống ${td.length} ký tự (giới hạn ${GIOI_HAN_TIEU_DE})`);
+    }
+
+    // 6) canh bao (khong tu sua)
+    const tuTD = cacTuCua(td);
+    if (tuTD.length >= SO_TU_TIEU_DE_KHUYEN_NGHI) {
+      canhBao.push(`Tiêu đề có ${tuTD.length} từ — Etsy khuyên dưới ${SO_TU_TIEU_DE_KHUYEN_NGHI} từ, vài từ đầu nên nói rõ món hàng là gì`);
+    }
+    const dem = new Map();
+    tuTD.filter((t) => t.length >= 3 && !TU_NOI.has(t)).forEach((t) => dem.set(t, (dem.get(t) || 0) + 1));
+    const tuLap = [...dem].filter(([, n]) => n > 1).map(([t, n]) => `${t} ×${n}`);
+    if (tuLap.length) canhBao.push(`Từ lặp trong tiêu đề: ${tuLap.join(', ')} — Etsy khuyên tránh lặp, bạn xem có cần sửa tay không`);
+    const danhTu = DANH_TU_SAN_PHAM.filter((t) => tuTD.includes(t));
+    if (danhTu.length > 1) canhBao.push(`Tiêu đề có nhiều danh từ sản phẩm (${danhTu.join(', ')}) — Etsy khuyên chỉ nêu món hàng 1 lần, các từ còn lại đưa xuống tag`);
+    const duLieuThuong = ' ' + tuTD.join(' ') + ' ';
+    const thuongHieu = TU_THUONG_HIEU.filter((t) => duLieuThuong.includes(' ' + t + ' '));
+    if (thuongHieu.length) canhBao.push(`Có tên thương hiệu/nhân vật: ${thuongHieu.join(', ')} — kiểm tra quyền sử dụng theo chính sách sở hữu trí tuệ của Etsy`);
+
+    return { goc: tieuDeGoc || '', moi: td, thayDoi, canhBao, tagThem };
+  }
+
+  // Khoa so sanh tag: chu thuong, bo "s" cuoi tung tu (Etsy ghep goc tu: shirt = shirts)
+  function khoaTag(tag) {
+    return cacTuCua(tag)
+      .map((t) => t.replace(/([^s])s$/, '$1'))
+      .join(' ');
+  }
+
+  function lamSachTag(tagText, tagThem = []) {
+    const thayDoi = [];
+    const canhBao = [];
+    const goc = String(tagText || '')
+      .split(',')
+      .map((t) => gonKhoangTrang(t))
+      .filter(Boolean);
+    const ds = [];
+    const daCo = new Set();
+    const bo = (tag, lyDo) => thayDoi.push(`Bỏ tag "${tag}": ${lyDo}`);
+
+    const xuLy = (tagGoc, tuThem = false) => {
+      let t = gonKhoangTrang(tagGoc.replace(/[^\p{L}\p{N}\s'’-]/gu, ' ')).replace(/^['’-]+/, '').trim();
+      if (t !== tagGoc && !tuThem) thayDoi.push(`Sửa tag "${tagGoc}" → "${t}" (bỏ ký tự Etsy không cho phép)`);
+      if (!t) return;
+      if (t.length > GIOI_HAN_KY_TU_TAG) {
+        const tu = t.split(' ');
+        while (tu.length > 2 && tu.join(' ').length > GIOI_HAN_KY_TU_TAG) tu.pop();
+        while (tu.length > 2 && TU_NOI.has(tu[tu.length - 1].toLowerCase())) tu.pop(); // khong de tag ket thuc bang "for", "the"...
+        const ngan = tu.join(' ');
+        if (tu.length >= 2 && ngan.length <= GIOI_HAN_KY_TU_TAG) {
+          if (!tuThem) thayDoi.push(`Rút gọn tag "${t}" (${t.length} ký tự) → "${ngan}"`);
+          t = ngan;
+        } else {
+          if (!tuThem) bo(t, `dài ${t.length} ký tự (tối đa ${GIOI_HAN_KY_TU_TAG}) và không rút gọn được`);
+          return;
+        }
+      }
+      const khoa = khoaTag(t);
+      if (daCo.has(khoa)) {
+        if (!tuThem) bo(t, 'trùng với tag khác');
+        return;
+      }
+      if (ds.length >= SO_TAG_TOI_DA) {
+        if (!tuThem) bo(t, `quá ${SO_TAG_TOI_DA} tag`);
+        return;
+      }
+      daCo.add(khoa);
+      ds.push(t);
+    };
+    goc.forEach((t) => xuLy(t));
+    const truocKhiThem = ds.length;
+    tagThem.forEach((t) => xuLy(t, true));
+    if (ds.length > truocKhiThem) thayDoi.push(`Thêm tag từ tiêu đề: ${ds.slice(truocKhiThem).join(', ')}`);
+
+    if (ds.length < SO_TAG_TOI_DA) canhBao.push(`Mới có ${ds.length}/${SO_TAG_TOI_DA} tag — Etsy khuyên dùng đủ ${SO_TAG_TOI_DA}`);
+    const tagDon = ds.filter((t) => !t.includes(' '));
+    if (tagDon.length) canhBao.push(`Tag 1 từ: ${tagDon.join(', ')} — nên dùng cụm nhiều từ (người mua hiếm khi gõ 1 từ)`);
+
+    return { goc, moi: ds, thayDoi, canhBao };
+  }
+
+  function lamSachTieuDeVaTag(tieuDe, tagText) {
+    const td = lamSachTieuDe(tieuDe);
+    const tag = lamSachTag(tagText, td.tagThem);
+    const doiTieuDe = gonKhoangTrang(td.goc) !== td.moi;
+    const doiTag = tag.moi.join(', ') !== tag.goc.join(', ');
+    return { tieuDe: td, tag, coThayDoi: doiTieuDe || doiTag, coViec: doiTieuDe || doiTag || td.canhBao.length > 0 };
+  }
+
+
+  // Phan "Tieu de & Tag" trong hop thoai truoc khi dan (v9.72): hien ban lam sach co the SUA TAY + ban goc + danh sach
+  // thay doi/canh bao. Dung chung cho hop thoai rieng va hop thoai chon anh. Tra ve { el, docKetQua(), luuCaiDat() }.
+  function taoBoSuaTieuDeTag(kq) {
+    const el = document.createElement('div');
+    el.style.cssText = 'padding:4px 0 6px;font-size:13px;color:#111827;';
+    const dong = (cacDong, bieuTuong) =>
+      cacDong.map((x) => `<li style="margin:2px 0;">${bieuTuong} ${thoatHtml(x)}</li>`).join('');
+    const ghiChu =
+      dong([...kq.tieuDe.thayDoi, ...kq.tag.thayDoi], '🧹') + dong([...kq.tieuDe.canhBao, ...kq.tag.canhBao], '⚠️');
+    const oNhap = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;font:13px/1.4 sans-serif;resize:vertical;';
+    const nutNho = 'padding:2px 8px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:11px;';
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;">
+        <b>Tiêu đề</b><span><span data-dem-td style="font-size:12px;"></span> <button type="button" data-goc-td style="${nutNho}">↩ Bản gốc</button></span>
+      </div>
+      <textarea data-td rows="2" style="${oNhap}"></textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+        <b>Tag (cách nhau bằng dấu phẩy)</b><span><span data-dem-tag style="font-size:12px;"></span> <button type="button" data-goc-tag style="${nutNho}">↩ Bản gốc</button></span>
+      </div>
+      <textarea data-tag rows="3" style="${oNhap}"></textarea>
+      <div data-tag-dai style="font-size:12px;color:#B91C1C;"></div>
+      ${ghiChu ? `<ul style="margin:8px 0 2px;padding-left:4px;list-style:none;font-size:12px;color:#374151;line-height:1.5;">${ghiChu}</ul>` : ''}
+      <label style="display:block;margin-top:6px;font-size:12px;color:#374151;cursor:pointer;"><input type="checkbox" data-luonhoi checked> Luôn hiện phần này khi dán <span style="color:#6B7280;">(tắt thì tự dán bản đã làm sạch không hỏi; Alt+Shift+V vẫn hiện)</span></label>`;
+    const oTd = el.querySelector('[data-td]');
+    const oTag = el.querySelector('[data-tag]');
+    oTd.value = kq.tieuDe.moi;
+    oTag.value = kq.tag.moi.join(', ');
+    const docTag = () => oTag.value.split(',').map((t) => gonKhoangTrang(t)).filter(Boolean);
+    const veDem = () => {
+      const td = gonKhoangTrang(oTd.value);
+      const dai = td.length > GIOI_HAN_TIEU_DE;
+      const dem = el.querySelector('[data-dem-td]');
+      dem.textContent = `${td.length}/${GIOI_HAN_TIEU_DE} ký tự · ${cacTuCua(td).length} từ`;
+      dem.style.color = dai ? '#B91C1C' : '#6B7280';
+      const ds = docTag();
+      const demTag = el.querySelector('[data-dem-tag]');
+      demTag.textContent = `${ds.length}/${SO_TAG_TOI_DA} tag`;
+      demTag.style.color = ds.length > SO_TAG_TOI_DA ? '#B91C1C' : '#6B7280';
+      const quaDai = ds.filter((t) => t.length > GIOI_HAN_KY_TU_TAG);
+      el.querySelector('[data-tag-dai]').textContent = quaDai.length
+        ? `Tag quá ${GIOI_HAN_KY_TU_TAG} ký tự (Etsy không nhận): ${quaDai.join(', ')}`
+        : ds.length > SO_TAG_TOI_DA
+          ? `Dư ${ds.length - SO_TAG_TOI_DA} tag — chỉ ${SO_TAG_TOI_DA} tag đầu được dán`
+          : '';
+    };
+    oTd.addEventListener('input', veDem);
+    oTag.addEventListener('input', veDem);
+    el.querySelector('[data-goc-td]').onclick = () => {
+      oTd.value = kq.tieuDe.goc;
+      veDem();
+    };
+    el.querySelector('[data-goc-tag]').onclick = () => {
+      oTag.value = kq.tag.goc.join(', ');
+      veDem();
+    };
+    veDem();
+    return {
+      el,
+      // Rong thi giu ban goc (khong dan o trong)
+      docKetQua: () => ({
+        tieuDe: gonKhoangTrang(oTd.value) || gonKhoangTrang(kq.tieuDe.goc),
+        tagText: docTag().join(', ') || kq.tag.goc.join(', '),
+      }),
+      luuCaiDat: () => luuGiaTri(KHOA_HOI_LAM_SACH, el.querySelector('[data-luonhoi]').checked ? '1' : '0'),
+    };
+  }
+
   // Bo sua Custom options dung chung cho 2 noi (v9.54): hop thoai rieng (khong co anh) va phan
   // "Custom options" nam CHUNG hop thoai chon anh. Tra ve { el, kiemTra(), docKetQua(), khiDoi }.
   function taoBoSuaCustomOptions(dsBanDau) {
@@ -1969,7 +2251,10 @@
 
   // Hop thoai RIENG chi cho Custom options — dung khi Clipboard khong co anh (co anh thi Custom options
   // nam chung hop thoai chon anh, xem moBangChonAnh). Tra ve Promise<mang o | null> (null = Huy).
-  function moHopThoaiCustomOptions(dsBanDau, tieuDe) {
+  // v9.72: dsBanDau co the rong/null (chi co phan Tieu de & Tag) va them tham so lamSach (ket qua lamSachTieuDeVaTag).
+  // Tra ve Promise<{ customOptions, tieuDeTag } | null>.
+  function moHopThoaiCustomOptions(dsBanDau, tieuDe, lamSach = null) {
+    const coCo = !!(dsBanDau && dsBanDau.length);
     return new Promise((resolve) => {
       const lop = document.createElement('div');
       lop.style.cssText =
@@ -1978,12 +2263,13 @@
       lop.innerHTML = `
         <div style="background:#fff;border-radius:12px;width:min(640px,94vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.35);color:#111827;font-size:13px;">
           <div style="padding:14px 18px 8px;">
-            <div style="font-weight:bold;font-size:15px;">⚙️ Chọn / sửa Custom options trước khi dán</div>
-            <div style="color:#6B7280;margin-top:4px;line-height:1.5;">Tick ô nào sẽ được tạo, sửa nội dung nếu cần. Chỉ áp dụng cho lần dán này${tieuDe ? ` — listing: <b>${thoatHtml(tieuDe).slice(0, 80)}</b>` : ''}.</div>
+            <div style="font-weight:bold;font-size:15px;">${coCo ? '⚙️ Chọn / sửa Custom options' : '🧹 Xem / sửa tiêu đề + tag'}${coCo && lamSach ? ' + tiêu đề, tag' : ''} trước khi dán</div>
+            <div style="color:#6B7280;margin-top:4px;line-height:1.5;">${coCo ? 'Tick ô nào sẽ được tạo, sửa nội dung nếu cần. ' : 'Đã áp các rule của Etsy lên tiêu đề/tag, bạn sửa tiếp nếu cần. '}Chỉ áp dụng cho lần dán này${tieuDe ? ` — listing: <b>${thoatHtml(tieuDe).slice(0, 80)}</b>` : ''}.</div>
           </div>
+          <div data-vung="lamsach" style="padding:0 18px;overflow:auto;flex-shrink:0;max-height:48vh;"></div>
           <div data-vung="thanh" style="padding:4px 18px;overflow:auto;flex:1;"></div>
           <div style="padding:6px 18px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-            <label style="cursor:pointer;color:#374151;"><input type="checkbox" id="ea-co-luonhoi" checked> Luôn hỏi trước khi dán <span style="color:#6B7280;">(tắt thì dán thẳng; Alt+Shift+V vẫn hỏi)</span></label>
+            ${coCo ? '<label style="cursor:pointer;color:#374151;"><input type="checkbox" id="ea-co-luonhoi" checked> Luôn hỏi trước khi dán <span style="color:#6B7280;">(tắt thì dán thẳng; Alt+Shift+V vẫn hỏi)</span></label>' : '<span></span>'}
             <div style="display:flex;gap:8px;">
               <button id="ea-co-huy" style="${nutPhu}">Huỷ (không dán)</button>
               <button id="ea-co-dan" style="padding:6px 16px;border:none;border-radius:6px;background:#2563EB;color:#fff;font-weight:bold;cursor:pointer;"></button>
@@ -1992,12 +2278,18 @@
         </div>`;
       document.body.appendChild(lop);
       const $ = (id) => lop.querySelector('#' + id);
-      const bo = taoBoSuaCustomOptions(dsBanDau);
-      lop.querySelector('[data-vung="thanh"]').appendChild(bo.el);
+      const bo = coCo ? taoBoSuaCustomOptions(dsBanDau) : null;
+      const boTdTag = lamSach ? taoBoSuaTieuDeTag(lamSach) : null;
+      if (boTdTag) lop.querySelector('[data-vung="lamsach"]').appendChild(boTdTag.el);
+      if (bo) lop.querySelector('[data-vung="thanh"]').appendChild(bo.el);
       const capNhatNut = () => {
-        $('ea-co-dan').textContent = bo.soDaChon() ? `Dán (${bo.soDaChon()} ô Custom option)` : 'Dán (không tạo Custom option)';
+        $('ea-co-dan').textContent = !bo
+          ? 'Dán'
+          : bo.soDaChon()
+            ? `Dán (${bo.soDaChon()} ô Custom option)`
+            : 'Dán (không tạo Custom option)';
       };
-      bo.khiDoi = capNhatNut;
+      if (bo) bo.khiDoi = capNhatNut;
       capNhatNut();
       const dong = (kq) => {
         lop.remove();
@@ -2005,9 +2297,10 @@
       };
       $('ea-co-huy').onclick = () => dong(null);
       $('ea-co-dan').onclick = () => {
-        if (bo.kiemTra()) return;
-        luuGiaTri(KHOA_HOI_CUSTOM_OPTIONS, $('ea-co-luonhoi').checked ? '1' : '0');
-        dong(bo.docKetQua());
+        if (bo && bo.kiemTra()) return;
+        if (bo) luuGiaTri(KHOA_HOI_CUSTOM_OPTIONS, $('ea-co-luonhoi').checked ? '1' : '0');
+        if (boTdTag) boTdTag.luuCaiDat();
+        dong({ customOptions: bo ? bo.docKetQua() : null, tieuDeTag: boTdTag ? boTdTag.docKetQua() : null });
       };
     });
   }
@@ -2031,6 +2324,18 @@
       return;
     }
 
+    // v9.72: lam sach tieu de + tag theo rule Etsy (khong goi API). Co thay doi/canh bao thi hien trong hop thoai
+    // duoi day de xem/sua; tat "Luon hien" thi tu ap dung ban lam sach (Alt+Shift+V van hien).
+    const lamSach = lamSachTieuDeVaTag(tieuDe, tagText);
+    const hienLamSach = lamSach.coViec && (epHoi === true || dangHoiLamSach());
+    let ghiChuLamSach = '';
+    if (lamSach.coThayDoi && !hienLamSach) {
+      tieuDe = lamSach.tieuDe.moi || tieuDe;
+      tagText = lamSach.tag.moi.join(', ') || tagText;
+      ghiChuLamSach = ' · 🧹 đã tự làm sạch tiêu đề/tag';
+      console.log('[Etsy Auto] Tự làm sạch tiêu đề/tag:', [...lamSach.tieuDe.thayDoi, ...lamSach.tag.thayDoi]);
+    }
+
     // v9.54: MOT hop thoai duy nhat de chon anh + chon/sua Custom options truoc khi dan (Huy = khong dan
     // gi ca). Khong co anh trong Clipboard thi chi hien phan Custom options (hop thoai rieng, v9.53).
     // Chon anh xong thi buoc upload o cuoi khong hoi lai nua (luaChonSan).
@@ -2050,6 +2355,7 @@
       const thuVien = docThuVienBangSize();
       luaChonSan = await moBangChonAnh(goiAnh, uoc.soAnhDangCo, Math.max(0, uoc.conLai - thuVien.length), thuVien.length, {
         dsPerso: hienCustom ? dsPerso : null,
+        lamSach: hienLamSach ? lamSach : null,
         truocKhiDan: true,
       });
       if (luaChonSan === null) {
@@ -2057,13 +2363,15 @@
         return;
       }
       if (luaChonSan.customOptions) dsPerso = luaChonSan.customOptions;
-    } else if (hienCustom) {
-      const daSua = await moHopThoaiCustomOptions(dsPerso, tieuDe);
+      if (luaChonSan.tieuDeTag) ({ tieuDe, tagText } = luaChonSan.tieuDeTag);
+    } else if (hienCustom || hienLamSach) {
+      const daSua = await moHopThoaiCustomOptions(hienCustom ? dsPerso : null, tieuDe, hienLamSach ? lamSach : null);
       if (daSua === null) {
         hienThongBao('Đã huỷ dán — chưa dán gì vào listing', '#6B7280');
         return;
       }
-      dsPerso = daSua;
+      if (daSua.customOptions) dsPerso = daSua.customOptions;
+      if (daSua.tieuDeTag) ({ tieuDe, tagText } = daSua.tieuDeTag);
     }
 
     hienThongBao('⏳ Đang dán tiêu đề + tag...', '#2563EB');
@@ -2149,7 +2457,7 @@
         : ` + ${ketQuaPerso.thanhCong}/${ketQuaPerso.tongSo} ô cá nhân hoá (lỗi: ${ketQuaPerso.loiChiTiet.slice(0, 3).join('; ')}${ketQuaPerso.loiChiTiet.length > 3 ? '...' : ''})`;
     const ghiChuTab = daBamTab ? ' → đã mở Photo & Video' : '';
     const ghiChuAnhNhan = danhSachAnh && danhSachAnh.length ? ` (có ${danhSachAnh.length} ảnh, bấm Alt+U để upload)` : '';
-    const ghiChuClipboard = daGiuLaiTieuDe ? ' (Clipboard giữ lại tiêu đề)' : '';
+    const ghiChuClipboard = (daGiuLaiTieuDe ? ' (Clipboard giữ lại tiêu đề)' : '') + ghiChuLamSach;
     const persoOn = ketQuaPerso.boQua || ketQuaPerso.ok;
 
     if (ketQuaTieuDe.ok && ketQuaTag.ok) {
@@ -2997,6 +3305,7 @@
   // Ket qua them: customOptions (mang o da sua, neu co dsPerso).
   function moBangChonAnh(goi, soAnhDangCo, conLai, soBangSizeCoDinh = 0, tuyChon = {}) {
     const coCustom = !!(tuyChon.dsPerso && tuyChon.dsPerso.length);
+    const coLamSach = !!tuyChon.lamSach; // v9.72: phan "Tieu de & Tag" (ket qua lamSachTieuDeVaTag)
     const truocKhiDan = !!tuyChon.truocKhiDan;
     return new Promise((resolve) => {
       const lop = document.createElement('div');
@@ -3015,7 +3324,7 @@
 
       hop.innerHTML = `
         <div style="background:linear-gradient(135deg,#F56400,#FF8C42);color:#fff;padding:12px 16px;font-weight:bold;font-size:15px;">
-          ${truocKhiDan ? `📝 Chọn ảnh${coCustom ? ' + Custom options' : ''} trước khi dán` : '🖼️ Chọn ảnh để tự upload'}
+          ${truocKhiDan ? `📝 Chọn ảnh${coCustom ? ' + Custom options' : ''}${coLamSach ? ' + tiêu đề, tag' : ''} trước khi dán` : '🖼️ Chọn ảnh để tự upload'}
         </div>
         <div style="padding:10px 16px;font-size:12px;color:#374151;border-bottom:1px solid #E5E7EB;line-height:1.6;">
           Listing nguồn: <b>${(goi.tieuDe || '(không rõ tiêu đề)').replace(/</g, '&lt;').slice(0, 90)}</b><br>
@@ -3029,6 +3338,14 @@
               : ''
           }
         </div>
+        ${
+          coLamSach
+            ? `<details id="ea-up-lamsach" open style="border-bottom:1px solid #E5E7EB;flex-shrink:0;">
+                 <summary style="padding:8px 16px;cursor:pointer;font-weight:bold;font-size:13px;color:#047857;">🧹 Tiêu đề &amp; Tag đã làm sạch theo rule Etsy — xem lại / sửa nếu cần</summary>
+                 <div id="ea-up-lamsach-thanh" style="padding:0 16px 4px;max-height:34vh;overflow:auto;"></div>
+               </details>`
+            : ''
+        }
         ${
           coCustom
             ? `<details id="ea-up-custom" open style="border-bottom:1px solid #E5E7EB;flex-shrink:0;">
@@ -3076,6 +3393,13 @@
       const luoi = hop.querySelector('#ea-up-luoi');
       const oDem = hop.querySelector('#ea-up-dem');
       const nutOk = hop.querySelector('#ea-up-ok');
+
+      // Phan Tieu de & Tag (neu co)
+      let boTdTag = null;
+      if (coLamSach) {
+        boTdTag = taoBoSuaTieuDeTag(tuyChon.lamSach);
+        hop.querySelector('#ea-up-lamsach-thanh').appendChild(boTdTag.el);
+      }
 
       // Phan Custom options (neu co): thanh phan dung chung voi hop thoai rieng
       let boCustom = null;
@@ -3280,7 +3604,12 @@
           customOptions = boCustom.docKetQua();
           luuGiaTri(KHOA_HOI_CUSTOM_OPTIONS, hop.querySelector('#ea-up-luonhoi').checked ? '1' : '0');
         }
-        dong({ cacAnh, hanhDong, thumbnail, customOptions });
+        let tieuDeTag = null;
+        if (boTdTag) {
+          tieuDeTag = boTdTag.docKetQua();
+          boTdTag.luuCaiDat();
+        }
+        dong({ cacAnh, hanhDong, thumbnail, customOptions, tieuDeTag });
       };
     });
   }
