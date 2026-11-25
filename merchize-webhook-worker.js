@@ -39,7 +39,7 @@ const COL = {
 };
 // Cot (0-based) sheet fulfill ZooTop: A DATE, B trang thai, C Tracking Number, D order_id, AB tracking_number,
 // AC tracking_carrier, AF Total Cost.
-const ZOO_COT = { trackingA: 2, orderId: 3, trackingNumber: 27, carrier: 28, totalCost: 31 };
+const ZOO_COT = { trangThai: 1, trackingA: 2, orderId: 3, trackingNumber: 27, carrier: 28, totalCost: 31 };
 const TEN_COT = { 24: 'Y', 28: 'AC', 29: 'AD', 30: 'AE', 31: 'AF', 32: 'AG' };
 
 // Thue nhap khau 3.5$ moi kien tu kho US toi 50 nuoc chau Au (tu 26/06/2026).
@@ -411,6 +411,9 @@ function apDungSuKien(ev, duLieu, boGhi) {
   });
   // Ticket cua don chua co ma RX trong Sheet: da bao Telegram, khong cho nua.
   if (tim.length === 0) return co.cacRx ? 'boQua' : 'chuaThay';
+  // Dong dang fulfill o ZooTop (AC = "ZooTop"): su kien tu Merchize (don da huy...) khong duoc ghi de.
+  for (let i = tim.length - 1; i >= 0; i--) if (cell(tim[i].row, COL.status) === 'ZooTop') tim.splice(i, 1);
+  if (tim.length === 0) return 'boQua';
 
   const dongDau = {};
   tim.forEach(({ t, rowNumber }) => {
@@ -503,19 +506,21 @@ function moTaLoiMerchize(e) {
 // Doc sheet fulfill ZooTop: chi cac cot can dung (C:D, AB:AC, AF) cho nhe va nhanh, ghep lai thanh dong theo chi so
 // cot cua ZOO_COT.
 async function docSheetZooTop(env, dem, cfg) {
-  const q = ['C:D', 'AB:AC', 'AF:AF'].map((r) => 'ranges=' + encodeURIComponent(`'${cfg.sheet}'!${r}`)).join('&');
+  const q = ['B:B', 'C:D', 'AB:AC', 'AF:AF'].map((r) => 'ranges=' + encodeURIComponent(`'${cfg.sheet}'!${r}`)).join('&');
   const data = await sheetsFetch(env, dem, `/values:batchGet?${q}&valueRenderOption=FORMATTED_VALUE`, {}, cfg.spreadsheetId);
   const vr = data.valueRanges || [];
-  const a = (vr[0] || {}).values || [];
-  const b = (vr[1] || {}).values || [];
-  const c = (vr[2] || {}).values || [];
+  const t = (vr[0] || {}).values || [];
+  const a = (vr[1] || {}).values || [];
+  const b = (vr[2] || {}).values || [];
+  const c = (vr[3] || {}).values || [];
   const rows = [];
-  for (let i = 0; i < Math.max(a.length, b.length, c.length); i++) {
+  for (let i = 0; i < Math.max(t.length, a.length, b.length, c.length); i++) {
+    const w = t[i] || [];
     const x = a[i] || [];
     const y = b[i] || [];
     const z = c[i] || [];
     const r = [];
-    r[2] = x[0]; r[3] = x[1]; r[27] = y[0]; r[28] = y[1]; r[31] = z[0];
+    r[1] = w[0]; r[2] = x[0]; r[3] = x[1]; r[27] = y[0]; r[28] = y[1]; r[31] = z[0];
     rows.push(r);
   }
   return rows;
@@ -709,6 +714,12 @@ function donCanTra(rows) {
 
 // tuyChon.gioiHanMs: lenh /update chay trong ctx.waitUntil (Cloudflare chi cho ~30 giay sau khi tra loi), nen qua
 // han thi dung tra them, ghi Sheet va gui Telegram luon (tranh bi cat ngang, im lang).
+// Trang thai don Merchize (tu search/v3): tien trinh + tracking, de /fullupdate liet ke don cho tracking.
+function moTaTrangThaiMerchize(o) {
+  const tt = str(o.order_progress_status) || str(o.fulfillment_status) || '?';
+  return `${tt}${str(o.tracking_status) ? ', tracking ' + str(o.tracking_status) : ''}`;
+}
+
 // Phan loai don cua tab theo Date Fulfill (10 ngay gan nhat) de bao len Telegram vi sao nhieu don khong duoc tra tracking.
 function phanLoaiDonTab(rows) {
   const moc = new Date();
@@ -819,6 +830,9 @@ async function chayLich(env, event, tuyChon = {}) {
     canZoo.forEach((dong, ma) => {
       const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
       if (!ngay || ngay < moc) canZoo.delete(ma);
+      // Don dang fulfill o Merchize (AC = "Merchize"): khong lay tracking / cost tu ZooTop (don ZooTop da huy cung co cost,
+      // neu lay se ghi de qua lai voi cost Merchize).
+      else if (dong.some(({ row }) => cell(row, COL.status) === 'Merchize')) canZoo.delete(ma);
     });
     if (!canZoo.size) { zooInfo[tab] = `không có đơn nào trong ${SO_NGAY_CAP_NHAT} ngày gần nhất`; continue; }
     viecZoo.push({ tab, canZoo, p: docSheetZooTop(env, dem, cfg).then((v) => ({ v }), (e) => ({ e })) });
@@ -833,6 +847,7 @@ async function chayLich(env, event, tuyChon = {}) {
       (data.values || []).forEach((r) => {
         const ma = cell(r, ZOO_COT.orderId);
         if (!ma) return;
+        if (/cancel|huỷ|hủy/i.test(cell(r, ZOO_COT.trangThai))) return; // dong ZooTop da huy: bo qua
         const t = theoMa[ma] || (theoMa[ma] = { tracking: '', dvvc: '', total: 0, coCost: false });
         const tk = laTracking(cell(r, ZOO_COT.trackingNumber)) || laTracking(cell(r, ZOO_COT.trackingA));
         if (tk && !t.tracking) { t.tracking = tk; t.dvvc = cell(r, ZOO_COT.carrier); }
@@ -955,6 +970,7 @@ async function chayLich(env, event, tuyChon = {}) {
   // Cost API lan truoc theo tab (KV "apicost:<tab>"), va cac ma don can giu lai trong do.
   const costApi = {};
   const giuCost = {};
+  const trangThaiMerchize = {}; // tab -> ma don Merchize (ke ca ma + chu cai) -> trang thai (cho /fullupdate)
   for (const tab of tabs) {
     const store = stores[tab];
     if (!store || !store.baseUrl || !store.token) continue;
@@ -979,6 +995,7 @@ async function chayLich(env, event, tuyChon = {}) {
         const ffmTheoMa = {};
         // Don Etsy bi tach thanh nhieu don Merchize: ma Etsy + 1 chu cai (4238855261a, ...b). Chi dung khi KHONG co
         // don Merchize trung khop tung ky tu voi ma tren Sheet, va bo qua ma da la 1 don rieng tren Sheet.
+        trangThaiMerchize[tab] = {};
         const bienThe = {};
         const huyRx = new Set(); // ma RX cua cac don da huy (AD con giu ma nay thi coi la cu)
         const maTrenSheet = new Set((duLieu[tab] || []).map((row) => cell(row, COL.orderNumber)).filter(Boolean));
@@ -986,6 +1003,7 @@ async function chayLich(env, event, tuyChon = {}) {
           const ma = str(o.external_order_number || (o.external_order_id || {}).id);
           if (donBiHuy(o)) { huyRx.add(str(o.code)); return; } // don huy: bo qua (co don ma + chu cai thay the)
           if (ma && laRx(str(o.code))) rxTheoMa[ma] = str(o.code);
+          if (ma) trangThaiMerchize[tab][ma] = moTaTrangThaiMerchize(o);
           const tong = docSoTien((o.ffm_cost || {}).total);
           if (ma && o.has_fulfillment_cost !== false && tong !== null && tong > 0) ffmTheoMa[ma] = tong;
           if (ma && ma.length > 1 && /[a-z]$/i.test(ma) && laRx(str(o.code))) {
@@ -1152,16 +1170,26 @@ async function chayLich(env, event, tuyChon = {}) {
     thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length}\n` +
       thongKe.canXuLy.map((x) => `  • ${x.tab} | ${x.ma}: ${x.note || 'xem trên Merchize'}`).join('\n') : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
-    tuyChon.gioiHanMs ? 'Phân loại đơn theo Date Fulfill (10 ngày gần nhất):\n' + tabs.filter((t) => duLieu[t] && duLieu[t].length).map((t) => {
+    tuyChon.day ? 'Phân loại đơn theo Date Fulfill (10 ngày gần nhất):\n' + tabs.filter((t) => duLieu[t] && duLieu[t].length).map((t) => {
       const k = phanLoaiDonTab(duLieu[t]);
       return `  • ${t}: trong 10 ngày ${k.trong10ngay}, đã có tracking ${k.coTracking}, chờ tra ${k.choTra}, ZooTop ${k.zoo}, AC trống/chỉ định ${k.acTrong}, lỗi ${k.loi}, đánh dấu Cũ ${k.daCu}, thiếu ngày ${k.thieuNgay}, quá 10 ngày ${k.cu}` +
         (k.maThieuNgay.length ? `\n      thiếu ngày (mẫu): ${k.maThieuNgay.join(', ')}` : '');
     }).join('\n') : '',
-    tuyChon.gioiHanMs || dungSom ? 'Thời gian (giây): ' + Object.entries(thoiGian).map(([k, v]) => `${k} ${v}`).join(', ') : '',
+    tuyChon.day || dungSom ? 'Thời gian (giây): ' + Object.entries(thoiGian).map(([k, v]) => `${k} ${v}`).join(', ') : '',
     dungSom ? 'Dừng sớm vì sắp hết thời gian cho phép của lệnh /update (Cloudflare). Nhắn /update lần nữa để chạy tiếp phần còn lại.' : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
-    `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.`,
+    `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.` + (tuyChon.day ? '' : (tuyChon.gioiHanMs ? ' Gõ /fullupdate để xem chi tiết.' : '')),
   ].filter(Boolean).join('\n'));
+  // Ban day du: liet ke don cho tracking kem trang thai tren Merchize (tin rieng vi gioi han do dai cua Telegram).
+  if (tuyChon.day) {
+    const dong = tatCaCanTra.filter((x) => !coTracking.has(x.tab + '|' + x.ma)).slice(0, 60).map((x) => {
+      const ttMa = trangThaiMerchize[x.tab] || {};
+      const bien = Object.keys(ttMa).filter((m) => m.length === x.ma.length + 1 && m.startsWith(x.ma) && /^[a-z]$/i.test(m.slice(x.ma.length))).sort();
+      const tt = ttMa[x.ma] || (bien.length ? bien.map((m) => `${m}: ${ttMa[m]}`).join(' | ') : 'không thấy trong 100 đơn mới nhất của store');
+      return `  • ${x.tab} | ${x.ma}: ${tt}`;
+    });
+    await guiTelegram(env, dem, dong.length ? `Đơn chờ tra tracking (${tatCaCanTra.filter((x) => !coTracking.has(x.tab + '|' + x.ma)).length}) và trạng thái trên Merchize:\n` + dong.join('\n') : 'Không có đơn nào đang chờ tra tracking.').catch(() => {});
+  }
 
   return {
     tracking: thongKe.tracking, cost: thongKe.cost,
@@ -1377,17 +1405,19 @@ async function xuLyTinTelegram(env, msg) {
   const lenhXong = /^\/?(xong|done|ok|đã xử lý|da xu ly)\b/i.test(text);
   if (/^\/(help|start)\b/i.test(text)) {
     await traLoiTelegram(env, dem, chatId, msg.message_id, [
-      '/update: cập nhật ngay (giống mở link /run).',
+      '/update: cập nhật ngay, báo rút gọn.',
+      '/fullupdate: cập nhật ngay, báo đầy đủ (phân loại đơn theo Date Fulfill, đơn chờ tra kèm trạng thái Merchize, thời gian từng bước).',
       'Tắt nhắc đơn cần xử lý: trả lời (reply) tin 🛑 bằng "xong", hoặc gõ /xong <mã đơn> (nhiều mã cách nhau dấu cách).'
     ].join('\n'));
     return;
   }
   // /update: chay lich ngay; ket qua gui bang tin tom tat nhu moi lan chay (khong tra loi them de
   // danh het request cho lan chay).
-  if (/^\/(update|run)\b/i.test(text)) {
+  if (/^\/(fullupdate|update|run)\b/i.test(text)) {
+    const day = /^\/fullupdate\b/i.test(text);
     // Bao ngay de biet bot da nhan lenh (ket qua gui khi chay xong; qua ~20 giay thi dung som va bao).
     await traLoiTelegram(env, dem, chatId, msg.message_id, 'Đang cập nhật, kết quả sẽ gửi khi xong...').catch(() => {});
-    await chayLich(env, null, { gioiHanMs: 20000 }).catch((e) => baoLoiHeThong(env, taoBoDem(), 'Lệnh /update lỗi: ' + e.message));
+    await chayLich(env, null, { gioiHanMs: 20000, day }).catch((e) => baoLoiHeThong(env, taoBoDem(), 'Lệnh /update lỗi: ' + e.message));
     return;
   }
   if (!lenhXong) return;
@@ -1479,7 +1509,7 @@ export default {
       const cacKey = str(env.SECRET_KEYS).split(',').map(str).filter(Boolean);
       if (!cacKey.includes(url.searchParams.get('key') || '')) return json({ ok: false, error: 'invalid key' }, 401);
       try {
-        return json({ ok: true, ketQua: await chayLich(env, null) });
+        return json({ ok: true, ketQua: await chayLich(env, null, { day: url.searchParams.get('full') === '1' }) });
       } catch (e) {
         return json({ ok: false, error: e.message }, 500);
       }

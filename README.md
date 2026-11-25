@@ -2611,6 +2611,12 @@ dòng đó để script tra lại.
 - Teb Print đã được gỡ khỏi script và Worker ở v1.56 (không còn ghi sheet Teb, không còn biến `TEB`). Dòng cũ có AC =
   `Teb` vẫn được giữ nguyên và Worker bỏ qua chúng khi tra Merchize.
 
+## /fullupdate, /update rút gọn và đơn bị huỷ ở nhà cung cấp
+
+- **`/update` và lịch tự động** chỉ báo bản rút gọn: các shop quét được / lỗi, tracking mới, cost, đơn cần xử lý, "Đã tra N đơn, còn N đơn thiếu tracking" (sau lệnh `/update` có nhắc gõ `/fullupdate`).
+- **`/fullupdate`** chạy giống `/update` nhưng báo đầy đủ: phân loại đơn theo Date Fulfill từng tab, thời gian từng bước, và một tin riêng liệt kê các đơn đang chờ tra tracking kèm trạng thái trên Merchize (`order_progress_status`, `tracking_status`; đơn tách thì liệt kê từng đơn mã + chữ cái; không thấy trong 100 đơn mới nhất thì ghi rõ). Link `/run?key=...&full=1` cũng cho bản đầy đủ.
+- **Đơn bị huỷ ở nhà cung cấp này rồi fulfill ở nhà cung cấp kia** (đều có base cost nên bị ghi đè qua lại): nhà cung cấp hiện tại do cột AC quyết định. AC = `Merchize` thì Worker không lấy tracking/cost từ sheet ZooTop; AC = `ZooTop` thì Worker không lấy tracking/cost từ Merchize (cả lịch chạy lẫn webhook). Dòng ZooTop có cột B (trạng thái) chứa cancel/huỷ cũng bị bỏ qua. Khi đổi nhà cung cấp, nhớ đổi AC cho đúng.
+
 ## Lệnh /update trên Telegram
 
 Bot trả lời ngay "Đang cập nhật, kết quả sẽ gửi khi xong..." rồi mới chạy. Lệnh chạy trong thời gian Cloudflare cho phép sau khi trả lời (khoảng 30 giây), nên Worker giới hạn 20 giây: quá hạn thì dừng tra thêm, ghi Sheet và gửi tin tóm tắt kèm dòng "Dừng sớm ...", nhắn /update lần nữa để chạy tiếp (các đơn chưa tra được xoay vòng tiếp nối). Lệnh `statistic-issues` của các store được gọi song song để chạy nhanh hơn. Lịch tự động (cron) và link /run không bị giới hạn này. Để nhanh hơn: các sheet ZooTop được đọc cùng lúc và chỉ đọc các cột cần dùng (C:D, AB:AC, AF), các thông báo chờ trong KV đọc song song. Tin /update còn có mục "Phân loại đơn theo Date Fulfill" cho từng tab: số đơn trong 10 ngày, đã có tracking, chờ tra, ZooTop, AC trống/chỉ định, lỗi, đánh dấu Cũ (AC = "Cũ", không có ngày), thiếu ngày (có trạng thái khác nhưng không đọc được Date Fulfill nên bị bỏ qua, kèm vài mã đơn mẫu), quá 10 ngày; dùng để biết vì sao đơn không được tra tracking. Tin /update có dòng "Thời gian (giây)" cho biết từng bước mất bao lâu (đọc Sheet, thông báo chờ, ZooTop, Request update, tra tracking Merchize, ghi Sheet).
