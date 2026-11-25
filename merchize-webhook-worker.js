@@ -686,7 +686,15 @@ function donCanTra(rows) {
   });
 }
 
-async function chayLich(env, event) {
+// tuyChon.gioiHanMs: lenh /update chay trong ctx.waitUntil (Cloudflare chi cho ~30 giay sau khi tra loi), nen qua
+// han thi dung tra them, ghi Sheet va gui Telegram luon (tranh bi cat ngang, im lang).
+async function chayLich(env, event, tuyChon = {}) {
+  const batDauMs = Date.now();
+  let dungSom = false;
+  const kiemHetGio = () => {
+    if (tuyChon.gioiHanMs && Date.now() - batDauMs > tuyChon.gioiHanMs) { dungSom = true; return true; }
+    return false;
+  };
   const dem = taoBoDem();
   const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, zoo: [], zooCost: [], canXuLy: [] };
   // Moi muc thong ke: { tab, ma } (canXuLy them note) de tin Telegram ghi ro don nao cua tab nao.
@@ -730,6 +738,7 @@ async function chayLich(env, event) {
   let cauHinhZoo = {};
   try { cauHinhZoo = JSON.parse(env.ZOOTOP || '{}') || {}; } catch (e) { zooInfo.loi = 'biến ZOOTOP không phải JSON hợp lệ'; }
   for (const tab of Object.keys(cauHinhZoo)) {
+    if (kiemHetGio()) break;
     const cfg = cauHinhZoo[tab];
     const rows = duLieu[tab];
     if (!rows || !cfg || !cfg.spreadsheetId || !cfg.sheet) { zooInfo[tab] = 'tab không có trong STORES hoặc thiếu sheet'; continue; }
@@ -789,11 +798,22 @@ async function chayLich(env, event) {
   // 4. Don Merchize can xu ly (Request update): statistic-issues (1 request/store) -> neu co thi
   //    search/v3 lay danh sach -> yeu cau MOI thi lay note (require-attention), ghi AC + Telegram.
   //    Moi yeu cau chi bao 1 lan (KV "att:<id>", giu 30 ngay).
+  // Goi statistic-issues cua tat ca store cung luc (nhanh hon goi tuan tu tung store).
+  const duDoanThongKe = {};
+  tabs.forEach((tab) => {
+    const st = stores[tab];
+    if (st && st.baseUrl && st.token) {
+      duDoanThongKe[tab] = merchizeGetRaw(dem, st, '/order/orders/statistic-issues?' + QUERY_CAN_XU_LY).then((v) => ({ v }), (e) => ({ e }));
+    }
+  });
   for (const tab of tabs) {
     const store = stores[tab];
     if (!store || !store.baseUrl || !store.token) continue;
+    if (kiemHetGio()) break;
     try {
-      const thongKeLoi = await merchizeGetRaw(dem, store, '/order/orders/statistic-issues?' + QUERY_CAN_XU_LY);
+      const tk = await duDoanThongKe[tab];
+      if (tk.e) throw tk.e;
+      const thongKeLoi = tk.v;
       shopOk(tab);
       const muc = (Array.isArray(thongKeLoi) ? thongKeLoi : []).find((x) => x.key === 'issue_request_update');
       if (!muc || !Number(muc.total)) continue;
@@ -864,6 +884,7 @@ async function chayLich(env, event) {
   for (const tab of tabs) {
     const store = stores[tab];
     if (!store || !store.baseUrl || !store.token) continue;
+    if (kiemHetGio()) break;
     const ds = donCanTra(duLieu[tab] || []);
     tongCanTra += ds.length;
     try { costApi[tab] = JSON.parse((await env.EVENTS.get('apicost:' + tab)) || '{}') || {}; } catch (e) { costApi[tab] = {}; }
@@ -992,7 +1013,7 @@ async function chayLich(env, event) {
     const layHanMuc = () => (hanMuc > 0 ? (hanMuc--, true) : false);
     let daXet = 0;
     const traMotDon = async ({ tab, store, ma, dong, coFfm }) => {
-      if (!layHanMuc()) return;
+      if (kiemHetGio() || !layHanMuc()) return;
       daXet++;
       try {
         const url = (m) => '/order/external/orders/tracking?external_number=' + encodeURIComponent(m);
@@ -1002,7 +1023,7 @@ async function chayLich(env, event) {
       } catch (e) { /* bo qua, lan sau tra lai */ }
     };
     // Goi song song 6 don/lan (gioi han ket noi dong thoi cua Cloudflare) cho nhanh.
-    for (let i = 0; i < lanNay.length && hanMuc > 0; i += 6) await Promise.all(lanNay.slice(i, i + 6).map(traMotDon));
+    for (let i = 0; i < lanNay.length && hanMuc > 0 && !kiemHetGio(); i += 6) await Promise.all(lanNay.slice(i, i + 6).map(traMotDon));
     // Lan sau tiep noi dung sau don cuoi cung da xet.
     await env.EVENTS.put('cron:vitri', String(batDau + daXet));
   }
@@ -1054,6 +1075,7 @@ async function chayLich(env, event) {
     thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length}\n` +
       thongKe.canXuLy.map((x) => `  • ${x.tab} | ${x.ma}: ${x.note || 'xem trên Merchize'}`).join('\n') : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
+    dungSom ? 'Dừng sớm vì sắp hết thời gian cho phép của lệnh /update (Cloudflare). Nhắn /update lần nữa để chạy tiếp phần còn lại.' : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
     `Đã tra ${thongKe.daTra} đơn, còn ${conThieu} đơn thiếu tracking.`,
   ].filter(Boolean).join('\n'));
@@ -1280,7 +1302,9 @@ async function xuLyTinTelegram(env, msg) {
   // /update: chay lich ngay; ket qua gui bang tin tom tat nhu moi lan chay (khong tra loi them de
   // danh het request cho lan chay).
   if (/^\/(update|run)\b/i.test(text)) {
-    await chayLich(env, null).catch((e) => baoLoiHeThong(env, taoBoDem(), 'Lệnh /update lỗi: ' + e.message));
+    // Bao ngay de biet bot da nhan lenh (ket qua gui khi chay xong; qua ~20 giay thi dung som va bao).
+    await traLoiTelegram(env, dem, chatId, msg.message_id, 'Đang cập nhật, kết quả sẽ gửi khi xong...').catch(() => {});
+    await chayLich(env, null, { gioiHanMs: 20000 }).catch((e) => baoLoiHeThong(env, taoBoDem(), 'Lệnh /update lỗi: ' + e.message));
     return;
   }
   if (!lenhXong) return;
