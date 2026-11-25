@@ -683,6 +683,12 @@ async function chayLich(env, event) {
   };
   const stores = docCauHinhStores(env);
   const tabs = Object.keys(stores);
+  // Tinh trang goi API Merchize cua tung shop (tab) lan chay nay, de bao len Telegram: { ok, loi }.
+  const trangThaiShop = {};
+  const mucShop = (tab) => (trangThaiShop[tab] = trangThaiShop[tab] || { ok: false, loi: '' });
+  const shopOk = (tab) => { mucShop(tab).ok = true; };
+  const shopLoi = (tab, e) => { const m = mucShop(tab); if (!m.loi) m.loi = str(e && e.message ? e.message : e).slice(0, 150); };
+  tabs.forEach((tab) => { const st = stores[tab]; if (!st || !st.baseUrl || !st.token) shopLoi(tab, 'chưa có Base URL hoặc token'); });
   const viTri = viTriTab(env, stores);
   const duLieu = await docCacTab(env, dem, viTri);
   const boGhi = taoBoGhi(duLieu, viTri);
@@ -772,6 +778,7 @@ async function chayLich(env, event) {
     if (!store || !store.baseUrl || !store.token) continue;
     try {
       const thongKeLoi = await merchizeGetRaw(dem, store, '/order/orders/statistic-issues?' + QUERY_CAN_XU_LY);
+      shopOk(tab);
       const muc = (Array.isArray(thongKeLoi) ? thongKeLoi : []).find((x) => x.key === 'issue_request_update');
       if (!muc || !Number(muc.total)) continue;
       const kq = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_CAN_XU_LY);
@@ -827,7 +834,7 @@ async function chayLich(env, event) {
         ].join('\n'));
         await env.EVENTS.put(khoa, JSON.stringify({ note }), { expirationTtl: LUU_TOI_DA_GIAY });
       }
-    } catch (e) { /* loi tam thoi, lan sau kiem tra lai */ }
+    } catch (e) { shopLoi(tab, e); /* loi tam thoi, lan sau kiem tra lai */ }
   }
 
   // 2. Tra API tracking. Don da co ma RX: gop 50 don/1 request. Don chua co ma RX: tra tung don,
@@ -856,6 +863,7 @@ async function chayLich(env, event) {
     if ((ds.length || dsCost.length) && dem.n < GIOI_HAN_REQUEST - 10) {
       try {
         const kq = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_DON_MOI);
+        shopOk(tab);
         const rxTheoMa = {};
         const ffmTheoMa = {};
         // Don Etsy bi tach thanh nhieu don Merchize: ma Etsy + 1 chu cai (4238855261a, ...b). Chi dung khi KHONG co
@@ -910,7 +918,7 @@ async function chayLich(env, event) {
           boGhi.dat(tab, dong[0].rowNumber, COL.merchizeId, chuoi);
           r0[COL.merchizeId] = chuoi;
         });
-      } catch (e) { /* loi tam thoi, tra tung don nhu cu */ }
+      } catch (e) { shopLoi(tab, e); /* loi tam thoi, tra tung don nhu cu */ }
     }
     const coRx = ds.filter(([, dong]) => laRxNhieu(cell(dong[0].row, COL.merchizeId)));
     const chuaRx = ds.filter((d) => !coRx.includes(d));
@@ -934,6 +942,7 @@ async function chayLich(env, event) {
         const goiHang = await merchizeFetch(dem, store, 'POST', '/order/external/orders/list-orders-tracking', {
           orders: phan.flatMap(({ x: [, dong] }) => maCuaDon(dong).map((code) => ({ code, external_number: '', identifier: '' })))
         });
+        shopOk(tab);
         phan.forEach(({ x: [ma, dong], chiCost }) => {
           const codes = maCuaDon(dong);
           const kq = tomTatApiTracking(codes.flatMap((c) => goiHang.filter((g) => str(g.name).replace(/-F\d+$/i, '') === c)));
@@ -943,7 +952,7 @@ async function chayLich(env, event) {
           if (!chiCost || doiTracking) ghiNhan(tab, ma, apDungKetQuaApi(tab, dong, kq, boGhi, costApi[tab], coFfm));
           else if (datCostApi(tab, dong, kq, boGhi, costApi[tab])) thongKe.cost.push({ tab, ma });
         });
-      } catch (e) { /* loi tam thoi, lan sau tra lai */ }
+      } catch (e) { shopLoi(tab, e); /* loi tam thoi, lan sau tra lai */ }
     }
     // Don fulfill hom nay (gio VN) chua the co tracking -> khong ton request tra tung don.
     chuaRx.forEach(([ma, dong]) => {
@@ -972,6 +981,7 @@ async function chayLich(env, event) {
       try {
         const url = (m) => '/order/external/orders/tracking?external_number=' + encodeURIComponent(m);
         const goiHang = await merchizeFetch(dem, store, 'GET', url(ma));
+        shopOk(tab);
         ghiNhan(tab, ma, apDungKetQuaApi(tab, dong, tomTatApiTracking(goiHang), boGhi, costApi[tab], coFfm));
       } catch (e) { /* bo qua, lan sau tra lai */ }
     };
@@ -1015,8 +1025,12 @@ async function chayLich(env, event) {
   const muc = (tieuDe, arr) => (arr.length ? `${tieuDe}: ${arr.length} đơn\n${theoTab(arr)}` : '');
   const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.zoo.length || thongKe.zooCost.length ||
     thongKe.canXuLy.length;
+  const dsShopLoi = tabs.filter((t) => trangThaiShop[t] && trangThaiShop[t].loi);
+  const dsShopOk = tabs.filter((t) => trangThaiShop[t] && trangThaiShop[t].ok && !trangThaiShop[t].loi);
   await guiTelegram(env, dem, [
     `🔄 Cập nhật tự động lúc ${gioVN(luc)}` + (tiep ? `. Lần chạy tiếp theo: ${tiep}` : ''),
+    dsShopOk.length ? 'Quét được các shop:\n' + dsShopOk.map((t) => `  • ${t}`).join('\n') : '',
+    dsShopLoi.length ? 'Các shop lỗi:\n' + dsShopLoi.map((t) => `  • ${t}: ${trangThaiShop[t].loi}`).join('\n') : '',
     muc('Tracking mới', thongKe.tracking),
     muc('Cost thật', thongKe.cost),
     muc('Tracking ZooTop mới', thongKe.zoo),
@@ -1030,7 +1044,7 @@ async function chayLich(env, event) {
 
   return {
     tracking: thongKe.tracking, cost: thongKe.cost,
-    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, canXuLy: thongKe.canXuLy, zootop: zooInfo, trackingZooTop: thongKe.zoo, costZooTop: thongKe.zooCost, conThieuTracking: conThieu, donThieu
+    ghiBuThongBaoCho: thongKe.cho, daTra: thongKe.daTra, canXuLy: thongKe.canXuLy, zootop: zooInfo, trackingZooTop: thongKe.zoo, costZooTop: thongKe.zooCost, conThieuTracking: conThieu, donThieu, shop: trangThaiShop
   };
 }
 
