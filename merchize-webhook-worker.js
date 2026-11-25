@@ -720,12 +720,16 @@ function phanLoaiDonTab(rows) {
     if (!map.has(ma)) map.set(ma, []);
     map.get(ma).push(row);
   });
-  const k = { tong: map.size, cu: 0, thieuNgay: 0, trong10ngay: 0, coTracking: 0, loi: 0, zoo: 0, acTrong: 0, choTra: 0 };
+  const k = { tong: map.size, cu: 0, daCu: 0, maThieuNgay: [], thieuNgay: 0, trong10ngay: 0, coTracking: 0, loi: 0, zoo: 0, acTrong: 0, choTra: 0 };
   map.forEach((dong) => {
     const r0 = dong[0];
     const st = cell(r0, COL.status);
     const ngay = ngayTuO(cell(r0, COL.dateFulfill));
-    if (!ngay) { if (st) k.thieuNgay++; return; }
+    if (!ngay) {
+      if (/^cũ$/i.test(st)) k.daCu++; // don danh dau "Cu" (khong gui nua)
+      else if (st) { k.thieuNgay++; if (k.maThieuNgay.length < 5) k.maThieuNgay.push(cell(r0, COL.orderNumber)); }
+      return;
+    }
     if (ngay < moc) { k.cu++; return; }
     k.trong10ngay++;
     if (dong.some((r) => cell(r, COL.tracking))) { k.coTracking++; return; }
@@ -1150,7 +1154,8 @@ async function chayLich(env, event, tuyChon = {}) {
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
     tuyChon.gioiHanMs ? 'Phân loại đơn theo Date Fulfill (10 ngày gần nhất):\n' + tabs.filter((t) => duLieu[t] && duLieu[t].length).map((t) => {
       const k = phanLoaiDonTab(duLieu[t]);
-      return `  • ${t}: trong 10 ngày ${k.trong10ngay}, đã có tracking ${k.coTracking}, chờ tra ${k.choTra}, ZooTop ${k.zoo}, AC trống/chỉ định ${k.acTrong}, lỗi ${k.loi}, thiếu ngày ${k.thieuNgay}, quá 10 ngày ${k.cu}`;
+      return `  • ${t}: trong 10 ngày ${k.trong10ngay}, đã có tracking ${k.coTracking}, chờ tra ${k.choTra}, ZooTop ${k.zoo}, AC trống/chỉ định ${k.acTrong}, lỗi ${k.loi}, đánh dấu Cũ ${k.daCu}, thiếu ngày ${k.thieuNgay}, quá 10 ngày ${k.cu}` +
+        (k.maThieuNgay.length ? `\n      thiếu ngày (mẫu): ${k.maThieuNgay.join(', ')}` : '');
     }).join('\n') : '',
     tuyChon.gioiHanMs || dungSom ? 'Thời gian (giây): ' + Object.entries(thoiGian).map(([k, v]) => `${k} ${v}`).join(', ') : '',
     dungSom ? 'Dừng sớm vì sắp hết thời gian cho phép của lệnh /update (Cloudflare). Nhắn /update lần nữa để chạy tiếp phần còn lại.' : '',
