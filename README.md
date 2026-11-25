@@ -2611,6 +2611,10 @@ dòng đó để script tra lại.
 - Teb Print đã được gỡ khỏi script và Worker ở v1.56 (không còn ghi sheet Teb, không còn biến `TEB`). Dòng cũ có AC =
   `Teb` vẫn được giữ nguyên và Worker bỏ qua chúng khi tra Merchize.
 
+## Lệnh /update trên Telegram
+
+Bot trả lời ngay "Đang cập nhật, kết quả sẽ gửi khi xong..." rồi mới chạy. Lệnh chạy trong thời gian Cloudflare cho phép sau khi trả lời (khoảng 30 giây), nên Worker giới hạn 20 giây: quá hạn thì dừng tra thêm, ghi Sheet và gửi tin tóm tắt kèm dòng "Dừng sớm ...", nhắn /update lần nữa để chạy tiếp (các đơn chưa tra được xoay vòng tiếp nối). Lệnh `statistic-issues` của các store được gọi song song để chạy nhanh hơn. Lịch tự động (cron) và link /run không bị giới hạn này.
+
 ## /debug chẩn đoán đơn không có tracking
 
 `/debug?key=<key>&ma=<mã đơn Etsy>` (kể cả đơn chỉ có trên Merchize dưới dạng mã + chữ cái) in thêm: `top100` (số đơn trong danh sách 100 đơn mới nhất của store mà lịch chạy dùng, thời điểm đơn cũ nhất trong đó, và các đơn Merchize cùng mã), `dongTrenSheet` (AC, AD, AE, AF, ngày fulfill, base cost của các dòng đơn trên Sheet), `workerSeTraTracking` (đơn có đủ điều kiện để Worker tra tracking không) và `apiTrackingTheoAD` (kết quả API tracking theo các mã RX trong cột AD).
