@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.64
+// @version      1.65
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.64';
+  const SCRIPT_VERSION = '1.65';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -1107,7 +1107,13 @@
     const zooTarget = docCacSheetZooTop()[title];
     const bangZoo = zooTarget ? await docBangZooTop() : null;
     const daBiet = bangSkuDaBiet(bangZoo, catalog);
-    const tatCa = gomDon(rows).filter((d) => cheDo !== 'buoc2' || donCho.has(d.orderNumber)).map((d0) => {
+    // Don da co dong duoc gui/danh dau truoc do (don nhieu dong, cac dong con lai de trong): bo qua, khong bao loi.
+    const gomDonTatCa = gomDon(rows).filter((d) => cheDo !== 'buoc2' || donCho.has(d.orderNumber));
+    const boQuaDaGui = gomDonTatCa.filter((d) => d.daGuiTruoc).map((d) => d.orderNumber);
+    const ghiChuBoQua = boQuaDaGui.length
+      ? `Bỏ qua ${boQuaDaGui.length} đơn đã có dòng được gửi/đánh dấu trước đó (không báo lỗi): ${boQuaDaGui.slice(0, 10).join(', ')}${boQuaDaGui.length > 10 ? ' ...' : ''}`
+      : '';
+    const tatCa = gomDonTatCa.filter((d) => !d.daGuiTruoc).map((d0) => {
       const skuTay = d0.rows.map(({ r }) => cell(r, COL.merchizeSku));
       let d = d0;
       if (skuTay.some(Boolean)) {
@@ -1185,6 +1191,7 @@
       if (cheDo === 'buoc2') luuDonLoiBuoc1(title, []);
       const dongDoc = rows.map((r, i) => (i > 0 && r ? i + 1 : 0)).filter(Boolean);
       return `Trang "${title}": không có đơn nào chờ gửi (cột AC đều đã có trạng thái).` +
+        (ghiChuBoQua ? '\n' + ghiChuBoQua : '') +
         (dongDoc.length ? `\nLưu ý: script chỉ quét ${SO_DONG_CUOI} dòng cuối có mã đơn (đang đọc từ dòng ${dongDoc[0]} đến dòng ${dongDoc[dongDoc.length - 1]}). Đơn nằm phía trên dòng ${dongDoc[0]} sẽ không được quét.` : '');
     }
     const dongBaoCao = [];
@@ -1219,8 +1226,9 @@
         `Trang "${title}": ${donList.length} đơn chờ gửi Merchize, ${hopLe.length} đơn hợp lệ, ${coLoi.length} đơn có lỗi.`,
         ...dongBaoCao,
         'Đã điền SKU vào cột AB (chưa gửi gì lên Merchize / ZooTop).',
+        ghiChuBoQua,
         ...dongLoi
-      ].join('\n');
+      ].filter(Boolean).join('\n');
     }
 
     if (hopLe.length === 0 && dsZoo.length === 0) {
@@ -1231,7 +1239,7 @@
         luuDonLoiBuoc1(title, cheDo === 'buoc1' ? coLoi.map((d) => d.orderNumber) : []);
       }
       return [`Không có đơn hợp lệ để gửi (${coLoi.length} đơn lỗi):`, ...dongLoi,
-        ...(cheDo === 'buoc1' && coLoi.length ? ['Đã lưu các đơn lỗi. Sửa xong bấm "4. Bước 2: gửi lại đơn lỗi".'] : [])].join('\n');
+        ...(cheDo === 'buoc1' && coLoi.length ? ['Đã lưu các đơn lỗi. Sửa xong bấm "4. Bước 2: gửi lại đơn lỗi".'] : []), ghiChuBoQua].filter(Boolean).join('\n');
     }
     const ok = W.confirm(
       `Sẽ gửi ${hopLe.length} đơn lên Merchize (${tenStore(store)})` +
@@ -1309,7 +1317,8 @@
       ...ketQuaGui,
       coLoi.length ? `${coLoi.length} đơn không gửi vì lỗi dữ liệu:` : '',
       ...dongLoi,
-      cheDo === 'buoc1' && maLoiBuoc1.length ? `Đã lưu ${maLoiBuoc1.length} đơn lỗi. Sửa xong bấm "4. Bước 2: gửi lại đơn lỗi".` : ''
+      cheDo === 'buoc1' && maLoiBuoc1.length ? `Đã lưu ${maLoiBuoc1.length} đơn lỗi. Sửa xong bấm "4. Bước 2: gửi lại đơn lỗi".` : '',
+      ghiChuBoQua
     ].filter(Boolean).join('\n');
   }
 
