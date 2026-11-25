@@ -484,6 +484,22 @@ async function nhanWebhook(request, env, ctx) {
 }
 
 // ============ LICH CHAY (CRON) ============
+// Giai thich loi goi API Merchize bang tieng Viet de bao len Telegram: "<nguyen nhan> (<loi goc>)".
+function moTaLoiMerchize(e) {
+  const goc = str(e && e.message ? e.message : e).replace(/\s+/g, ' ').slice(0, 120);
+  const ma = (goc.match(/^Merchize (\d{3})/) || [])[1];
+  let nguyenNhan = '';
+  if (ma === '401' || ma === '403') nguyenNhan = 'Token hết hạn hoặc không hợp lệ, cần lấy Access Token mới';
+  else if (ma === '404') nguyenNhan = 'Không tìm thấy, kiểm tra lại Base URL của store';
+  else if (ma === '400' || ma === '422') nguyenNhan = 'Merchize báo yêu cầu không hợp lệ';
+  else if (ma === '429') nguyenNhan = 'Merchize giới hạn tần suất gọi API (quá nhiều request), lần sau sẽ thử lại';
+  else if (/^5\d\d$/.test(ma || '')) nguyenNhan = 'Lỗi phía máy chủ Merchize, thường tự hết, thử lại sau';
+  else if (/too many subrequests/i.test(goc)) nguyenNhan = 'Vượt giới hạn số request của Cloudflare trong 1 lần chạy';
+  else if (/fetch failed|network|connection|timeout|timed out|dns/i.test(goc)) nguyenNhan = 'Không kết nối được tới Merchize (lỗi mạng)';
+  else if (/json|unexpected token/i.test(goc)) nguyenNhan = 'Merchize trả dữ liệu không đọc được';
+  return nguyenNhan ? `${nguyenNhan} (${goc})` : goc;
+}
+
 // Don bi huy fulfillment tren Merchize (vd "Canceled fulfillment", da duoc thay bang don ma + chu cai):
 // truong trang thai nao co chu cancel, hoac co ngay huy (canceled_at...). Don huy khong dung de khop ma / tracking / cost.
 function donBiHuy(o) {
@@ -687,7 +703,7 @@ async function chayLich(env, event) {
   const trangThaiShop = {};
   const mucShop = (tab) => (trangThaiShop[tab] = trangThaiShop[tab] || { ok: false, loi: '' });
   const shopOk = (tab) => { mucShop(tab).ok = true; };
-  const shopLoi = (tab, e) => { const m = mucShop(tab); if (!m.loi) m.loi = str(e && e.message ? e.message : e).slice(0, 150); };
+  const shopLoi = (tab, e) => { const m = mucShop(tab); if (!m.loi) m.loi = moTaLoiMerchize(e); };
   tabs.forEach((tab) => { const st = stores[tab]; if (!st || !st.baseUrl || !st.token) shopLoi(tab, 'chưa có Base URL hoặc token'); });
   const viTri = viTriTab(env, stores);
   const duLieu = await docCacTab(env, dem, viTri);
