@@ -484,6 +484,17 @@ async function nhanWebhook(request, env, ctx) {
 }
 
 // ============ LICH CHAY (CRON) ============
+// Don bi huy fulfillment tren Merchize (vd "Canceled fulfillment", da duoc thay bang don ma + chu cai):
+// truong trang thai nao co chu cancel, hoac co ngay huy (canceled_at...). Don huy khong dung de khop ma / tracking / cost.
+function donBiHuy(o) {
+  return Object.keys(o || {}).some((k) => {
+    const v = o[k];
+    if (/(cancel+ed)_(at|date|time)/i.test(k)) return !!v;
+    if (!/status/i.test(k) || /payment|tracking|shipment|artwork|attention|issue/i.test(k)) return false;
+    return /cancel/i.test(typeof v === 'string' ? v : JSON.stringify(v || ''));
+  });
+}
+
 // Ma RX trong o AD: 1 ma, hoac nhieu ma cach nhau ", " khi don Etsy bi tach thanh nhieu don Merchize
 // (ma Merchize = ma Etsy + 1 chu cai: 4238855261a, 4238855261b...).
 const laRxNhieu = (v) => /^[A-Z]{2}-\d+-\d+(, [A-Z]{2}-\d+-\d+)*$/.test(str(v));
@@ -850,9 +861,11 @@ async function chayLich(env, event) {
         // Don Etsy bi tach thanh nhieu don Merchize: ma Etsy + 1 chu cai (4238855261a, ...b). Chi dung khi KHONG co
         // don Merchize trung khop tung ky tu voi ma tren Sheet, va bo qua ma da la 1 don rieng tren Sheet.
         const bienThe = {};
+        const huyRx = new Set(); // ma RX cua cac don da huy (AD con giu ma nay thi coi la cu)
         const maTrenSheet = new Set((duLieu[tab] || []).map((row) => cell(row, COL.orderNumber)).filter(Boolean));
         ((kq && kq.orders) || []).forEach((o) => {
           const ma = str(o.external_order_number || (o.external_order_id || {}).id);
+          if (donBiHuy(o)) { huyRx.add(str(o.code)); return; } // don huy: bo qua (co don ma + chu cai thay the)
           if (ma && laRx(str(o.code))) rxTheoMa[ma] = str(o.code);
           const tong = docSoTien((o.ffm_cost || {}).total);
           if (ma && o.has_fulfillment_cost !== false && tong !== null && tong > 0) ffmTheoMa[ma] = tong;
@@ -877,21 +890,23 @@ async function chayLich(env, event) {
           r0[COL.baseCost] = String(ffmTheoMa[ma]);
           thongKe.cost.push({ tab, ma });
         });
-        ds.forEach(([ma, dong]) => {
-          const r0 = dong[0].row;
-          if (laRx(cell(r0, COL.merchizeId)) || !rxTheoMa[ma]) return;
-          boGhi.dat(tab, dong[0].rowNumber, COL.merchizeId, rxTheoMa[ma]);
-          r0[COL.merchizeId] = rxTheoMa[ma];
-        });
-        // Don tach (khong co don Merchize khop chinh xac): AD = cac ma RX cua don con "RX-1, RX-2" (cap nhat khi co don con moi).
+        // Cot AD = ma RX cua don Merchize ung voi don tren Sheet (tracking duoc tra theo cot AD):
+        // 1. don Merchize trung chinh xac ma (khong bi huy) -> ma RX do (chi dien khi AD trong hoac con giu ma don da huy);
+        // 2. khong co (hoac don da huy) -> cac don ma + chu cai (4238855261a, b...): "RX-1, RX-2", cap nhat khi co don con moi.
         ds.concat(dsCost).forEach(([ma, dong]) => {
           const r0 = dong[0].row;
-          const vs = bienTheCuaDon(ma);
-          if (!vs.length || rxTheoMa[ma]) return;
-          donTach.add(ma);
-          const chuoi = vs.map((v) => v.code).join(', ');
-          if (cell(r0, COL.merchizeId) === chuoi) return;
-          if (cell(r0, COL.merchizeId) && !laRxNhieu(cell(r0, COL.merchizeId))) return; // AD co gia tri khac (vd loi), khong ghi de
+          const ad = cell(r0, COL.merchizeId);
+          let chuoi = '';
+          if (rxTheoMa[ma]) {
+            if (ad && !huyRx.has(ad)) return;
+            chuoi = rxTheoMa[ma];
+          } else {
+            const vs = bienTheCuaDon(ma);
+            if (!vs.length) return; // khong co don thay the (hoac chi co don huy): giu nguyen
+            donTach.add(ma);
+            chuoi = vs.map((v) => v.code).join(', ');
+          }
+          if (ad === chuoi || (ad && !laRxNhieu(ad))) return;
           boGhi.dat(tab, dong[0].rowNumber, COL.merchizeId, chuoi);
           r0[COL.merchizeId] = chuoi;
         });
@@ -1152,6 +1167,14 @@ async function xuLyDebug(env, url) {
         kq.tagCuaDon = {};
         Object.keys(o).filter((k) => /tag/i.test(k)).forEach((k) => { kq.tagCuaDon[k] = o[k]; });
         kq.cacTruongCuaDon = Object.keys(o);
+        kq.trangThaiCuaDon = {};
+        Object.keys(o).filter((k) => /status|cancel/i.test(k)).forEach((k) => { kq.trangThaiCuaDon[k] = o[k]; });
+        kq.daHuy = donBiHuy(o);
+      }
+      // Cac don Merchize co ma = ma + chu cai (don tach / don thay the).
+      const bienThe = ((tim && tim.orders) || []).filter((x) => { const m = str(x.external_order_number || (x.external_order_id || {}).id); return m.length > ma.length && m.startsWith(ma) && /^[a-z]$/i.test(m.slice(ma.length)); });
+      if (bienThe.length) {
+        kq.donMaCongChuCai = bienThe.map((x) => ({ ma: str(x.external_order_number), code: str(x.code), daHuy: donBiHuy(x), ffm: (x.ffm_cost || {}).total }));
       }
       break;
     } catch (e) { kq['loi_' + tab] = e.message.slice(0, 200); }

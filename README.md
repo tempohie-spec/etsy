@@ -2599,7 +2599,9 @@ dòng đó để script tra lại.
 
 Merchize có thể tách 1 đơn Etsy thành nhiều đơn với mã Etsy + 1 chữ cái (`4238855261a`, `4238855261b`...). Quy tắc khớp mã đơn trên Sheet với Merchize:
 - **Khớp chính xác từng ký tự trước.** Có đơn Merchize trùng đúng mã (vd `4238855261`) thì chỉ dùng đơn đó, không xét các đơn có thêm chữ cái.
+- **Đơn khớp chính xác mà đã bị huỷ** (Merchize hiện "Canceled fulfillment", đã được thay bằng đơn mã + chữ cái, vd `4240248424` huỷ và `4240248424a` thay thế) coi như không có: Worker bỏ qua đơn huỷ khi khớp mã, tracking và cost, rồi dùng các đơn mã + chữ cái đang hoạt động. AD đang giữ mã RX của đơn huỷ sẽ được đổi sang mã của đơn thay thế. Nhận biết đơn huỷ bằng trường trạng thái có chữ cancel trong dữ liệu Merchize; mở `/debug?key=<key>&ma=<mã đơn>` để xem `daHuy`, `trangThaiCuaDon` và `donMaCongChuCai`.
 - **Chỉ khi không có đơn khớp chính xác** mới tìm các đơn Merchize có mã = mã Sheet + 1 chữ cái. Mã nào đã là một đơn riêng trên Sheet (vd Sheet có cả `4238855261` và `4238855261a`) thì không bị gộp vào đơn gốc.
+- **Cột AD là gốc:** AD được điền/cập nhật theo logic khớp mã ở trên, rồi tracking được tra theo các mã RX trong AD.
 - Với đơn tách: AD ghi các mã RX cách nhau `, `; AE ghi tracking của các đơn con (cách nhau `, `); AF ghi hãng vận chuyển; Y ghi tổng cost các đơn con. Đơn con nào có tracking sau thì lần chạy sau tự bổ sung (đơn tách được tra lại trong 10 ngày).
 - Dữ liệu lấy từ 100 đơn mới nhất của store (đã dùng sẵn cho ma RX và cost), webhook vẫn chỉ khớp chính xác mã đơn.
 
