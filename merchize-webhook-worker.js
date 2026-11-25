@@ -709,6 +709,34 @@ function donCanTra(rows) {
 
 // tuyChon.gioiHanMs: lenh /update chay trong ctx.waitUntil (Cloudflare chi cho ~30 giay sau khi tra loi), nen qua
 // han thi dung tra them, ghi Sheet va gui Telegram luon (tranh bi cat ngang, im lang).
+// Phan loai don cua tab theo Date Fulfill (10 ngay gan nhat) de bao len Telegram vi sao nhieu don khong duoc tra tracking.
+function phanLoaiDonTab(rows) {
+  const moc = new Date();
+  moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
+  const map = new Map();
+  rows.forEach((row, i) => {
+    const ma = cell(row, COL.orderNumber);
+    if (i === 0 || !ma) return;
+    if (!map.has(ma)) map.set(ma, []);
+    map.get(ma).push(row);
+  });
+  const k = { tong: map.size, cu: 0, thieuNgay: 0, trong10ngay: 0, coTracking: 0, loi: 0, zoo: 0, acTrong: 0, choTra: 0 };
+  map.forEach((dong) => {
+    const r0 = dong[0];
+    const st = cell(r0, COL.status);
+    const ngay = ngayTuO(cell(r0, COL.dateFulfill));
+    if (!ngay) { if (st) k.thieuNgay++; return; }
+    if (ngay < moc) { k.cu++; return; }
+    k.trong10ngay++;
+    if (dong.some((r) => cell(r, COL.tracking))) { k.coTracking++; return; }
+    if (!st || /^[#@]/.test(st)) { k.acTrong++; return; }
+    if (dong.some((r) => /^Lỗi/.test(cell(r, COL.status)))) { k.loi++; return; }
+    if (dong.some((r) => ['Teb', 'ZooTop'].includes(cell(r, COL.status)))) { k.zoo++; return; }
+    k.choTra++;
+  });
+  return k;
+}
+
 async function chayLich(env, event, tuyChon = {}) {
   const batDauMs = Date.now();
   let dungSom = false;
@@ -1120,6 +1148,10 @@ async function chayLich(env, event, tuyChon = {}) {
     thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length}\n` +
       thongKe.canXuLy.map((x) => `  • ${x.tab} | ${x.ma}: ${x.note || 'xem trên Merchize'}`).join('\n') : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
+    tuyChon.gioiHanMs ? 'Phân loại đơn theo Date Fulfill (10 ngày gần nhất):\n' + tabs.filter((t) => duLieu[t] && duLieu[t].length).map((t) => {
+      const k = phanLoaiDonTab(duLieu[t]);
+      return `  • ${t}: trong 10 ngày ${k.trong10ngay}, đã có tracking ${k.coTracking}, chờ tra ${k.choTra}, ZooTop ${k.zoo}, AC trống/chỉ định ${k.acTrong}, lỗi ${k.loi}, thiếu ngày ${k.thieuNgay}, quá 10 ngày ${k.cu}`;
+    }).join('\n') : '',
     tuyChon.gioiHanMs || dungSom ? 'Thời gian (giây): ' + Object.entries(thoiGian).map(([k, v]) => `${k} ${v}`).join(', ') : '',
     dungSom ? 'Dừng sớm vì sắp hết thời gian cho phép của lệnh /update (Cloudflare). Nhắn /update lần nữa để chạy tiếp phần còn lại.' : '',
     coMoi ? '' : 'Không có giá trị mới để điền.',
