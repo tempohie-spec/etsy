@@ -2331,6 +2331,12 @@ thầm lặng (Violentmonkey bắt buộc xác nhận). Muốn Violentmonkey t�
 đặt "Auto update interval" (số ngày, mặc định 1) và bấm "Check for updates" khi cần. Thêm
 `@connect raw.githubusercontent.com` để đọc được phiên bản (Violentmonkey có thể hỏi cho phép 1 lần).
 
+## PrintingMethod luôn là DTG (v3.11)
+
+Cột `PrintingMethod` khi xuất Excel/clipboard giờ **luôn là `DTG`** cho mọi sản phẩm, không còn phân biệt
+title hay quốc gia (luật cũ: mặc định DTF, chỉ DTG với Comfort Youth / Bella Adult / đơn ngoài US). Muốn
+quay lại luật cũ, đặt `LUON_DTG = false` trong `xacDinhPhuongPhapInTheoTitle`.
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
