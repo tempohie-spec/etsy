@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.72
+// @version      9.73
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.72';
+  const PHIEN_BAN = '9.73';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -2308,6 +2308,7 @@
   // epHoi = true (Alt+Shift+V): luon hien hop thoai Custom options du da tat "Luon hoi"
   async function danTieuDeVaTag(epHoi = false) {
     let { tieuDe, tagText, dsPerso, danhSachAnh, idNguon, dauLa } = tachDuLieu(await docClipboard());
+    const tieuDeGoc = tieuDe; // v9.73: tieu de GOC cua listing nguon — dung lam "Ten san pham" ghi len Sheet
 
     // Chan ngay: dan tiep se nhoi chuoi ky thuat vao o cua Etsy, hong du lieu that
     if (dauLa) {
@@ -2376,7 +2377,7 @@
 
     hienThongBao('⏳ Đang dán tiêu đề + tag...', '#2563EB');
     // ✅ Nho listing nguon dang duoc dan o may nay — bam Publish se danh dau "da dang" kem nhan may
-    if (idNguon) ghiNguonDangSoan(idNguon, tieuDe);
+    if (idNguon) ghiNguonDangSoan(idNguon, tieuDeGoc);
 
     // Chuyen danh sach anh tu Clipboard sang kho cua TRINH DUYET NAY, truoc khi Clipboard bi
     // rut gon lai con moi tieu de o cuoi ham. Nho vay Alt+U sau do van co anh de upload

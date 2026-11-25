@@ -828,6 +828,10 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Cột "Tên sản phẩm" trên Sheet luôn là tiêu đề gốc (v9.73)
+
+Từ v9.72, tiêu đề dán vào Etsy có thể đã được làm sạch/sửa tay. Cột F của Google Sheet vẫn ghi **tiêu đề gốc của listing nguồn** (đúng như trên trang nguồn), để dễ đối chiếu sản phẩm. Chỉ ảnh hưởng tên ghi lên Sheet, không đổi gì ở tiêu đề dán vào Etsy.
+
 ### Tự làm sạch tiêu đề + tag theo rule Etsy khi dán (v9.72)
 
 Khi **Alt+V**, script áp các rule của Etsy (Seller Handbook "New Guidance for Listing Titles" + Help Center) lên tiêu đề/tag lấy từ listing nguồn. **Không gọi API, không tốn tiền**, và chỉ là *đề xuất* — bạn xem/sửa trong hộp thoại trước khi dán.
@@ -847,7 +851,7 @@ Khi **Alt+V**, script áp các rule của Etsy (Seller Handbook "New Guidance fo
 - Chung hộp thoại chọn ảnh/Custom options nếu có (không thêm hộp thoại thứ hai); không có ảnh/Custom options thì hiện hộp thoại riêng. Có ô sửa tay tiêu đề + tag (đếm ký tự/tag trực tiếp), nút **↩ Bản gốc**, và danh sách việc đã làm / cảnh báo.
 - Dữ liệu đã sạch và không có cảnh báo tiêu đề thì **không hiện gì**, dán thẳng như cũ.
 - Bỏ tick **Luôn hiện phần này khi dán** → lần sau tự dán bản đã làm sạch (thông báo ghi "🧹 đã tự làm sạch"); **Alt+Shift+V** vẫn ép hiện hộp thoại.
-- Tiêu đề cuối cùng (sau khi làm sạch/sửa tay) cũng là tên sản phẩm ghi vào cột F của Google Sheet.
+- Tên sản phẩm ghi vào cột F của Google Sheet là **tiêu đề gốc** của listing nguồn, không phải bản đã làm sạch/sửa tay (xem v9.73).
 - Chưa làm (mức 2): nhờ AI viết lại câu chữ — cần Claude API và tốn phí.
 
 ### Dọn code: bỏ phần kiểm tra tạm đã xong (v9.71)
