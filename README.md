@@ -2649,6 +2649,10 @@ Merchize có thể tách 1 đơn Etsy thành nhiều đơn với mã Etsy + 1 ch
 
 Đơn ZooTop: dòng nào có link design_back (cột G) thì chỉ điền mockup_back (cột X của sheet ZooTop) và để trống mockup_front (cột W); dòng không có design_back thì điền mockup_front (W) như cũ. Ảnh dùng là mockup ở cột D của sheet đơn.
 
+## Đơn nhiều dòng đã có dòng được gửi (v1.65)
+
+Đơn nào đã có ít nhất một dòng có trạng thái ở AC (đã gửi/đánh dấu) thì các dòng còn lại (AC trống) của đơn đó được bỏ qua, không còn ghi `Lỗi: đơn này đã có dòng được gửi/đánh dấu trước đó` và không bị đưa vào danh sách đơn lỗi của Bước 2. Thông báo chỉ ghi chú "Bỏ qua N đơn đã có dòng được gửi/đánh dấu trước đó (không báo lỗi): <mã đơn>".
+
 ## Gửi đơn 2 bước (v1.58)
 
 - **3. Gửi đơn - Bước 1:** đơn chưa chỉ định gì được coi như `#ZooTop` (chỉ khi tab đã gắn sheet ZooTop; tab không có ZooTop thì chạy như cũ). Đơn có `#Merchize` hoặc SKU tự điền vẫn đi đúng nhà cung cấp đã chỉ định. Đơn lỗi (thiếu SKU ZooTop, thiếu link design, Merchize/ZooTop từ chối...) được ghi `Lỗi: ...` ở AC và lưu lại danh sách theo từng tab.
