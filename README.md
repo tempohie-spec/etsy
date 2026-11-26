@@ -828,6 +828,13 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Hộp thoại gọn hơn: tiêu đề luôn có 2 ô, bỏ phần Tag và các cảnh báo (v9.75)
+
+- **Tiêu đề luôn có 2 ô** để tích chọn: **Tự sửa theo rule** (mặc định) và **Bản gốc**, kể cả khi rule không đổi gì (khi đó 2 ô giống nhau). Hộp thoại **chọn ảnh / Custom options** luôn có phần này; nếu không có ảnh/Custom options thì hộp thoại riêng chỉ hiện khi rule thật sự đổi tiêu đề (không đổi gì thì dán thẳng như cũ).
+- **Tag giữ nguyên** đúng như listing nguồn: không xử lý, không hiển thị trong hộp thoại (bỏ toàn bộ phần xử lý tag của v9.72: cắt 13 tag/20 ký tự, bỏ trùng, chuyển cụm `gift for …` xuống tag). Cụm `Gift for …` vẫn bị bỏ khỏi tiêu đề nhưng không còn được thêm vào tag.
+- **Bỏ mọi cảnh báo ⚠️** trong hộp thoại: cảnh báo tiêu đề (số từ, từ lặp, nhiều danh từ, thương hiệu), cảnh báo tag, và chữ ⚠️ ở nhãn "nghi là bảng size". Vẫn giữ các dòng 🧹 cho biết rule đã bỏ gì khỏi tiêu đề.
+- **Bỏ 2 thông báo** "Listing này đang có N ảnh, còn chỗ cho M ảnh…" và "Thư viện của bạn có N ảnh bảng size…". Chỉ còn **1 cảnh báo ngắn khi vượt giới hạn**: `Quá 20 ảnh: chọn N, chỉ còn chỗ cho M` (nút dán bị khoá tới khi chọn lại cho đủ chỗ). Khung "Ảnh mới thêm vào cuối lưới…" (khi listing đích đã có ảnh) được rút còn 1 dòng.
+
 ### Hộp thoại chọn ảnh: sửa lỗi không thấy ảnh, tiêu đề 2 ô chọn, link listing nguồn (v9.74)
 
 - **Sửa lỗi không hiện ảnh:** từ v9.72, phần "Tiêu đề & Tag" + "Custom options" chiếm gần hết chiều cao hộp thoại nên lưới ảnh bị ép còn vài pixel (chỉ thấy các viền cam). Giờ cả phần thân hộp thoại **cuộn được** (từ thông tin listing đến lưới ảnh), còn dòng "Sau khi upload xong" và nút **Bắt đầu dán + upload / Huỷ** luôn nằm cố định ở đáy. Đã thử ở màn hình 800×860 và 1000×600.
@@ -840,6 +847,8 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 Từ v9.72, tiêu đề dán vào Etsy có thể đã được làm sạch/sửa tay. Cột F của Google Sheet vẫn ghi **tiêu đề gốc của listing nguồn** (đúng như trên trang nguồn), để dễ đối chiếu sản phẩm. Chỉ ảnh hưởng tên ghi lên Sheet, không đổi gì ở tiêu đề dán vào Etsy.
 
 ### Tự làm sạch tiêu đề + tag theo rule Etsy khi dán (v9.72)
+
+> **Từ v9.75 chỉ còn xử lý TIÊU ĐỀ, tag giữ nguyên** — phần Tag và cảnh báo bên dưới đã bỏ, xem mục v9.75.
 
 Khi **Alt+V**, script áp các rule của Etsy (Seller Handbook "New Guidance for Listing Titles" + Help Center) lên tiêu đề/tag lấy từ listing nguồn. **Không gọi API, không tốn tiền**, và chỉ là *đề xuất* — bạn xem/sửa trong hộp thoại trước khi dán.
 
