@@ -828,6 +828,13 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Hộp thoại chọn ảnh: sửa lỗi không thấy ảnh, tiêu đề 2 ô chọn, link listing nguồn (v9.74)
+
+- **Sửa lỗi không hiện ảnh:** từ v9.72, phần "Tiêu đề & Tag" + "Custom options" chiếm gần hết chiều cao hộp thoại nên lưới ảnh bị ép còn vài pixel (chỉ thấy các viền cam). Giờ cả phần thân hộp thoại **cuộn được** (từ thông tin listing đến lưới ảnh), còn dòng "Sau khi upload xong" và nút **Bắt đầu dán + upload / Huỷ** luôn nằm cố định ở đáy. Đã thử ở màn hình 800×860 và 1000×600.
+- **Tiêu đề: 2 ô, tích chọn dùng bản nào:** **Tự sửa theo rule** (mặc định) và **Bản gốc**, mỗi ô sửa tay được, có đếm ký tự riêng. Bấm hoặc gõ vào ô nào thì tự tích ô đó. Nếu rule không đổi gì ở tiêu đề thì chỉ hiện 1 ô. Phần **Tag giữ nguyên** như cũ (ô sửa tay + nút ↩ Bản gốc).
+- **"Listing nguồn" là link** mở trang listing nguồn (`https://www.etsy.com/listing/<id>`) ở tab mới.
+- Bỏ dòng hướng dẫn "Bấm nút ✂️ trên ảnh #1…" (nút ✂️ trên ảnh #1 vẫn còn).
+
 ### Cột "Tên sản phẩm" trên Sheet luôn là tiêu đề gốc (v9.73)
 
 Từ v9.72, tiêu đề dán vào Etsy có thể đã được làm sạch/sửa tay. Cột F của Google Sheet vẫn ghi **tiêu đề gốc của listing nguồn** (đúng như trên trang nguồn), để dễ đối chiếu sản phẩm. Chỉ ảnh hưởng tên ghi lên Sheet, không đổi gì ở tiêu đề dán vào Etsy.
