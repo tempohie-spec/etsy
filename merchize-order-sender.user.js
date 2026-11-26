@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.68
+// @version      1.69
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.68';
+  const SCRIPT_VERSION = '1.69';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -1054,16 +1054,22 @@
         const gia = (v) => (v == null ? 'n/a' : v.toFixed(2) + '$');
         cb.style.flex = 'none';
         dong.appendChild(cb);
-        // Anh mockup (cot D cua dong dau cua don); bam vao anh de mo anh lon o tab moi.
-        const link = cell(g.don.rows[0].r, COL.mockUpFront);
-        if (laLink(link)) {
-          const anh = document.createElement('img');
-          anh.src = link;
-          anh.alt = 'mockup';
-          anh.title = 'Bấm để xem ảnh lớn';
-          anh.style.cssText = 'width:72px;height:72px;object-fit:contain;flex:none;border:1px solid #ddd;border-radius:4px;background:#fafafa;cursor:zoom-in;';
-          anh.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); window.open(link, '_blank', 'noopener'); });
-          dong.appendChild(anh);
+        // Anh mockup (cot D) cua TAT CA cac dong trong don (bo link trung); bam vao anh de mo anh lon o tab moi.
+        const cacLink = Array.from(new Set(g.don.rows.map(({ r }) => cell(r, COL.mockUpFront)).filter(laLink)));
+        if (cacLink.length) {
+          const khungAnh = el('div', 'display:flex;flex-wrap:wrap;gap:4px;flex:none;max-width:' + (cacLink.length > 1 ? '230px' : '76px') + ';');
+          const cua = cacLink.length > 1 ? 56 : 72;
+          cacLink.slice(0, 8).forEach((link) => {
+            const anh = document.createElement('img');
+            anh.src = link;
+            anh.alt = 'mockup';
+            anh.title = 'Bấm để xem ảnh lớn';
+            anh.style.cssText = `width:${cua}px;height:${cua}px;object-fit:contain;flex:none;border:1px solid #ddd;border-radius:4px;background:#fafafa;cursor:zoom-in;`;
+            anh.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); window.open(link, '_blank', 'noopener'); });
+            khungAnh.appendChild(anh);
+          });
+          if (cacLink.length > 8) khungAnh.appendChild(el('span', 'font-size:11px;color:#666;align-self:center;', `+${cacLink.length - 8}`));
+          dong.appendChild(khungAnh);
         }
         dong.appendChild(el('span', 'flex:1;', `${g.ncc ? '[' + g.ncc + '] ' : ''}${g.don.orderNumber}: ${g.hienTai} → ${g.moi}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
         hop.appendChild(dong);
