@@ -2380,6 +2380,14 @@ và nếu trùng tên thì **phải so lại mã đơn trên Sheet**: chỉ nh�
 báo "Chưa tìm được trên Sheet". Nếu có nhiều dòng thoả (vd `12345a` và `12345b`), lấy dòng nằm **sau cùng** trên
 Sheet. Log ghi rõ mã đơn trên Sheet đã khớp, vd `Thấy (theo tên + mã đơn 12345a): ...`.
 
+## Nút Copy tiêu đề sản phẩm ngay trên danh sách đơn (v3.14)
+
+Mỗi sản phẩm trong danh sách đơn có 1 nút nhỏ **Copy** ngay sau tiêu đề listing. Bấm vào copy **toàn bộ tiêu
+đề** vào clipboard, nút đổi thành **✓ Copied** (nền xanh) khoảng 2 giây rồi trở lại "Copy". Nút tự thêm cho cả
+sản phẩm mới hiện ra khi lọc/đổi trang. Tiêu đề được nhận diện theo vị trí (đoạn chữ dài đầu tiên phía trên các
+dòng Quantity / Style & Size / Color của khối sản phẩm), nên nếu Etsy đổi cấu trúc trang mà nút không hiện hoặc
+copy sai đoạn chữ thì cần chỉnh lại hàm `timTieuDeSanPham`.
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh

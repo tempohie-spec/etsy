@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.13.1
+// @version      3.14
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -2827,7 +2827,85 @@
     return /^\/your\/orders(\/|$)/.test(window.location.pathname);
   }
 
+  // ====== NUT "COPY" TIEU DE SAN PHAM NGAY TREN DANH SACH DON ======
+  // Moi san pham trong don co 1 nut nho "Copy" ngay sau tieu de listing; bam -> copy toan bo tieu de,
+  // nut doi thanh "✓ Copied" ~2 giay roi tro lai. Tieu de la phan chu dai dau tien phia tren cac dong
+  // "Quantity / Style & Size / Color..." cua khoi san pham (khong co class co dinh nen tim theo vi tri).
+  function laKhoiSanPhamEtsy(el) {
+    return el.querySelector('.flag-img') && getLabelValues(el, 'Quantity').length > 0 && !el.querySelector('.flag');
+  }
+
+  function timTieuDeSanPham(flagEl) {
+    const body = flagEl.querySelector('.flag-body') || flagEl;
+    const all = body.querySelectorAll('*');
+    for (const el of all) {
+      if (el.closest('.eos-copy-title') || el.closest('span.strong') || el.closest('span.text-gray-lighter')) continue;
+      if (/^(SCRIPT|STYLE|BUTTON|SVG|IMG)$/i.test(el.tagName)) continue;
+      const rieng = Array.from(el.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim();
+      if (rieng.length >= 15) return el;
+    }
+    return null;
+  }
+
+  function copyChu(text) {
+    try {
+      if (typeof GM_setClipboard !== 'undefined') { GM_setClipboard(text, 'text'); return Promise.resolve(); }
+    } catch (e) { /* thu cach duoi */ }
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    return Promise.reject(new Error('khong copy duoc'));
+  }
+
+  function chenNutCopyTieuDe() {
+    document.querySelectorAll('.flag').forEach((flagEl) => {
+      if (flagEl.querySelector('.eos-copy-title') || !laKhoiSanPhamEtsy(flagEl)) return;
+      const tieuDeEl = timTieuDeSanPham(flagEl);
+      if (!tieuDeEl) return;
+      const anchor = tieuDeEl.closest('a');
+      const goc = anchor && flagEl.contains(anchor) ? anchor : tieuDeEl;
+      const tieuDe = goc.textContent.replace(/\s+/g, ' ').trim();
+      if (!tieuDe) return;
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'eos-copy-title';
+      btn.textContent = 'Copy';
+      btn.title = 'Copy toàn bộ tiêu đề sản phẩm';
+      btn.style.cssText =
+        'margin-left:6px; padding:1px 9px; font:600 11px/1.5 sans-serif; border:1px solid #9CA3AF; border-radius:10px; ' +
+        'background:#fff; color:#111; cursor:pointer; vertical-align:middle; white-space:nowrap;';
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        copyChu(tieuDe).then(() => {
+          btn.textContent = '✓ Copied';
+          btn.style.background = '#16a34a';
+          btn.style.color = '#fff';
+          btn.style.borderColor = '#16a34a';
+          clearTimeout(btn._timer);
+          btn._timer = setTimeout(() => {
+            btn.textContent = 'Copy';
+            btn.style.background = '#fff';
+            btn.style.color = '#111';
+            btn.style.borderColor = '#9CA3AF';
+          }, 2000);
+        }).catch(() => {
+          btn.textContent = '✗ Lỗi';
+          clearTimeout(btn._timer);
+          btn._timer = setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+        });
+      });
+      if (goc === anchor) goc.after(btn); else goc.appendChild(btn);
+    });
+  }
+
   if (dangOTrangDonHang()) {
     buildPanel();
+    chenNutCopyTieuDe();
+    // Danh sach don doi (loc/doi trang/tai them) -> chen tiep cho san pham moi (gop nhieu thay doi lien tiep).
+    let hen = null;
+    new MutationObserver(() => {
+      clearTimeout(hen);
+      hen = setTimeout(chenNutCopyTieuDe, 400);
+    }).observe(document.body, { childList: true, subtree: true });
   }
 })();
