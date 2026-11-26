@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.77
+// @version      9.78
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.77';
+  const PHIEN_BAN = '9.78';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1481,13 +1481,20 @@
   const TIEN_TO_LINK_CLAUDE = 'claude://claude.ai/new?q=';
   const GIOI_HAN_LINK_CLAUDE = 2000; // Windows co the cat link ngoai ~2.000 ky tu khi chuyen cho ung dung
 
+  // Phan RULE (dung chung: prompt tung lan o che do "chat moi" va noi dung dan vao Project instructions o che do dung chung)
+  const RULE_TIEU_DE_CLAUDE = `Give 3 genuinely different options (2 if there is no valid 3rd strategy) and star the best: (1) product type first; (2) design wording first, only if short and not trademarked; (3) season or occasion first, only if the design is made for it.
+Rules for every title (Etsy Seller Handbook): max 140 characters, aim for under 15 words (60-110 chars); product noun (shirt, mug...) exactly once, within the first 60 chars; most important feature first; write for buyers, separate phrases with commas; describe only what the photo or original title shows (technique, design, style), never invent material, size or personalization; no repeated words; no subjective words (perfect, beautiful), gift phrases, sale or shipping info, or garment color; keep any brand, character or franchise names that already appear in the original title exactly as written (do not add new ones). Count characters and words with code.
+Reply with, per option: one short Vietnamese line (counts + rule used), then the title alone in a \`\`\`text block. End with one line of missing info that would help. Do not write tags.`;
+
   function taoPromptClaude(tieuDeGoc) {
     return `Rewrite this Etsy listing title. The product photo is attached (paste it into this chat with Ctrl+V before sending).
 ORIGINAL TITLE: ${tieuDeGoc}
-Give 3 genuinely different options (2 if there is no valid 3rd strategy) and star the best: (1) product type first; (2) design wording first, only if short and not trademarked; (3) season or occasion first, only if the design is made for it.
-Rules for every title (Etsy Seller Handbook): max 140 characters, aim for under 15 words (60-110 chars); product noun (shirt, mug...) exactly once, within the first 60 chars; most important feature first; write for buyers, separate phrases with commas; describe only what the photo or original title shows (technique, design, style), never invent material, size or personalization; no repeated words; no subjective words (perfect, beautiful), gift phrases, sale or shipping info, or garment color; keep any brand, character or franchise names that already appear in the original title exactly as written (do not add new ones). Count characters and words with code.
-Reply with, per option: one short Vietnamese line (counts + rule used), then the title alone in a \`\`\`text block. End with one line of missing info that would help. Do not write tags.`;
+${RULE_TIEU_DE_CLAUDE}`;
   }
+
+  // Noi dung dan 1 LAN vao Project instructions (hoac tin nhan dau cua chat dung chung): moi lan chi can gui anh co ban tieu de gop o tren
+  const HUONG_DAN_PROJECT_CLAUDE = `You write Etsy listing titles. Each time I send a product photo that has a banner on top saying "ORIGINAL TITLE: ..." (the same title may also be in my message). Rewrite that title using the photo.
+${RULE_TIEU_DE_CLAUDE}`;
 
   // Ban rut gon, dung khi link ban day du dai qua gioi han (tieu de goc rat dai / nhieu ky tu co dau)
   function taoPromptClaudeNgan(tieuDeGoc) {
@@ -1495,7 +1502,27 @@ Reply with, per option: one short Vietnamese line (counts + rule used), then the
 Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, no repeats, no subjective/gift/sale/shipping words, no garment color; keep brand/character names from the original as written; invent nothing. Per option: one short Vietnamese line, then the title alone in a \`\`\`text block.`;
   }
 
+  // v9.78: DUNG CHUNG 1 Project (hoac 1 chat) cho viec viet tieu de: rule dan 1 lan vao Project instructions, moi lan script
+  // chi mo dung Project/chat do + dua anh co BAN TIEU DE GOC ve o tren vao Clipboard (khong phu thuoc link co dien san chu hay
+  // khong: tieu de nam ngay trong anh; link van them ?q=<tieu de> phong khi app dien san duoc).
+  const KHOA_CAI_DAT_CLAUDE = 'etsy_auto_claude_cai_dat_v1'; // { link } — link Project/chat Claude dung chung
+
+  // Nhan link web (https://claude.ai/project/<id>, .../chat/<id>) hoac link claude://... -> { loai, id }
+  function phanTichLinkClaude(link) {
+    const khop = /\/(project|chat)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(String(link || ''));
+    return khop ? { loai: khop[1].toLowerCase(), id: khop[2].toLowerCase() } : null;
+  }
+
+  function docCaiDatClaude() {
+    const c = docJsonLuu(KHOA_CAI_DAT_CLAUDE, {});
+    return { link: String(c.link || '') };
+  }
+
   function taoLinkClaude(tieuDeGoc) {
+    const dungChung = phanTichLinkClaude(docCaiDatClaude().link);
+    if (dungChung) {
+      return `claude://claude.ai/${dungChung.loai}/${dungChung.id}?q=${encodeURIComponent('ORIGINAL TITLE: ' + tieuDeGoc)}`;
+    }
     let link = TIEN_TO_LINK_CLAUDE + encodeURIComponent(taoPromptClaude(tieuDeGoc));
     if (link.length > GIOI_HAN_LINK_CLAUDE) link = TIEN_TO_LINK_CLAUDE + encodeURIComponent(taoPromptClaudeNgan(tieuDeGoc));
     return link;
@@ -1509,13 +1536,48 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
   }
 
   // Anh -> PNG -> Clipboard (Clipboard chi nhan anh dang PNG on dinh). Can goi trong luc con "thao tac cua nguoi dung".
-  async function chepAnhVaoClipboard(url) {
+  // tieuBanner (v9.78): ve "ORIGINAL TITLE: ..." tren 1 dai trang o phia tren anh (che do Project/chat dung chung, nen anh
+  // mang theo tieu de goc, khong can chu dien san trong o chat)
+  async function chepAnhVaoClipboard(url, tieuBanner = '') {
     const duLieu = await taiMotAnhVoiRetry(url, 1);
     const bm = await createImageBitmap(new Blob([duLieu]));
     const cv = document.createElement('canvas');
     cv.width = bm.width;
-    cv.height = bm.height;
-    cv.getContext('2d').drawImage(bm, 0, 0);
+    let caoBanner = 0;
+    let cacDong = [];
+    const font = (dam) => `${dam ? 'bold ' : ''}${Math.max(18, Math.round(bm.width / 36))}px sans-serif`;
+    if (tieuBanner) {
+      const ctx0 = cv.getContext('2d');
+      const rong = bm.width - 24;
+      let dong = 'ORIGINAL TITLE:';
+      for (const tu of tieuBanner.split(/\s+/)) {
+        const thu = dong ? `${dong} ${tu}` : tu;
+        ctx0.font = font(cacDong.length === 0); // dong dau in dam (rong hon) nen do bang dung kieu chu se ve
+        if (dong && ctx0.measureText(thu).width > rong) {
+          cacDong.push(dong);
+          dong = tu;
+        } else {
+          dong = thu;
+        }
+      }
+      if (dong) cacDong.push(dong);
+      const cao1 = Math.round(bm.width / 36) * 1.45;
+      caoBanner = Math.round(cacDong.length * cao1 + 20);
+    }
+    cv.height = bm.height + caoBanner;
+    const ctx = cv.getContext('2d');
+    if (caoBanner) {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, cv.width, caoBanner);
+      ctx.fillStyle = '#111';
+      ctx.textBaseline = 'top';
+      const co = Math.round(bm.width / 36);
+      cacDong.forEach((d, i) => {
+        ctx.font = font(i === 0);
+        ctx.fillText(d, 12, 10 + i * co * 1.45);
+      });
+    }
+    ctx.drawImage(bm, 0, caoBanner);
     const png = await new Promise((xong) => cv.toBlob(xong, 'image/png'));
     if (!png) throw new Error('không chuyển được ảnh sang PNG');
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
@@ -1530,6 +1592,58 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
     a.remove();
   }
 
+  // Hop thoai ⚙️: dan link Project/chat Claude dung chung + copy bo rule de dan vao Project instructions
+  function moCaiDatClaude() {
+    const c = docCaiDatClaude();
+    const lop = document.createElement('div');
+    lop.style.cssText =
+      'position:fixed;inset:0;z-index:1000002;background:rgba(17,24,39,.6);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+    const nutPhu = 'padding:6px 10px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;';
+    lop.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:16px 18px;width:min(560px,94vw);max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;color:#111827;line-height:1.5;">
+        <div style="font-weight:bold;font-size:15px;margin-bottom:6px;">🤖 Claude dùng chung 1 Project / 1 chat để viết tiêu đề</div>
+        <div style="color:#374151;margin-bottom:8px;">Để trống = mỗi lần mở 1 chat mới kèm cả bộ rule. Có link = rule dán <b>1 lần</b> vào Project, mỗi lần script mở đúng Project/chat đó và đưa vào Clipboard <b>ảnh có tiêu đề gốc ghi ở trên</b> (chỉ cần Ctrl+V + Enter).</div>
+        <ol style="margin:0 0 8px;padding-left:18px;color:#374151;">
+          <li>Trong Claude tạo 1 <b>Project</b> (vd "Etsy title"), mục <i>Instructions</i> dán bộ rule — bấm nút bên dưới để copy.</li>
+          <li>Mở Project đó trên <b>claude.ai (web)</b>, copy link trên thanh địa chỉ (dạng <code>https://claude.ai/project/…</code>; chat thì <code>…/chat/…</code>) dán vào ô dưới.</li>
+        </ol>
+        <button id="ea-cl-copyrule" style="${nutPhu}">📋 Copy bộ rule (dán vào Project instructions)</button>
+        <label style="display:block;font-weight:bold;margin-top:10px;">Link Project / chat dùng chung
+          <input id="ea-cl-link" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;margin-top:3px;font-size:13px;" placeholder="https://claude.ai/project/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="">
+        </label>
+        <div id="ea-cl-tt" style="margin-top:6px;font-size:12px;color:#374151;white-space:pre-line;"></div>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:12px;">
+          <button id="ea-cl-thu" style="${nutPhu}">🔗 Thử mở link</button>
+          <div style="display:flex;gap:8px;">
+            <button id="ea-cl-dong" style="${nutPhu}">Đóng</button>
+            <button id="ea-cl-luu" style="padding:6px 14px;border:none;border-radius:6px;background:#7C3AED;color:#fff;font-weight:bold;cursor:pointer;">Lưu</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(lop);
+    const $ = (id) => lop.querySelector('#' + id);
+    $('ea-cl-link').value = c.link;
+    const tt = (chu) => ($('ea-cl-tt').textContent = chu);
+    $('ea-cl-copyrule').onclick = async () => tt((await ghiClipboard(HUONG_DAN_PROJECT_CLAUDE)) ? '✅ Đã copy bộ rule — dán vào Project instructions.' : '❌ Không copy được.');
+    $('ea-cl-thu').onclick = () => {
+      const k = phanTichLinkClaude($('ea-cl-link').value);
+      if (!k) return tt('❌ Link chưa đúng dạng https://claude.ai/project/<id> hoặc https://claude.ai/chat/<id>.');
+      moLinkNgoai(`claude://claude.ai/${k.loai}/${k.id}?q=${encodeURIComponent('ORIGINAL TITLE: (thử) — nếu ô chat có sẵn dòng này thì link điền sẵn chữ được')}`);
+      tt('Đã mở Claude Desktop. Nếu mở đúng Project/chat thì link dùng được; ô chat có sẵn chữ "ORIGINAL TITLE: (thử)…" nghĩa là app còn điền sẵn được chữ, còn trống cũng không sao vì tiêu đề đã nằm trong ảnh.');
+    };
+    $('ea-cl-dong').onclick = () => lop.remove();
+    lop.addEventListener('click', (e) => {
+      if (e.target === lop) lop.remove();
+    });
+    $('ea-cl-luu').onclick = () => {
+      const chu = $('ea-cl-link').value.trim();
+      if (chu && !phanTichLinkClaude(chu)) return tt('❌ Link chưa đúng dạng https://claude.ai/project/<id> hoặc https://claude.ai/chat/<id>.');
+      luuGiaTri(KHOA_CAI_DAT_CLAUDE, JSON.stringify({ link: chu }));
+      lop.remove();
+      hienThongBao(chu ? '🤖 Đã lưu — 🤖 sẽ mở Project/chat dùng chung.' : '🤖 Đã xoá — 🤖 mở chat mới mỗi lần.', '#7C3AED');
+    };
+  }
+
   // Alt+T: mo Claude Desktop voi prompt + dua anh dau vao Clipboard
   async function nhoClaudeVietLaiTieuDe() {
     const tieuDeGoc = layTieuDe();
@@ -1542,7 +1656,7 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
     let daCoAnh = false;
     if (urlAnh) {
       try {
-        await chepAnhVaoClipboard(urlAnh);
+        await chepAnhVaoClipboard(urlAnh, phanTichLinkClaude(docCaiDatClaude().link) ? tieuDeGoc : '');
         daCoAnh = true;
       } catch (loi) {
         console.warn('[Etsy Auto] Không copy được ảnh vào Clipboard, tải ảnh về máy:', loi);
@@ -1553,10 +1667,13 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
         }
       }
     }
+    const dungChung = phanTichLinkClaude(docCaiDatClaude().link);
     moLinkNgoai(taoLinkClaude(tieuDeGoc));
     hienThongBao(
       (daCoAnh
-        ? '🤖 Claude Desktop đang mở. (1) Ctrl+V để dán ảnh  (2) Enter để gửi  (3) bấm Copy ở tiêu đề ưng ý  (4) quay lại tab này, bấm Alt+Shift+T'
+        ? dungChung
+          ? `🤖 Đã mở ${dungChung.loai === 'project' ? 'Project' : 'chat'} dùng chung. (1) ${dungChung.loai === 'project' ? 'Bấm ô chat mới trong Project, ' : ''}Ctrl+V để dán ảnh (đã có tiêu đề gốc ở trên)  (2) Enter để gửi  (3) bấm Copy ở tiêu đề ưng ý  (4) quay lại tab này, bấm Alt+Shift+T`
+          : '🤖 Claude Desktop đang mở. (1) Ctrl+V để dán ảnh  (2) Enter để gửi  (3) bấm Copy ở tiêu đề ưng ý  (4) quay lại tab này, bấm Alt+Shift+T'
         : '🤖 Claude Desktop đang mở, nhưng KHÔNG copy được ảnh vào Clipboard — ảnh đã tải về thư mục Tải xuống, kéo vào ô chat. Rồi gửi, bấm Copy ở tiêu đề ưng ý, quay lại tab này bấm Alt+Shift+T') +
         '\n(Claude không bật lên? Cho phép trình duyệt mở link "claude://" và kiểm tra đã cài Claude Desktop.)',
       '#7C3AED',
@@ -6918,6 +7035,7 @@ function doGet(e) {
       <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu + upload ảnh (Alt+V)</button>
       <div style="display:flex;gap:6px;">
         <button id="ea-btn-claude" title="Mở Claude Desktop với prompt + ảnh đầu tiên (Ctrl+V để dán ảnh) để viết lại tiêu đề theo rule Etsy — dùng ở máy chính, trang listing nguồn" style="flex:1;padding:6px 8px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">🤖 Nhờ Claude viết lại tiêu đề (Alt+T)</button>
+        <button id="ea-btn-claude-cai" title="Cài đặt: dùng chung 1 Project / 1 chat Claude cho việc viết tiêu đề" style="padding:6px 8px;background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">⚙️</button>
         <button id="ea-btn-claude-dung" title="Sau khi bấm Copy tiêu đề ưng ý trong Claude: lấy tiêu đề đó vào dữ liệu listing (như Alt+C)" style="padding:6px 8px;background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">📥 Dùng tiêu đề đã copy (Alt+Shift+T)</button>
       </div>
       <div id="ea-bienthe-khung" style="display:flex;flex-direction:column;gap:6px;">
@@ -6987,6 +7105,7 @@ function doGet(e) {
     document.getElementById('ea-btn-paste').onclick = (e) => danTieuDeVaTag(!!(e && e.shiftKey));
     document.getElementById('ea-btn-claude').onclick = nhoClaudeVietLaiTieuDe;
     document.getElementById('ea-btn-claude-dung').onclick = dungTieuDeTuClaude;
+    document.getElementById('ea-btn-claude-cai').onclick = moCaiDatClaude;
 
     // Nhom nut Variations chi co y nghia tren trang tao/sua listing
     document.getElementById('ea-bienthe-khung').style.display = location.pathname.includes('/listing-editor')
