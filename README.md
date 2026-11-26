@@ -2388,6 +2388,17 @@ sản phẩm mới hiện ra khi lọc/đổi trang. Tiêu đề được nhận
 dòng Quantity / Style & Size / Color của khối sản phẩm), nên nếu Etsy đổi cấu trúc trang mà nút không hiện hoặc
 copy sai đoạn chữ thì cần chỉnh lại hàm `timTieuDeSanPham`.
 
+## Sửa lỗi Personalization nhiều dòng không ra cột Personalization (v3.14.1)
+
+**Nguyên nhân**: với 1 số listing Etsy hiển thị Personalization bằng thẻ **`<div>`** thay vì `<span>`
+(`<div class="text-gray-lighter">Personalization</div><div class="pre-wrap strong">1. Dad - Charizard⏎2. Kid 1 - …</div>`),
+trong khi script chỉ đọc nhãn/giá trị dạng `<span>` → bỏ trống cột. Lỗi không nằm ở việc xuống dòng.
+
+**Sửa**: đọc được cả kiểu `<div>` (cả nhãn "Personalization" lẫn nhãn tuỳ ý khác như "Outline Section"). Giá trị nhiều
+dòng được trim từng dòng, bỏ dòng trống và nối bằng ` | ` thành 1 dòng
+(vd `1. Dad - Charizard | 2. Kid 1 - Charmeleon | 3. Est. 2026`) — để khi dán vào Google Sheets không bị xuống
+dòng làm lệch cột. Nhiều tuỳ chọn cá nhân hoá trong cùng 1 sản phẩm vẫn nối bằng ` | ` như trước.
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh
