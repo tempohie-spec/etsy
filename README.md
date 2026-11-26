@@ -828,6 +828,14 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Nhận link Project của Claude Code (`claude.ai/code/project/chan_…`) (v9.79)
+
+Hộp ⚙️ của 🤖 trước đây chỉ nhận link dạng `https://claude.ai/project/<uuid>` hoặc `.../chat/<uuid>`, nên báo "chưa đúng dạng" với link Project của **Claude Code** (có Threads/Context, id dạng `chan_…`). Giờ nhận thêm `https://claude.ai/code/project/<id>` (id giữ nguyên hoa/thường) và mở bằng `claude://claude.ai/code/project/<id>?q=…`.
+
+- Cách ghép link `claude://claude.ai` + đường dẫn web đúng như Anthropic ghi cho project/chat thường; riêng đường dẫn `/code/project/…` **chưa có tài liệu xác nhận** Claude Desktop mở được — dùng nút **🔗 Thử mở link** để kiểm tra.
+- Không mở đúng Project cũng không sao: bấm Alt+T là ảnh (có tiêu đề gốc ở trên) đã nằm trong Clipboard, bạn tự mở Project rồi Ctrl+V. Thông báo của Alt+T nhắc điều này.
+- Project của Claude Code dùng nhiều tài nguyên hơn chat thường (đang chọn Opus, có điều phối luồng); nên thêm vào Project instructions dòng `Answer directly in this conversation. Do not create threads or tasks.` Nếu thấy chậm/tốn hạn mức, dùng Project chat thường hoặc 1 chat riêng.
+
 ### 🤖 Dùng chung 1 Project (hoặc 1 chat) Claude cho việc viết tiêu đề (v9.78)
 
 Trước đây mỗi lần bấm 🤖 là 1 chat mới kèm cả bộ rule. Giờ có thể **dán rule 1 lần vào 1 Project** rồi mỗi lần chỉ gửi ảnh.
