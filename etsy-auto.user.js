@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.73
+// @version      9.74
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.73';
+  const PHIEN_BAN = '9.74';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -2076,11 +2076,23 @@
       dong([...kq.tieuDe.thayDoi, ...kq.tag.thayDoi], '🧹') + dong([...kq.tieuDe.canhBao, ...kq.tag.canhBao], '⚠️');
     const oNhap = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;font:13px/1.4 sans-serif;resize:vertical;';
     const nutNho = 'padding:2px 8px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:11px;';
+    const coHaiBanTieuDe = gonKhoangTrang(kq.tieuDe.goc) !== kq.tieuDe.moi; // khong doi gi thi chi 1 o
+    const idChon = 'ea-td-chon-' + Math.random().toString(36).slice(2, 8); // name rieng moi lan mo (tranh trinh duyet nho radio cu)
+    const oChon = (giaTri, nhan) => `
+      <div style="margin-top:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <label style="cursor:pointer;font-weight:bold;"><input type="radio" name="${idChon}" value="${giaTri}" autocomplete="off"> ${nhan}</label>
+          <span data-dem-${giaTri} style="font-size:12px;"></span>
+        </div>
+        <textarea data-td-${giaTri} rows="2" style="${oNhap}"></textarea>
+      </div>`;
     el.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;">
-        <b>Tiêu đề</b><span><span data-dem-td style="font-size:12px;"></span> <button type="button" data-goc-td style="${nutNho}">↩ Bản gốc</button></span>
-      </div>
-      <textarea data-td rows="2" style="${oNhap}"></textarea>
+      <div style="margin-top:2px;"><b>Tiêu đề</b>${coHaiBanTieuDe ? ' <span style="font-size:12px;color:#6B7280;">— tích chọn bản sẽ dùng (sửa tay được cả hai)</span>' : ''}</div>
+      ${
+        coHaiBanTieuDe
+          ? oChon('sua', 'Tự sửa theo rule <span style="font-weight:normal;color:#047857;">(mặc định)</span>') + oChon('goc', 'Bản gốc')
+          : `<div style="display:flex;justify-content:flex-end;"><span data-dem-sua style="font-size:12px;"></span></div><textarea data-td-sua rows="2" style="${oNhap}"></textarea>`
+      }
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
         <b>Tag (cách nhau bằng dấu phẩy)</b><span><span data-dem-tag style="font-size:12px;"></span> <button type="button" data-goc-tag style="${nutNho}">↩ Bản gốc</button></span>
       </div>
@@ -2088,17 +2100,27 @@
       <div data-tag-dai style="font-size:12px;color:#B91C1C;"></div>
       ${ghiChu ? `<ul style="margin:8px 0 2px;padding-left:4px;list-style:none;font-size:12px;color:#374151;line-height:1.5;">${ghiChu}</ul>` : ''}
       <label style="display:block;margin-top:6px;font-size:12px;color:#374151;cursor:pointer;"><input type="checkbox" data-luonhoi checked> Luôn hiện phần này khi dán <span style="color:#6B7280;">(tắt thì tự dán bản đã làm sạch không hỏi; Alt+Shift+V vẫn hiện)</span></label>`;
-    const oTd = el.querySelector('[data-td]');
+    const oSua = el.querySelector('[data-td-sua]');
+    const oGoc = el.querySelector('[data-td-goc]'); // null khi tieu de khong doi gi (chi 1 o)
     const oTag = el.querySelector('[data-tag]');
-    oTd.value = kq.tieuDe.moi;
+    oSua.value = kq.tieuDe.moi;
+    if (oGoc) oGoc.value = gonKhoangTrang(kq.tieuDe.goc);
     oTag.value = kq.tag.moi.join(', ');
+    // Ep lai bang tay (khong chi dua vao HTML) de mac dinh luon la "Tu sua theo rule"
+    const radios = [...el.querySelectorAll(`input[name="${idChon}"]`)];
+    const radioSua = radios.find((r) => r.value === 'sua');
+    if (radioSua) radioSua.checked = true;
+    const dangChonGoc = () => !!(oGoc && radios.find((r) => r.value === 'goc').checked);
     const docTag = () => oTag.value.split(',').map((t) => gonKhoangTrang(t)).filter(Boolean);
+    const veDemTieuDe = (o, soDem) => {
+      if (!o) return;
+      const td = gonKhoangTrang(o.value);
+      soDem.textContent = `${td.length}/${GIOI_HAN_TIEU_DE} ký tự · ${cacTuCua(td).length} từ`;
+      soDem.style.color = td.length > GIOI_HAN_TIEU_DE ? '#B91C1C' : '#6B7280';
+    };
     const veDem = () => {
-      const td = gonKhoangTrang(oTd.value);
-      const dai = td.length > GIOI_HAN_TIEU_DE;
-      const dem = el.querySelector('[data-dem-td]');
-      dem.textContent = `${td.length}/${GIOI_HAN_TIEU_DE} ký tự · ${cacTuCua(td).length} từ`;
-      dem.style.color = dai ? '#B91C1C' : '#6B7280';
+      veDemTieuDe(oSua, el.querySelector('[data-dem-sua]'));
+      veDemTieuDe(oGoc, el.querySelector('[data-dem-goc]'));
       const ds = docTag();
       const demTag = el.querySelector('[data-dem-tag]');
       demTag.textContent = `${ds.length}/${SO_TAG_TOI_DA} tag`;
@@ -2110,12 +2132,16 @@
           ? `Dư ${ds.length - SO_TAG_TOI_DA} tag — chỉ ${SO_TAG_TOI_DA} tag đầu được dán`
           : '';
     };
-    oTd.addEventListener('input', veDem);
+    // Bam / go vao o nao thi tu tich chon o do
+    [[oSua, 'sua'], [oGoc, 'goc']].forEach(([o, giaTri]) => {
+      if (!o) return;
+      o.addEventListener('input', veDem);
+      o.addEventListener('focus', () => {
+        const r = radios.find((x) => x.value === giaTri);
+        if (r) r.checked = true;
+      });
+    });
     oTag.addEventListener('input', veDem);
-    el.querySelector('[data-goc-td]').onclick = () => {
-      oTd.value = kq.tieuDe.goc;
-      veDem();
-    };
     el.querySelector('[data-goc-tag]').onclick = () => {
       oTag.value = kq.tag.goc.join(', ');
       veDem();
@@ -2125,7 +2151,7 @@
       el,
       // Rong thi giu ban goc (khong dan o trong)
       docKetQua: () => ({
-        tieuDe: gonKhoangTrang(oTd.value) || gonKhoangTrang(kq.tieuDe.goc),
+        tieuDe: gonKhoangTrang((dangChonGoc() ? oGoc : oSua).value) || gonKhoangTrang(kq.tieuDe.goc),
         tagText: docTag().join(', ') || kq.tag.goc.join(', '),
       }),
       luuCaiDat: () => luuGiaTri(KHOA_HOI_LAM_SACH, el.querySelector('[data-luonhoi]').checked ? '1' : '0'),
@@ -3327,11 +3353,15 @@
         <div style="background:linear-gradient(135deg,#F56400,#FF8C42);color:#fff;padding:12px 16px;font-weight:bold;font-size:15px;">
           ${truocKhiDan ? `📝 Chọn ảnh${coCustom ? ' + Custom options' : ''}${coLamSach ? ' + tiêu đề, tag' : ''} trước khi dán` : '🖼️ Chọn ảnh để tự upload'}
         </div>
+        <div id="ea-up-than" style="flex:1 1 auto;min-height:0;overflow:auto;">
         <div style="padding:10px 16px;font-size:12px;color:#374151;border-bottom:1px solid #E5E7EB;line-height:1.6;">
-          Listing nguồn: <b>${(goi.tieuDe || '(không rõ tiêu đề)').replace(/</g, '&lt;').slice(0, 90)}</b><br>
+          Listing nguồn: ${
+            /^\d+$/.test(String(goi.listingId || ''))
+              ? `<a href="https://www.etsy.com/listing/${goi.listingId}" target="_blank" rel="noopener noreferrer" style="color:#1D4ED8;font-weight:bold;">${thoatHtml((goi.tieuDe || '(không rõ tiêu đề)').slice(0, 90))}</a>`
+              : `<b>${thoatHtml((goi.tieuDe || '(không rõ tiêu đề)').slice(0, 90))}</b>`
+          }<br>
           Listing này đang có <b>${soAnhDangCo}</b> ảnh, theo trang thì còn chỗ cho <b>${conLaiGoc}</b> ảnh nữa.
           Ảnh nghi là bảng size đã được bỏ tick sẵn.
-          ${soAnhDangCo === 0 ? '<br>✂️ Bấm nút ✂️ trên ảnh <b>#1</b> để chỉnh thumbnail — script tự áp vào "Adjust thumbnails" sau khi upload (ảnh gốc không bị cắt).' : ''}
           ${
             soBangSizeCoDinh > 0
               ? `<br>📐 Thư viện của bạn có <b>${soBangSizeCoDinh}</b> ảnh bảng size sẽ <b>tự thêm vào sau cùng</b>
@@ -3341,23 +3371,24 @@
         </div>
         ${
           coLamSach
-            ? `<details id="ea-up-lamsach" open style="border-bottom:1px solid #E5E7EB;flex-shrink:0;">
+            ? `<details id="ea-up-lamsach" open style="border-bottom:1px solid #E5E7EB;">
                  <summary style="padding:8px 16px;cursor:pointer;font-weight:bold;font-size:13px;color:#047857;">🧹 Tiêu đề &amp; Tag đã làm sạch theo rule Etsy — xem lại / sửa nếu cần</summary>
-                 <div id="ea-up-lamsach-thanh" style="padding:0 16px 4px;max-height:34vh;overflow:auto;"></div>
+                 <div id="ea-up-lamsach-thanh" style="padding:0 16px 4px;"></div>
                </details>`
             : ''
         }
         ${
           coCustom
-            ? `<details id="ea-up-custom" open style="border-bottom:1px solid #E5E7EB;flex-shrink:0;">
+            ? `<details id="ea-up-custom" open style="border-bottom:1px solid #E5E7EB;">
                  <summary style="padding:8px 16px;cursor:pointer;font-weight:bold;font-size:13px;color:#1D4ED8;">⚙️ Custom options (<span id="ea-up-custom-dem"></span>) — tick ô nào sẽ tạo, sửa nếu cần</summary>
-                 <div id="ea-up-custom-thanh" style="padding:0 16px 4px;max-height:34vh;overflow:auto;"></div>
+                 <div id="ea-up-custom-thanh" style="padding:0 16px 4px;"></div>
                  <label style="display:block;padding:2px 16px 8px;font-size:12px;color:#374151;cursor:pointer;"><input type="checkbox" id="ea-up-luonhoi" checked> Luôn hiện phần này khi dán <span style="color:#6B7280;">(tắt thì Custom options dán thẳng không hỏi; Alt+Shift+V vẫn hiện)</span></label>
                </details>`
             : ''
         }
-        <div id="ea-up-luoi" style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;overflow:auto;"></div>
-        <div style="padding:10px 16px;border-top:1px solid #E5E7EB;font-size:12px;color:#374151;">
+        <div id="ea-up-luoi" style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;"></div>
+        </div>
+        <div style="padding:10px 16px;border-top:1px solid #E5E7EB;font-size:12px;color:#374151;flex-shrink:0;">
           ${
             soAnhDangCo > 0
               ? `<div style="margin-bottom:6px;padding:8px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;line-height:1.5;">
@@ -3371,7 +3402,7 @@
                  <label style="display:block;cursor:pointer;"><input type="radio" name="ea-up-xong" value="khong" checked autocomplete="off"> Dừng lại, tôi tự bấm lưu</label>`
           }
         </div>
-        <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+ <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0;">
           <div id="ea-up-dem" style="font-size:12px;font-weight:bold;color:#374151;"></div>
           <div style="display:flex;gap:8px;">
             <button id="ea-up-huy" style="padding:8px 14px;background:#fff;color:#374151;border:1px solid #D1D5DB;border-radius:6px;cursor:pointer;">${truocKhiDan ? 'Huỷ (không dán)' : 'Huỷ'}</button>
