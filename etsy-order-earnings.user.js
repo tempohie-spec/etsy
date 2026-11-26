@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.14
+// @version      3.14.1
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -551,15 +551,27 @@
   }
 
   // Lay danh sach gia tri theo nhan (label) dang: <span>Quantity</span><span class="strong">1</span>
+  // Gia tri co the nhieu dong (vd Personalization "1. Dad - Charizard\n2. Kid 1 - Charmeleon"): moi dong
+  // duoc trim, bo dong trong, noi bang " | " de ra 1 dong gon (xuong dong lam le cot khi dan vao Sheet).
+  function layGiaTriGon(el) {
+    return el.textContent
+      .split(/\r?\n/)
+      .map((x) => x.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .join(' | ');
+  }
+
+  // Nhan + gia tri co the la <span>..</span><span class="strong"> HOAC (voi 1 so tuy chon, vd
+  // Personalization nhieu dong) <div class="text-gray-lighter">..</div><div class="pre-wrap strong">..</div>.
   function getLabelValues(container, labelText) {
-    const spans = Array.from(container.querySelectorAll('span'));
+    const els = Array.from(container.querySelectorAll('span, div.text-gray-lighter'));
     const values = [];
-    spans.forEach((span) => {
-      if (span.textContent.trim() === labelText) {
-        const strong = span.parentElement
-          ? span.parentElement.querySelector('span.strong')
+    els.forEach((el) => {
+      if (el.textContent.trim() === labelText) {
+        const strong = el.parentElement
+          ? el.parentElement.querySelector('span.strong') || el.parentElement.querySelector('.strong')
           : null;
-        if (strong) values.push(strong.textContent.trim());
+        if (strong && strong !== el) values.push(layGiaTriGon(strong));
       }
     });
     return values;
@@ -591,8 +603,18 @@
       );
       const nhan = nhanEl ? nhanEl.textContent.trim() : '';
       if (!nhan || NHAN_SAN_PHAM_CO_DINH.has(nhan.toLowerCase())) return;
-      const giaTri = strong.textContent.trim();
+      const giaTri = layGiaTriGon(strong);
       if (giaTri) out.push(giaTri);
+    });
+    // Kieu DOM bang <div>: <div class="text-gray-lighter">Nhan</div><div class="pre-wrap strong">Gia tri nhieu dong</div>
+    flagEl.querySelectorAll('div.text-gray-lighter').forEach((nhanEl) => {
+      const nhan = nhanEl.textContent.trim();
+      if (!nhan || NHAN_SAN_PHAM_CO_DINH.has(nhan.toLowerCase())) return;
+      const cha = nhanEl.parentElement;
+      const strong = cha ? cha.querySelector('.strong') : null;
+      if (!strong || strong === nhanEl) return;
+      const giaTri = layGiaTriGon(strong);
+      if (giaTri && !out.includes(giaTri)) out.push(giaTri);
     });
     // Du phong: cach cu doc dung nhan "Personalization" (phong khi DOM nhan/gia tri long khac).
     getLabelValues(flagEl, 'Personalization').forEach((v) => {
