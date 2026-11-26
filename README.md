@@ -2347,6 +2347,7 @@ và Sheet phải là Google Sheets gốc (không phải file `.xlsx` tải lên 
 - v3.9.3 (chỉ đổi màu): Comfort Colors Youth `Red` → `Ko có` (xưởng không có màu này).
 - v3.9.4 (chỉ đổi màu): Bella Canvas Adult thêm `Blossom/Light Pink` → `Pink` (Bella Youth đã có từ trước).
 - v3.9.5 (chỉ đổi màu): Gildan thêm `Pepper/Dark Heather` → `Dark Heather`.
+- v3.13.1 (chỉ đổi màu): Bella Canvas Adult thêm `Chambray/Light Blue` → `Light Blue`.
 
 ## Tự báo có bản mới, kể cả bản nhỏ (v3.10)
 
