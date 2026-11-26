@@ -828,6 +828,10 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### Prompt Claude: giữ nguyên tên thương hiệu/nhân vật trong tiêu đề gốc (v9.77)
+
+Bỏ yêu cầu "không dùng tên thương hiệu, nhân vật, phim, tác giả" khỏi prompt của 🤖 Nhờ Claude (cả bản đầy đủ lẫn bản rút gọn). Giờ prompt dặn Claude **giữ nguyên** các tên đó nếu đã có trong tiêu đề gốc (không viết lại, không thêm tên mới). Các rule còn lại (≤ 140 ký tự, < 15 từ, danh từ sản phẩm 1 lần, không lặp, không từ chủ quan/quà tặng/giá-ship/màu phôi, không bịa thông tin) giữ nguyên.
+
 ### 🤖 Nhờ Claude Desktop viết lại tiêu đề (v9.76, dùng ở MÁY CHÍNH)
 
 Không gọi API, không cần key: script mở **Claude Desktop** với prompt + ảnh đầu tiên, Claude đưa 2–3 phương án tiêu đề theo rule Etsy (Seller Handbook) và skill `etsy-title-tag`; bạn chọn 1 phương án rồi script đưa nó vào dữ liệu listing để các máy ảo dán.
@@ -840,7 +844,7 @@ Không gọi API, không cần key: script mở **Claude Desktop** với prompt 
 
 **Ở máy ảo (Alt+V):** hộp thoại có 2 ô — **Claude viết lại (mặc định)** và **Bản gốc** (tiêu đề gốc của listing nguồn). Cột "Tên sản phẩm" trên Sheet vẫn ghi tiêu đề gốc. Tag giữ nguyên như listing nguồn.
 
-**Prompt gửi Claude** (rút từ `etsy-title-tag`): 3 phương án khác chiến lược (loại sản phẩm lên đầu / câu chữ thiết kế lên đầu / mùa vụ-dịp lên đầu), ≤ 140 ký tự, < 15 từ, danh từ sản phẩm đúng 1 lần trong 60 ký tự đầu, chỉ dùng thông tin thấy trên ảnh/tiêu đề gốc (không bịa chất liệu/size/cá nhân hoá), không lặp từ, không từ chủ quan/cụm quà tặng/giá-ship/màu phôi, **không tên thương hiệu, nhân vật, phim, tác giả** (trừ khi bạn nói có giấy phép; không dùng cách lách), đếm ký tự bằng code. Viết bằng tiếng Anh (ít ký tự mã hoá nên link ngắn); lời giải thích trả lời bằng tiếng Việt. Link dài quá ~2.000 ký tự (tiêu đề rất dài/nhiều dấu) thì tự dùng bản prompt rút gọn.
+**Prompt gửi Claude** (rút từ `etsy-title-tag`): 3 phương án khác chiến lược (loại sản phẩm lên đầu / câu chữ thiết kế lên đầu / mùa vụ-dịp lên đầu), ≤ 140 ký tự, < 15 từ, danh từ sản phẩm đúng 1 lần trong 60 ký tự đầu, chỉ dùng thông tin thấy trên ảnh/tiêu đề gốc (không bịa chất liệu/size/cá nhân hoá), không lặp từ, không từ chủ quan/cụm quà tặng/giá-ship/màu phôi, đếm ký tự bằng code. (Từ v9.77: **giữ nguyên** tên thương hiệu/nhân vật/phim có sẵn trong tiêu đề gốc, không thêm tên mới — không còn yêu cầu Claude bỏ chúng.) Viết bằng tiếng Anh (ít ký tự mã hoá nên link ngắn); lời giải thích trả lời bằng tiếng Việt. Link dài quá ~2.000 ký tự (tiêu đề rất dài/nhiều dấu) thì tự dùng bản prompt rút gọn.
 
 **Lưu ý**
 - Cần Claude Desktop (đã đăng nhập) và cho phép trình duyệt mở link `claude://` (lần đầu trình duyệt hỏi; có thể tích "luôn cho phép").

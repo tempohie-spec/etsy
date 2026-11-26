@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.76
+// @version      9.77
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.76';
+  const PHIEN_BAN = '9.77';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1485,14 +1485,14 @@
     return `Rewrite this Etsy listing title. The product photo is attached (paste it into this chat with Ctrl+V before sending).
 ORIGINAL TITLE: ${tieuDeGoc}
 Give 3 genuinely different options (2 if there is no valid 3rd strategy) and star the best: (1) product type first; (2) design wording first, only if short and not trademarked; (3) season or occasion first, only if the design is made for it.
-Rules for every title (Etsy Seller Handbook): max 140 characters, aim for under 15 words (60-110 chars); product noun (shirt, mug...) exactly once, within the first 60 chars; most important feature first; write for buyers, separate phrases with commas; describe only what the photo or original title shows (technique, design, style), never invent material, size or personalization; no repeated words; no subjective words (perfect, beautiful), gift phrases, sale or shipping info, or garment color; no brand, character, film or author names unless I confirm a license, and no workarounds or hints at them. Count characters and words with code.
+Rules for every title (Etsy Seller Handbook): max 140 characters, aim for under 15 words (60-110 chars); product noun (shirt, mug...) exactly once, within the first 60 chars; most important feature first; write for buyers, separate phrases with commas; describe only what the photo or original title shows (technique, design, style), never invent material, size or personalization; no repeated words; no subjective words (perfect, beautiful), gift phrases, sale or shipping info, or garment color; keep any brand, character or franchise names that already appear in the original title exactly as written (do not add new ones). Count characters and words with code.
 Reply with, per option: one short Vietnamese line (counts + rule used), then the title alone in a \`\`\`text block. End with one line of missing info that would help. Do not write tags.`;
   }
 
   // Ban rut gon, dung khi link ban day du dai qua gioi han (tieu de goc rat dai / nhieu ky tu co dau)
   function taoPromptClaudeNgan(tieuDeGoc) {
     return `Rewrite this Etsy title using the attached photo (Ctrl+V it first): 3 different options, star the best. ORIGINAL: ${tieuDeGoc}
-Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, no repeats, no subjective/gift/sale/shipping words, no garment color, no brand or character names, invent nothing. Per option: one short Vietnamese line, then the title alone in a \`\`\`text block.`;
+Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, no repeats, no subjective/gift/sale/shipping words, no garment color; keep brand/character names from the original as written; invent nothing. Per option: one short Vietnamese line, then the title alone in a \`\`\`text block.`;
   }
 
   function taoLinkClaude(tieuDeGoc) {
