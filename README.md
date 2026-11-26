@@ -828,6 +828,20 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### 🤖 Dùng chung 1 Project (hoặc 1 chat) Claude cho việc viết tiêu đề (v9.78)
+
+Trước đây mỗi lần bấm 🤖 là 1 chat mới kèm cả bộ rule. Giờ có thể **dán rule 1 lần vào 1 Project** rồi mỗi lần chỉ gửi ảnh.
+
+**Cài 1 lần** (nút **⚙️** cạnh 🤖 trong panel):
+1. Trong Claude tạo 1 **Project** (vd "Etsy title"). Bấm **📋 Copy bộ rule** trong hộp ⚙️ rồi dán vào *Instructions* của Project.
+2. Mở Project đó trên **claude.ai (web)**, copy link trên thanh địa chỉ (`https://claude.ai/project/<id>`; chat thì `https://claude.ai/chat/<id>`) dán vào ô **Link Project / chat dùng chung** → **Lưu**. Nút **🔗 Thử mở link** để kiểm tra Claude Desktop có mở đúng chỗ không.
+
+**Mỗi lần dùng:** Alt+T như cũ — script mở đúng Project/chat đó (`claude://claude.ai/project/<id>`) và đưa vào Clipboard **ảnh đầu tiên có dải chữ "ORIGINAL TITLE: …" (tiêu đề gốc) ở phía trên**. Trong Claude (với Project: bấm ô chat mới) chỉ cần **Ctrl+V → Enter**, copy tiêu đề ưng ý rồi **Alt+Shift+T** ở trang nguồn như cũ. Tiêu đề gốc nằm ngay trong ảnh nên vẫn chạy được dù app không tự điền sẵn chữ vào ô chat (link có kèm `?q=ORIGINAL TITLE: …` để điền sẵn nếu app hỗ trợ — Anthropic chỉ ghi rõ `?q=` cho chat mới).
+
+- **Khuyên dùng Project** (mỗi tiêu đề là 1 chat mới trong Project, context gọn). Dùng 1 chat duy nhất thì lịch sử và ảnh dồn dần, chậm và tốn hạn mức hơn.
+- Để trống link = hành vi cũ (chat mới mỗi lần, prompt đầy đủ, ảnh không có dải chữ).
+- Chưa kiểm chứng với Claude Desktop thật: mở được `claude://claude.ai/project/<id>` đúng Project không, và `?q=` có điền sẵn được ở Project/chat không (nút Thử mở link giúp kiểm tra).
+
 ### Prompt Claude: giữ nguyên tên thương hiệu/nhân vật trong tiêu đề gốc (v9.77)
 
 Bỏ yêu cầu "không dùng tên thương hiệu, nhân vật, phim, tác giả" khỏi prompt của 🤖 Nhờ Claude (cả bản đầy đủ lẫn bản rút gọn). Giờ prompt dặn Claude **giữ nguyên** các tên đó nếu đã có trong tiêu đề gốc (không viết lại, không thêm tên mới). Các rule còn lại (≤ 140 ký tự, < 15 từ, danh từ sản phẩm 1 lần, không lặp, không từ chủ quan/quà tặng/giá-ship/màu phôi, không bịa thông tin) giữ nguyên.
