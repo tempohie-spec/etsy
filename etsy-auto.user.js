@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.75
+// @version      9.76
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.75';
+  const PHIEN_BAN = '9.76';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -34,6 +34,10 @@
   // dang dang lai listing nao (danh dau "da dang"). Ban script cu gap dau la nay se tu cat bo (catBoDauLa)
   // nen tieu de van sach.
   const NGAN_CACH_NGUON = '|||SRC|||';
+  // v9.76: khi tieu de trong goi la ban do CLAUDE viet lai (may chinh), tieu de GOC cua listing nguon di kem sau ma nguon:
+  // "tieu de claude|||SRC|||<id>|||ORIG|||tieu de goc|||TAGS|||..." — dat SAU ma nguon de ban script cu chi mat ma nguon
+  // (khong chan dan) thay vi bao "Clipboard tu ban moi hon".
+  const NGAN_CACH_GOC = '|||ORIG|||';
 
   // Ky tu ngan cach cho phan "Add personalization" lay tu trang nguon.
   // Etsy cho phep MOT listing co NHIEU o ca nhan hoa (moi o la 1 <li id="perso-field-...">, vd
@@ -361,8 +365,9 @@
 
   // Gop tieu de + tag + ca nhan hoa (CO THE NHIEU truong) + danh sach anh thanh 1 chuoi duy nhat
   // de luu vao clipboard. "dsPerso" la mang { nhan, huongDan, loai, cacLuaChon }.
-  function taoGoiDuLieu(tieuDe, tagText, dsPerso, danhSachAnh, idNguon) {
-    const phanNguon = /^\d+$/.test(String(idNguon || '')) ? `${NGAN_CACH_NGUON}${idNguon}` : '';
+  function taoGoiDuLieu(tieuDe, tagText, dsPerso, danhSachAnh, idNguon, tieuDeGoc) {
+    const coId = /^\d+$/.test(String(idNguon || ''));
+    const phanNguon = coId ? `${NGAN_CACH_NGUON}${idNguon}${tieuDeGoc && tieuDeGoc !== tieuDe ? NGAN_CACH_GOC + tieuDeGoc : ''}` : '';
     let goi = `${tieuDe || ''}${phanNguon}${NGAN_CACH}${tagText || ''}`;
     if (dsPerso && dsPerso.length) {
       goi += `${NGAN_CACH_PERSO_DS}${JSON.stringify(dsPerso)}`;
@@ -393,11 +398,12 @@
 
   // Tach chuoi da luu trong clipboard thanh { tieuDe, tagText, dsPerso, danhSachAnh, dauLa }
   function tachDuLieu(chuoi) {
-    const rong = { tieuDe: '', tagText: '', dsPerso: [], danhSachAnh: [], idNguon: '' };
+    const rong = { tieuDe: '', tagText: '', dsPerso: [], danhSachAnh: [], idNguon: '', tieuDeGoc: '' };
     if (!chuoi || !chuoi.includes(NGAN_CACH)) return rong;
 
     const [phanTieuDe, phanSauTieuDe] = tachMotLan(chuoi, NGAN_CACH);
-    const [tieuDe, phanIdNguon] = tachMotLan(phanTieuDe, NGAN_CACH_NGUON);
+    const [tieuDe, phanNguonVaGoc] = tachMotLan(phanTieuDe, NGAN_CACH_NGUON);
+    const [phanIdNguon, phanTieuDeGoc] = tachMotLan(phanNguonVaGoc || '', NGAN_CACH_GOC);
     const idNguon = /^\d+$/.test(String(phanIdNguon || '').trim()) ? String(phanIdNguon).trim() : '';
     let tagText = phanSauTieuDe || '';
 
@@ -466,6 +472,7 @@
       dsPerso,
       danhSachAnh,
       idNguon,
+      tieuDeGoc: phanTieuDeGoc === null ? '' : catBoDauLa(phanTieuDeGoc, 'tiêu đề gốc').trim(),
       dauLa: false,
     };
     ketQua.dauLa = coDauLa;
@@ -1388,8 +1395,11 @@
   }
 
   // Ham dung chung: lay tieu de + tag, va CHI tai anh full size (tung file rieng) neu coTaiAnh = true
-  async function layVaLuuDuLieu(coTaiAnh = true) {
-    const tieuDe = layTieuDe() || '';
+  // tuyChon.tieuDeClaude (v9.76): tieu de do Claude viet lai — dua vao goi thay tieu de goc (tieu de goc di kem de may dich
+  // van chon duoc "Ban goc" va ghi dung ten san pham len Sheet)
+  async function layVaLuuDuLieu(coTaiAnh = true, tuyChon = {}) {
+    const tieuDeGoc = layTieuDe() || '';
+    const tieuDe = tuyChon.tieuDeClaude || tieuDeGoc;
     const daLuuTieuDe = !!tieuDe;
     if (daLuuTieuDe) {
       console.log('[Etsy Auto] Tiêu đề lấy được:', tieuDe);
@@ -1420,7 +1430,9 @@
       console.log(`[Etsy Auto] Tag lấy được (${nguonTag}):`, tagText);
     }
 
-    const ok = await ghiClipboard(taoGoiDuLieu(tieuDe, tagText, dsPerso, ketQuaAnh.danhSach, layListingId()));
+    const ok = await ghiClipboard(
+      taoGoiDuLieu(tieuDe, tagText, dsPerso, ketQuaAnh.danhSach, layListingId(), tuyChon.tieuDeClaude ? tieuDeGoc : '')
+    );
     if (!ok) {
       hienThongBao('❌ Không ghi được vào Clipboard', '#DC2626');
       return;
@@ -1432,13 +1444,16 @@
     const ghiChuAnh =
       (coTaiAnh ? ', đang tải ảnh full size' : '') + (soAnhNho ? ` (đã nhớ ${soAnhNho} ảnh để tự upload)` : '');
     const ghiChuNguon = tagText ? ` [${nguonTag}]` : '';
+    const ghiChuClaude = tuyChon.tieuDeClaude
+      ? ` · tiêu đề Claude (${tieuDe.length} ký tự, ${cacTuCua(tieuDe).length} từ) — tiêu đề gốc đi kèm`
+      : '';
 
     if (daLuuTieuDe && tagText) {
-      hienThongBao(`✅ Đã lấy tiêu đề + tag${ghiChuNguon}${ghiChuPerso}${ghiChuAnh}!`, '#16A34A');
+      hienThongBao(`✅ Đã lấy tiêu đề + tag${ghiChuNguon}${ghiChuPerso}${ghiChuAnh}${ghiChuClaude}!`, '#16A34A');
     } else if (daLuuTieuDe) {
       // Hien DUNG ly do API that bai thay vi doan mo "chua co API key?"
       hienThongBao(
-        `⚠️ Đã lấy tiêu đề${ghiChuPerso}${ghiChuAnh} nhưng KHÔNG lấy được tag — ${loiApi || 'không rõ nguyên nhân, xem Console'}`,
+        `⚠️ Đã lấy tiêu đề${ghiChuPerso}${ghiChuAnh}${ghiChuClaude} nhưng KHÔNG lấy được tag — ${loiApi || 'không rõ nguyên nhân, xem Console'}`,
         '#F59E0B'
       );
     } else if (tagText) {
@@ -1456,6 +1471,124 @@
   // Nut "Chi lay tieu de + tag": KHONG tai anh
   function chiLayTieuDeVaTag() {
     return layVaLuuDuLieu(false);
+  }
+
+  // ================== NHO CLAUDE VIET LAI TIEU DE (v9.76, chay o MAY CHINH, trang listing NGUON) ==================
+  // Khong goi API: mo Claude Desktop qua link "claude://claude.ai/new?q=<prompt>" (dien san prompt, nguoi dung xem va gui),
+  // con ANH SAN PHAM dau tien duoc dua vao Clipboard dang anh de Ctrl+V gan vao chat (link chi mang duoc chu).
+  // Claude tra loi 2-3 phuong an trong app; nguoi dung bam Copy o tieu de ung y, quay lai trang nay bam Alt+Shift+T ->
+  // script lay tieu de do, dua vao goi du lieu (tieu de goc di kem) va ghi vao Clipboard nhu Alt+C.
+  const TIEN_TO_LINK_CLAUDE = 'claude://claude.ai/new?q=';
+  const GIOI_HAN_LINK_CLAUDE = 2000; // Windows co the cat link ngoai ~2.000 ky tu khi chuyen cho ung dung
+
+  function taoPromptClaude(tieuDeGoc) {
+    return `Rewrite this Etsy listing title. The product photo is attached (paste it into this chat with Ctrl+V before sending).
+ORIGINAL TITLE: ${tieuDeGoc}
+Give 3 genuinely different options (2 if there is no valid 3rd strategy) and star the best: (1) product type first; (2) design wording first, only if short and not trademarked; (3) season or occasion first, only if the design is made for it.
+Rules for every title (Etsy Seller Handbook): max 140 characters, aim for under 15 words (60-110 chars); product noun (shirt, mug...) exactly once, within the first 60 chars; most important feature first; write for buyers, separate phrases with commas; describe only what the photo or original title shows (technique, design, style), never invent material, size or personalization; no repeated words; no subjective words (perfect, beautiful), gift phrases, sale or shipping info, or garment color; no brand, character, film or author names unless I confirm a license, and no workarounds or hints at them. Count characters and words with code.
+Reply with, per option: one short Vietnamese line (counts + rule used), then the title alone in a \`\`\`text block. End with one line of missing info that would help. Do not write tags.`;
+  }
+
+  // Ban rut gon, dung khi link ban day du dai qua gioi han (tieu de goc rat dai / nhieu ky tu co dau)
+  function taoPromptClaudeNgan(tieuDeGoc) {
+    return `Rewrite this Etsy title using the attached photo (Ctrl+V it first): 3 different options, star the best. ORIGINAL: ${tieuDeGoc}
+Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, no repeats, no subjective/gift/sale/shipping words, no garment color, no brand or character names, invent nothing. Per option: one short Vietnamese line, then the title alone in a \`\`\`text block.`;
+  }
+
+  function taoLinkClaude(tieuDeGoc) {
+    let link = TIEN_TO_LINK_CLAUDE + encodeURIComponent(taoPromptClaude(tieuDeGoc));
+    if (link.length > GIOI_HAN_LINK_CLAUDE) link = TIEN_TO_LINK_CLAUDE + encodeURIComponent(taoPromptClaudeNgan(tieuDeGoc));
+    return link;
+  }
+
+  // Anh san pham DAU TIEN (bo qua anh nghi la bang size), ban 794px la du de Claude nhin thiet ke
+  function layUrlAnhDauChoClaude() {
+    const { danhSach } = layDanhSachAnhFullSize();
+    const anh = danhSach.find((a) => !laBangSizeCuaAnh(a)) || danhSach[0];
+    return anh ? linhAnhVuaXem(anh.url) : '';
+  }
+
+  // Anh -> PNG -> Clipboard (Clipboard chi nhan anh dang PNG on dinh). Can goi trong luc con "thao tac cua nguoi dung".
+  async function chepAnhVaoClipboard(url) {
+    const duLieu = await taiMotAnhVoiRetry(url, 1);
+    const bm = await createImageBitmap(new Blob([duLieu]));
+    const cv = document.createElement('canvas');
+    cv.width = bm.width;
+    cv.height = bm.height;
+    cv.getContext('2d').drawImage(bm, 0, 0);
+    const png = await new Promise((xong) => cv.toBlob(xong, 'image/png'));
+    if (!png) throw new Error('không chuyển được ảnh sang PNG');
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+  }
+
+  function moLinkNgoai(link) {
+    const a = document.createElement('a');
+    a.href = link;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // Alt+T: mo Claude Desktop voi prompt + dua anh dau vao Clipboard
+  async function nhoClaudeVietLaiTieuDe() {
+    const tieuDeGoc = layTieuDe();
+    if (!layListingId() || !tieuDeGoc) {
+      hienThongBao('🤖 Chỉ dùng được ở trang listing nguồn (cần thấy tiêu đề listing).', '#DC2626');
+      return;
+    }
+    hienThongBao('🤖 Đang chuẩn bị ảnh đầu tiên + prompt cho Claude...', '#2563EB', 0);
+    const urlAnh = layUrlAnhDauChoClaude();
+    let daCoAnh = false;
+    if (urlAnh) {
+      try {
+        await chepAnhVaoClipboard(urlAnh);
+        daCoAnh = true;
+      } catch (loi) {
+        console.warn('[Etsy Auto] Không copy được ảnh vào Clipboard, tải ảnh về máy:', loi);
+        try {
+          await luuAnhXuongMay(urlAnh, `${lamSachTenFile(tieuDeGoc)} - claude.${laySoDuoiFile(urlAnh)}`);
+        } catch (loi2) {
+          console.warn('[Etsy Auto] Cũng không tải được ảnh:', loi2);
+        }
+      }
+    }
+    moLinkNgoai(taoLinkClaude(tieuDeGoc));
+    hienThongBao(
+      (daCoAnh
+        ? '🤖 Claude Desktop đang mở. (1) Ctrl+V để dán ảnh  (2) Enter để gửi  (3) bấm Copy ở tiêu đề ưng ý  (4) quay lại tab này, bấm Alt+Shift+T'
+        : '🤖 Claude Desktop đang mở, nhưng KHÔNG copy được ảnh vào Clipboard — ảnh đã tải về thư mục Tải xuống, kéo vào ô chat. Rồi gửi, bấm Copy ở tiêu đề ưng ý, quay lại tab này bấm Alt+Shift+T') +
+        '\n(Claude không bật lên? Cho phép trình duyệt mở link "claude://" và kiểm tra đã cài Claude Desktop.)',
+      '#7C3AED',
+      0
+    );
+  }
+
+  // Tieu de Claude tra ve -> 1 dong sach: bo khoi code, dau ngoac kep, so thu tu / gach dau dong
+  function chuanHoaTieuDeClaude(chuoi) {
+    let t = String(chuoi || '').replace(/\r/g, '').trim();
+    t = t.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/, '').trim();
+    const cacDong = t.split('\n').map((d) => d.trim()).filter(Boolean);
+    if (cacDong.length !== 1) return { ok: false, loi: cacDong.length ? 'Clipboard có nhiều dòng — hãy bấm nút Copy của KHỐI CODE chứa đúng 1 tiêu đề trong câu trả lời của Claude.' : 'Clipboard đang trống.' };
+    t = cacDong[0].replace(/^(?:[-*•⭐★]|\d+[.)])\s*/u, '').replace(/^["“”'`]+|["“”'`]+$/g, '').replace(/\s+/g, ' ').trim();
+    if (!t) return { ok: false, loi: 'Clipboard đang trống.' };
+    if (t.includes('|||')) return { ok: false, loi: 'Clipboard đang là dữ liệu listing, không phải tiêu đề — hãy bấm Copy ở tiêu đề trong câu trả lời của Claude trước.' };
+    if (t.length > GIOI_HAN_TIEU_DE) return { ok: false, loi: `Tiêu đề dài ${t.length} ký tự, vượt giới hạn ${GIOI_HAN_TIEU_DE} của Etsy — chọn phương án khác hoặc nhờ Claude rút gọn.` };
+    return { ok: true, tieuDe: t };
+  }
+
+  // Alt+Shift+T: lay tieu de vua Copy tu Claude, gop vao goi du lieu (nhu Alt+C) de may dich dan
+  async function dungTieuDeTuClaude() {
+    if (!layListingId()) {
+      hienThongBao('📥 Chỉ dùng được ở trang listing nguồn.', '#DC2626');
+      return;
+    }
+    const kq = chuanHoaTieuDeClaude(await docClipboard());
+    if (!kq.ok) {
+      hienThongBao('📥 ' + kq.loi, '#DC2626', 8000);
+      return;
+    }
+    await layVaLuuDuLieu(false, { tieuDeClaude: kq.tieuDe });
   }
 
   // ================== BUOC 2: TU DONG TIM O TIEU DE / O TAG / TAB PHOTO & VIDEO (trang draft) ==================
@@ -1982,7 +2115,7 @@
     const ghiChu = kq.tieuDe.thayDoi.map((x) => `<li style="margin:2px 0;">🧹 ${thoatHtml(x)}</li>`).join('');
     el.innerHTML = `
       <div><b>Tiêu đề</b> <span style="font-size:12px;color:#6B7280;">— tích chọn bản sẽ dùng (sửa tay được cả hai)</span></div>
-      ${oChon('sua', 'Tự sửa theo rule <span style="font-weight:normal;color:#047857;">(mặc định)</span>')}
+      ${oChon('sua', `${kq.tuClaude ? 'Claude viết lại' : 'Tự sửa theo rule'} <span style="font-weight:normal;color:#047857;">(mặc định)</span>`)}
       ${oChon('goc', 'Bản gốc')}
       ${ghiChu ? `<ul style="margin:8px 0 2px;padding-left:4px;list-style:none;font-size:12px;color:#374151;line-height:1.5;">${ghiChu}</ul>` : ''}
       <label style="display:block;margin-top:6px;font-size:12px;color:#374151;cursor:pointer;"><input type="checkbox" data-luonhoi checked> Luôn hiện phần này khi dán <span style="color:#6B7280;">(tắt thì tự dán bản đã sửa theo rule không hỏi; Alt+Shift+V vẫn hiện)</span></label>`;
@@ -2194,8 +2327,11 @@
 
   // epHoi = true (Alt+Shift+V): luon hien hop thoai Custom options du da tat "Luon hoi"
   async function danTieuDeVaTag(epHoi = false) {
-    let { tieuDe, tagText, dsPerso, danhSachAnh, idNguon, dauLa } = tachDuLieu(await docClipboard());
-    const tieuDeGoc = tieuDe; // v9.73: tieu de GOC cua listing nguon — dung lam "Ten san pham" ghi len Sheet
+    let { tieuDe, tagText, dsPerso, danhSachAnh, idNguon, dauLa, tieuDeGoc: tieuDeGocTrongGoi } = tachDuLieu(await docClipboard());
+    // v9.76: goi co "tieu de goc" di kem nghia la tieu de trong goi do CLAUDE viet lai o may chinh.
+    // Tieu de GOC cua listing nguon (v9.73) luon la "Ten san pham" ghi len Sheet va la o "Ban goc" trong hop thoai.
+    const tuClaude = !!tieuDeGocTrongGoi && tieuDeGocTrongGoi !== tieuDe;
+    const tieuDeGoc = tuClaude ? tieuDeGocTrongGoi : tieuDe;
 
     // Chan ngay: dan tiep se nhoi chuoi ky thuat vao o cua Etsy, hong du lieu that
     if (dauLa) {
@@ -2216,13 +2352,15 @@
     // duoi day de xem/sua; tat "Luon hien" thi tu ap dung ban lam sach (Alt+Shift+V van hien).
     // v9.75: chi xu ly TIEU DE (tag giu nguyen nhu listing nguon). Hop thoai chon anh / Custom options luon co phan
     // "Tieu de" (2 o: tu sua theo rule / ban goc); hop thoai rieng chi hien khi rule that su doi tieu de.
-    const lamSach = lamSachTieuDeListing(tieuDe);
+    const lamSach = tuClaude
+      ? { tieuDe: { goc: tieuDeGocTrongGoi, moi: tieuDe, thayDoi: ['Tiêu đề do Claude viết lại ở máy chính'] }, coThayDoi: true, tuClaude: true }
+      : lamSachTieuDeListing(tieuDe);
     const hienLamSach = !!tieuDe && (epHoi === true || dangHoiLamSach());
     let ghiChuLamSach = '';
     if (lamSach.coThayDoi && !hienLamSach) {
       tieuDe = lamSach.tieuDe.moi || tieuDe;
-      ghiChuLamSach = ' · 🧹 đã tự sửa tiêu đề theo rule';
-      console.log('[Etsy Auto] Tự sửa tiêu đề theo rule:', lamSach.tieuDe.thayDoi);
+      ghiChuLamSach = tuClaude ? ' · 🤖 dùng tiêu đề Claude' : ' · 🧹 đã tự sửa tiêu đề theo rule';
+      console.log('[Etsy Auto] Tiêu đề tự áp dụng:', lamSach.tieuDe.thayDoi);
     }
 
     // v9.54: MOT hop thoai duy nhat de chon anh + chon/sua Custom options truoc khi dan (Huy = khong dan
@@ -6778,6 +6916,10 @@ function doGet(e) {
       <button id="ea-btn-get" style="padding:8px 12px;background:#F56400;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Lấy dữ liệu + tải ảnh (Alt+G)</button>
       <button id="ea-btn-get-notag" style="padding:8px 12px;background:#0D9488;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📋 Chỉ lấy dữ liệu (Alt+C)</button>
       <button id="ea-btn-paste" style="padding:8px 12px;background:#2563EB;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">📝 Dán dữ liệu + upload ảnh (Alt+V)</button>
+      <div style="display:flex;gap:6px;">
+        <button id="ea-btn-claude" title="Mở Claude Desktop với prompt + ảnh đầu tiên (Ctrl+V để dán ảnh) để viết lại tiêu đề theo rule Etsy — dùng ở máy chính, trang listing nguồn" style="flex:1;padding:6px 8px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">🤖 Nhờ Claude viết lại tiêu đề (Alt+T)</button>
+        <button id="ea-btn-claude-dung" title="Sau khi bấm Copy tiêu đề ưng ý trong Claude: lấy tiêu đề đó vào dữ liệu listing (như Alt+C)" style="padding:6px 8px;background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">📥 Dùng tiêu đề đã copy (Alt+Shift+T)</button>
+      </div>
       <div id="ea-bienthe-khung" style="display:flex;flex-direction:column;gap:6px;">
         <button id="ea-btn-var-copy" style="padding:6px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🎨 Copy variations</button>
         <button id="ea-btn-var-paste" title="Dán variations đã Copy, hoặc dán thẳng vùng bảng vừa copy (Ctrl+C) từ Google Sheets" style="padding:6px 12px;background:#15803D;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🎨 Dán variations</button>
@@ -6843,6 +6985,8 @@ function doGet(e) {
     document.getElementById('ea-btn-get').onclick = layVaTaiAnh;
     document.getElementById('ea-btn-get-notag').onclick = chiLayTieuDeVaTag;
     document.getElementById('ea-btn-paste').onclick = (e) => danTieuDeVaTag(!!(e && e.shiftKey));
+    document.getElementById('ea-btn-claude').onclick = nhoClaudeVietLaiTieuDe;
+    document.getElementById('ea-btn-claude-dung').onclick = dungTieuDeTuClaude;
 
     // Nhom nut Variations chi co y nghia tren trang tao/sua listing
     document.getElementById('ea-bienthe-khung').style.display = location.pathname.includes('/listing-editor')
@@ -7056,6 +7200,7 @@ function doGet(e) {
       if (key === 'g') { e.preventDefault(); layVaTaiAnh(); }
       if (key === 'c') { e.preventDefault(); chiLayTieuDeVaTag(); }
       if (key === 'v') { e.preventDefault(); danTieuDeVaTag(e.shiftKey); }
+      if (key === 't') { e.preventDefault(); if (e.shiftKey) dungTieuDeTuClaude(); else nhoClaudeVietLaiTieuDe(); }
     });
   }
 

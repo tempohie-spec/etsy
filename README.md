@@ -828,6 +828,26 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### 🤖 Nhờ Claude Desktop viết lại tiêu đề (v9.76, dùng ở MÁY CHÍNH)
+
+Không gọi API, không cần key: script mở **Claude Desktop** với prompt + ảnh đầu tiên, Claude đưa 2–3 phương án tiêu đề theo rule Etsy (Seller Handbook) và skill `etsy-title-tag`; bạn chọn 1 phương án rồi script đưa nó vào dữ liệu listing để các máy ảo dán.
+
+**Cách dùng (ở trang listing NGUON, máy chính có cài Claude Desktop):**
+1. Bấm **🤖 Nhờ Claude viết lại tiêu đề** (hoặc **Alt+T**). Script copy **ảnh sản phẩm đầu tiên** (bỏ ảnh nghi là bảng size, bản 794px) vào Clipboard dạng ảnh và mở link `claude://claude.ai/new?q=…` — Claude Desktop hiện lên với prompt đã điền sẵn (tiêu đề gốc + rule).
+2. Trong Claude: **Ctrl+V** (dán ảnh) → **Enter** (gửi).
+3. Claude trả lời 2–3 phương án (⭐ đề xuất), mỗi phương án 1 dòng lý do (số ký tự/số từ, rule áp dụng) + tiêu đề trong **khối code**. Bấm nút **Copy** ở tiêu đề ưng ý.
+4. Quay lại trang listing nguồn, bấm **📥 Dùng tiêu đề đã copy** (hoặc **Alt+Shift+T**). Script kiểm tra (1 dòng, ≤ 140 ký tự; tự bỏ khối code ```` ``` ````, dấu ngoặc kép, số thứ tự) rồi chạy như **Alt+C** (chỉ lấy dữ liệu, không tải ảnh) nhưng dùng tiêu đề Claude. Dữ liệu nằm trong Clipboard, dán ở máy ảo bằng Alt+V như thường.
+
+**Ở máy ảo (Alt+V):** hộp thoại có 2 ô — **Claude viết lại (mặc định)** và **Bản gốc** (tiêu đề gốc của listing nguồn). Cột "Tên sản phẩm" trên Sheet vẫn ghi tiêu đề gốc. Tag giữ nguyên như listing nguồn.
+
+**Prompt gửi Claude** (rút từ `etsy-title-tag`): 3 phương án khác chiến lược (loại sản phẩm lên đầu / câu chữ thiết kế lên đầu / mùa vụ-dịp lên đầu), ≤ 140 ký tự, < 15 từ, danh từ sản phẩm đúng 1 lần trong 60 ký tự đầu, chỉ dùng thông tin thấy trên ảnh/tiêu đề gốc (không bịa chất liệu/size/cá nhân hoá), không lặp từ, không từ chủ quan/cụm quà tặng/giá-ship/màu phôi, **không tên thương hiệu, nhân vật, phim, tác giả** (trừ khi bạn nói có giấy phép; không dùng cách lách), đếm ký tự bằng code. Viết bằng tiếng Anh (ít ký tự mã hoá nên link ngắn); lời giải thích trả lời bằng tiếng Việt. Link dài quá ~2.000 ký tự (tiêu đề rất dài/nhiều dấu) thì tự dùng bản prompt rút gọn.
+
+**Lưu ý**
+- Cần Claude Desktop (đã đăng nhập) và cho phép trình duyệt mở link `claude://` (lần đầu trình duyệt hỏi; có thể tích "luôn cho phép").
+- Không copy được ảnh vào Clipboard thì script **tải ảnh về thư mục Tải xuống** và báo — kéo ảnh vào ô chat.
+- Dùng hạn mức gói của bạn trên Claude Desktop (không tính tiền API).
+- Thay đổi định dạng gói dữ liệu: có thêm `|||ORIG|||<tiêu đề gốc>` sau mã nguồn (`|||SRC|||<id>`), chỉ khi dùng tiêu đề Claude. Máy ảo còn bản cũ vẫn dán được (dán tiêu đề Claude), chỉ mất mã nguồn nên chưa đánh dấu "đã đăng" — cập nhật lên 9.76 ở các máy ảo.
+
 ### Hộp thoại gọn hơn: tiêu đề luôn có 2 ô, bỏ phần Tag và các cảnh báo (v9.75)
 
 - **Tiêu đề luôn có 2 ô** để tích chọn: **Tự sửa theo rule** (mặc định) và **Bản gốc**, kể cả khi rule không đổi gì (khi đó 2 ô giống nhau). Hộp thoại **chọn ảnh / Custom options** luôn có phần này; nếu không có ảnh/Custom options thì hộp thoại riêng chỉ hiện khi rule thật sự đổi tiêu đề (không đổi gì thì dán thẳng như cũ).
