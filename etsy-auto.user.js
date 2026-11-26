@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.78
+// @version      9.79
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -22,7 +22,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.78';
+  const PHIEN_BAN = '9.79';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1507,10 +1507,14 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
   // khong: tieu de nam ngay trong anh; link van them ?q=<tieu de> phong khi app dien san duoc).
   const KHOA_CAI_DAT_CLAUDE = 'etsy_auto_claude_cai_dat_v1'; // { link } — link Project/chat Claude dung chung
 
-  // Nhan link web (https://claude.ai/project/<id>, .../chat/<id>) hoac link claude://... -> { loai, id }
+  // Nhan link web hoac link claude://: https://claude.ai/project/<id>, .../chat/<id> va project cua Claude Code
+  // (https://claude.ai/code/project/chan_...). Link claude:// duoc ghep theo CHINH duong dan web do ("claude://claude.ai" + duong dan,
+  // dung cach Anthropic ghi cho project/chat) -> { loai: 'project'|'chat', duong: 'code/project'|..., id }
   function phanTichLinkClaude(link) {
-    const khop = /\/(project|chat)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(String(link || ''));
-    return khop ? { loai: khop[1].toLowerCase(), id: khop[2].toLowerCase() } : null;
+    const khop = /claude\.ai\/((?:code\/)?(project|chat))\/([A-Za-z0-9_-]{8,})/i.exec(String(link || ''));
+    if (!khop) return null;
+    const laUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(khop[3]);
+    return { loai: khop[2].toLowerCase(), duong: khop[1].toLowerCase(), id: laUuid ? khop[3].toLowerCase() : khop[3] };
   }
 
   function docCaiDatClaude() {
@@ -1521,7 +1525,7 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
   function taoLinkClaude(tieuDeGoc) {
     const dungChung = phanTichLinkClaude(docCaiDatClaude().link);
     if (dungChung) {
-      return `claude://claude.ai/${dungChung.loai}/${dungChung.id}?q=${encodeURIComponent('ORIGINAL TITLE: ' + tieuDeGoc)}`;
+      return `claude://claude.ai/${dungChung.duong}/${dungChung.id}?q=${encodeURIComponent('ORIGINAL TITLE: ' + tieuDeGoc)}`;
     }
     let link = TIEN_TO_LINK_CLAUDE + encodeURIComponent(taoPromptClaude(tieuDeGoc));
     if (link.length > GIOI_HAN_LINK_CLAUDE) link = TIEN_TO_LINK_CLAUDE + encodeURIComponent(taoPromptClaudeNgan(tieuDeGoc));
@@ -1605,7 +1609,7 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
         <div style="color:#374151;margin-bottom:8px;">Để trống = mỗi lần mở 1 chat mới kèm cả bộ rule. Có link = rule dán <b>1 lần</b> vào Project, mỗi lần script mở đúng Project/chat đó và đưa vào Clipboard <b>ảnh có tiêu đề gốc ghi ở trên</b> (chỉ cần Ctrl+V + Enter).</div>
         <ol style="margin:0 0 8px;padding-left:18px;color:#374151;">
           <li>Trong Claude tạo 1 <b>Project</b> (vd "Etsy title"), mục <i>Instructions</i> dán bộ rule — bấm nút bên dưới để copy.</li>
-          <li>Mở Project đó trên <b>claude.ai (web)</b>, copy link trên thanh địa chỉ (dạng <code>https://claude.ai/project/…</code>; chat thì <code>…/chat/…</code>) dán vào ô dưới.</li>
+          <li>Mở Project đó trên <b>claude.ai (web)</b>, copy link trên thanh địa chỉ (dạng <code>https://claude.ai/project/…</code>, Project của Claude Code là <code>https://claude.ai/code/project/…</code>; chat thì <code>…/chat/…</code>) dán vào ô dưới.</li>
         </ol>
         <button id="ea-cl-copyrule" style="${nutPhu}">📋 Copy bộ rule (dán vào Project instructions)</button>
         <label style="display:block;font-weight:bold;margin-top:10px;">Link Project / chat dùng chung
@@ -1627,9 +1631,9 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
     $('ea-cl-copyrule').onclick = async () => tt((await ghiClipboard(HUONG_DAN_PROJECT_CLAUDE)) ? '✅ Đã copy bộ rule — dán vào Project instructions.' : '❌ Không copy được.');
     $('ea-cl-thu').onclick = () => {
       const k = phanTichLinkClaude($('ea-cl-link').value);
-      if (!k) return tt('❌ Link chưa đúng dạng https://claude.ai/project/<id> hoặc https://claude.ai/chat/<id>.');
-      moLinkNgoai(`claude://claude.ai/${k.loai}/${k.id}?q=${encodeURIComponent('ORIGINAL TITLE: (thử) — nếu ô chat có sẵn dòng này thì link điền sẵn chữ được')}`);
-      tt('Đã mở Claude Desktop. Nếu mở đúng Project/chat thì link dùng được; ô chat có sẵn chữ "ORIGINAL TITLE: (thử)…" nghĩa là app còn điền sẵn được chữ, còn trống cũng không sao vì tiêu đề đã nằm trong ảnh.');
+      if (!k) return tt('❌ Link chưa đúng dạng https://claude.ai/project/<id>, https://claude.ai/code/project/<id> hoặc https://claude.ai/chat/<id>.');
+      moLinkNgoai(`claude://claude.ai/${k.duong}/${k.id}?q=${encodeURIComponent('ORIGINAL TITLE: (thử) — nếu ô chat có sẵn dòng này thì link điền sẵn chữ được')}`);
+      tt('Đã mở Claude Desktop. Nếu mở đúng Project/chat thì link dùng được (không mở đúng cũng không sao: khi bấm Alt+T ảnh vẫn nằm trong Clipboard, bạn tự mở Project rồi Ctrl+V); ô chat có sẵn chữ "ORIGINAL TITLE: (thử)…" nghĩa là app còn điền sẵn được chữ, còn trống cũng không sao vì tiêu đề đã nằm trong ảnh.');
     };
     $('ea-cl-dong').onclick = () => lop.remove();
     lop.addEventListener('click', (e) => {
@@ -1637,7 +1641,7 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
     });
     $('ea-cl-luu').onclick = () => {
       const chu = $('ea-cl-link').value.trim();
-      if (chu && !phanTichLinkClaude(chu)) return tt('❌ Link chưa đúng dạng https://claude.ai/project/<id> hoặc https://claude.ai/chat/<id>.');
+      if (chu && !phanTichLinkClaude(chu)) return tt('❌ Link chưa đúng dạng https://claude.ai/project/<id>, https://claude.ai/code/project/<id> hoặc https://claude.ai/chat/<id>.');
       luuGiaTri(KHOA_CAI_DAT_CLAUDE, JSON.stringify({ link: chu }));
       lop.remove();
       hienThongBao(chu ? '🤖 Đã lưu — 🤖 sẽ mở Project/chat dùng chung.' : '🤖 Đã xoá — 🤖 mở chat mới mỗi lần.', '#7C3AED');
@@ -1672,7 +1676,7 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
     hienThongBao(
       (daCoAnh
         ? dungChung
-          ? `🤖 Đã mở ${dungChung.loai === 'project' ? 'Project' : 'chat'} dùng chung. (1) ${dungChung.loai === 'project' ? 'Bấm ô chat mới trong Project, ' : ''}Ctrl+V để dán ảnh (đã có tiêu đề gốc ở trên)  (2) Enter để gửi  (3) bấm Copy ở tiêu đề ưng ý  (4) quay lại tab này, bấm Alt+Shift+T`
+          ? `🤖 Đã mở ${dungChung.loai === 'project' ? 'Project' : 'chat'} dùng chung. (1) ${dungChung.loai === 'project' ? 'Bấm ô chat mới trong Project, ' : ''}Ctrl+V để dán ảnh (đã có tiêu đề gốc ở trên)  (2) Enter để gửi  (3) bấm Copy ở tiêu đề ưng ý  (4) quay lại tab này, bấm Alt+Shift+T\n(Không mở đúng Project? Tự mở Project rồi Ctrl+V — ảnh đã nằm trong Clipboard.)`
           : '🤖 Claude Desktop đang mở. (1) Ctrl+V để dán ảnh  (2) Enter để gửi  (3) bấm Copy ở tiêu đề ưng ý  (4) quay lại tab này, bấm Alt+Shift+T'
         : '🤖 Claude Desktop đang mở, nhưng KHÔNG copy được ảnh vào Clipboard — ảnh đã tải về thư mục Tải xuống, kéo vào ô chat. Rồi gửi, bấm Copy ở tiêu đề ưng ý, quay lại tab này bấm Alt+Shift+T') +
         '\n(Claude không bật lên? Cho phép trình duyệt mở link "claude://" và kiểm tra đã cài Claude Desktop.)',
