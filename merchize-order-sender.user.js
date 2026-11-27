@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.75
+// @version      1.76
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.75';
+  const SCRIPT_VERSION = '1.76';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -1067,6 +1067,64 @@
     return kq;
   }
 
+  // Danh sach cac mockup da nho kieu in: sua kieu in (DTG / DTF) hoac xoa tung muc. Luu ngay vao bo nho.
+  let dangMoDanhSachNho = false;
+  function moDanhSachNho() {
+    dangMoDanhSachNho = true;
+    const lop = el('div', `position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:${MAX_Z};display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;`);
+    const hop = el('div', 'background:#fff;border-radius:8px;padding:14px;width:560px;max-width:94vw;max-height:80vh;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:13px;color:#222;');
+    const dong = el('div', 'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;');
+    const tieuDe = el('div', 'font-weight:bold;', '');
+    const nutDong = el('button', 'border:none;background:transparent;font-size:18px;line-height:1;cursor:pointer;color:#666;padding:0 4px;', '✕');
+    dong.appendChild(tieuDe);
+    dong.appendChild(nutDong);
+    hop.appendChild(dong);
+    const ds = el('div', '');
+    hop.appendChild(ds);
+    lop.appendChild(hop);
+    document.body.appendChild(lop);
+    const luu = (nho) => GM_setValue('mz_nho_kieu_in', JSON.stringify(nho));
+    function ve() {
+      const nho = docKieuInDaNho();
+      const links = Object.keys(nho);
+      tieuDe.textContent = `Danh sách các mockup đã nhớ kiểu in (${links.length})`;
+      while (ds.firstChild) ds.removeChild(ds.firstChild);
+      if (!links.length) { ds.appendChild(el('div', 'color:#666;padding:8px 0;', 'Chưa có mockup nào được nhớ kiểu in.')); return; }
+      ds.appendChild(el('div', 'display:flex;gap:8px;font-size:11px;color:#666;padding:2px 0;', 'Kiểu in  |  Ảnh mockup  |  Link (đổi kiểu in hoặc xóa từng mockup)'));
+      links.forEach((link) => {
+        const h = el('div', 'display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #eee;');
+        const chon = document.createElement('select');
+        chon.style.cssText = 'flex:none;padding:3px;border:1px solid #ccc;border-radius:4px;font-weight:bold;';
+        ['DTG', 'DTF'].forEach((pm) => { const op = document.createElement('option'); op.value = pm; op.textContent = pm; chon.appendChild(op); });
+        chon.value = nho[link];
+        chon.addEventListener('change', () => { const n = docKieuInDaNho(); n[link] = chon.value; luu(n); });
+        h.appendChild(chon);
+        const anh = document.createElement('img');
+        anh.src = link;
+        anh.alt = 'mockup';
+        anh.title = 'Bấm để xem ảnh lớn';
+        anh.style.cssText = 'width:56px;height:56px;object-fit:contain;flex:none;border:1px solid #ddd;border-radius:4px;background:#fafafa;cursor:zoom-in;';
+        anh.addEventListener('click', () => W.open(link, '_blank', 'noopener'));
+        h.appendChild(anh);
+        const lk = el('a', 'flex:1;min-width:0;font-size:11px;color:#1565c0;word-break:break-all;', link.length > 90 ? link.slice(0, 90) + '...' : link);
+        lk.href = link;
+        lk.target = '_blank';
+        lk.rel = 'noopener';
+        lk.title = link;
+        h.appendChild(lk);
+        const xoa = el('button', 'flex:none;border:1px solid #ccc;background:#fff;border-radius:4px;cursor:pointer;padding:3px 8px;color:#c62828;', 'Xóa');
+        xoa.addEventListener('click', () => { const n = docKieuInDaNho(); delete n[link]; luu(n); ve(); });
+        h.appendChild(xoa);
+        ds.appendChild(h);
+      });
+    }
+    ve();
+    const dongBang = () => { lop.remove(); document.removeEventListener('keydown', phim, true); dangMoDanhSachNho = false; };
+    const phim = (e) => { if (e.key === 'Escape') { e.stopPropagation(); dongBang(); } };
+    document.addEventListener('keydown', phim, true);
+    nutDong.addEventListener('click', dongBang);
+  }
+
   // Hop thoai chon don nao doi kieu in. Tra ve Set ma don duoc tich (mac dinh khong tich), hoac null neu nguoi dung tat bang.
   async function hoiDoiKieuIn(goiY) {
     return new Promise((resolve) => {
@@ -1141,9 +1199,9 @@
       datNhan();
       const soNho = Object.keys(docKieuInDaNho()).length;
       if (soNho) {
-        const xoaNho = el('button', 'border:none;background:transparent;color:#1565c0;font-size:11px;cursor:pointer;padding:6px 0 0;text-decoration:underline;', `Xóa ${soNho} mockup đã nhớ kiểu in`);
-        xoaNho.addEventListener('click', () => { GM_setValue('mz_nho_kieu_in', '{}'); xoaNho.textContent = 'Đã xóa các kiểu in đã nhớ.'; xoaNho.disabled = true; });
-        hop.appendChild(xoaNho);
+        const moDs = el('button', 'border:none;background:transparent;color:#1565c0;font-size:11px;cursor:pointer;padding:6px 0 0;text-decoration:underline;', `Danh sách các mockup đã nhớ kiểu in (${soNho})`);
+        moDs.addEventListener('click', () => moDanhSachNho());
+        hop.appendChild(moDs);
       }
       const ap = nut('Chốt và Gửi đơn', '#4CAF50');
       ap.style.marginTop = '10px';
@@ -1152,7 +1210,7 @@
       lop.appendChild(hop);
       document.body.appendChild(lop);
       const xong = (set) => { lop.remove(); document.removeEventListener('keydown', khiNhanPhim, true); resolve(set); };
-      const khiNhanPhim = (e) => { if (e.key === 'Escape') xong(null); };
+      const khiNhanPhim = (e) => { if (e.key === 'Escape' && !dangMoDanhSachNho) xong(null); };
       document.addEventListener('keydown', khiNhanPhim, true);
       nutTat.addEventListener('click', () => xong(null));
       cbTatCa.addEventListener('change', () => { o.forEach(({ cb }) => { cb.checked = cbTatCa.checked; }); datNhan(); });
