@@ -2789,9 +2789,9 @@ Merchize có thể tách 1 đơn Etsy thành nhiều đơn với mã Etsy + 1 ch
 - **Gợi ý kiểu in** khi bấm "3. Gửi đơn" / Bước 2, cho mọi đơn ZooTop tự tra SKU (đơn có SKU điền tay ở AB thì bỏ qua): so chi phí cả đơn theo [bảng giá](https://docs.google.com/spreadsheets/d/1rEn1FYVfS9RW8Of8mL-262vQj6GDehYPhfJD2wRSBD0/edit?gid=445207736) (ship by sellers): sản phẩm đầu dùng cột tổng, sản phẩm tiếp theo (và mỗi cái thêm khi số lượng > 1) dùng base + ship thêm, mỗi sản phẩm có design_back cộng phí mặt thứ 2. Ưu tiên DTG; DTG đắt hơn DTF quá 0.5$ thì gợi ý DTF. Dùng dòng Promotion cho Gildan 5000 và Comfort 1717. Chỉ gợi ý kiểu mà SKU và giá đều có.
 - Hộp thoại liệt kê đơn gợi ý đổi (mặc định không đổi), mỗi đơn kèm ảnh mockup (cột D) thu nhỏ, bấm vào ảnh để xem lớn (v1.64). Thông báo sau khi gửi liệt kê mã các đơn gửi thành công (Merchize và ZooTop). Đơn nào được tích sẽ đổi kiểu in, ghi lại vào cột A của sheet rồi tra SKU theo kiểu mới. Không đọc được bảng giá thì giữ nguyên kiểu in.
 
-## Mockup back cho đơn ZooTop (v1.62)
+## Mockup front và back cho đơn ZooTop (v1.70)
 
-Đơn ZooTop: dòng nào có link design_back (cột G) thì chỉ điền mockup_back (cột X của sheet ZooTop) và để trống mockup_front (cột W); dòng không có design_back thì điền mockup_front (W) như cũ. Ảnh dùng là mockup ở cột D của sheet đơn.
+Đơn ZooTop: dòng có link design_front (cột F) thì điền mockup_front (cột W của sheet ZooTop); dòng có link design_back (cột G) thì điền mockup_back (cột X). Dòng có cả front và back thì điền cả W và X. Ảnh dùng là mockup ở cột D của sheet đơn (sheet đơn chỉ có 1 cột mockup nên W và X cùng ảnh). Dòng chỉ có design_back thì chỉ điền X.
 
 ## Đơn nhiều dòng đã có dòng được gửi (v1.65)
 
