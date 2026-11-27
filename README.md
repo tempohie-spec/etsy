@@ -828,6 +828,21 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### 🔐 Quy tắc tiêu đề chuyển sang repo riêng `etsy-title-rules` (v9.82)
+
+**Vì sao:** repo `etsy` chứa chính file script (`@updateURL` trỏ vào `main`). GitHub token có quyền ghi repo đó sửa được **cả code chạy trên mọi máy** (các máy tự cập nhật). Token của repo quy tắc thì chỉ sửa được 1 file văn bản.
+
+- Script giờ đọc/ghi `title-rules.md` ở repo **`tempohie-spec/etsy-title-rules`** (nhánh `main`).
+- **Đọc:** có token thì đọc qua API GitHub (dùng được cả khi repo là **private**), lỗi/không có token thì thử đọc công khai (`raw.githubusercontent.com`); lỗi hết thì dùng bản đã lưu, rồi bản có sẵn trong script. File dài quá **12.000 ký tự** bị bỏ qua (tránh prompt khổng lồ tốn token mỗi lần).
+- **Token cũ của v9.81 bị xoá khỏi script** ngay khi nạp v9.82 (kèm thông báo nhắc thu hồi). Token mới chỉ cần cho **repo quy tắc**.
+- Nút **⬇ Tải quy tắc hiện tại** trong 📚: nếu repo mới chưa có file thì **điền sẵn nội dung ở vị trí cũ** (`etsy/title-rules.md`), bấm **💾 Lưu vào repo** để chuyển sang repo mới.
+
+**Cách chuyển (làm 1 lần):**
+1. Trên GitHub tạo repo **`etsy-title-rules`** (nên để **Private**; tích *Add a README* để có nhánh `main`).
+2. GitHub → Settings → Developer settings → Fine-grained tokens → tạo token **chỉ cho repo `etsy-title-rules`**, quyền **Contents: Read and write**, đặt ngày hết hạn. **Thu hồi token cũ** của v9.81 (nếu có).
+3. Ở máy chính: 📚 → dán token → (quy tắc sẽ tự điền từ vị trí cũ) → **💾 Lưu vào repo**.
+4. Xong thì xoá `title-rules.md` khỏi repo `etsy` (hoặc nhờ Claude xoá).
+
 ### 📚 Quy tắc tiêu đề lấy từ file `title-rules.md` trong repo + nút cập nhật (v9.81)
 
 - **Nguồn quy tắc chính thức** là file [`title-rules.md`](title-rules.md) trên nhánh `main`. Mỗi lần bấm ✨ Claude API (Alt+H),
