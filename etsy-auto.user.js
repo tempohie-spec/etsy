@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.80
+// @version      9.81
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -14,6 +14,8 @@
 // @connect      script.google.com
 // @connect      script.googleusercontent.com
 // @connect      api.anthropic.com
+// @connect      raw.githubusercontent.com
+// @connect      api.github.com
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto.user.js
 // @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto.user.js
@@ -23,7 +25,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.80';
+  const PHIEN_BAN = '9.81';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1777,9 +1779,117 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
   }
 
   // Rule dung cho API = phan rule cua che do chat, bo dong "Count characters ... with code" (API khong co cong cu chay code)
-  const SYSTEM_API_CLAUDE = `You write Etsy listing titles. The user sends a product photo and the ORIGINAL TITLE of the source listing. Rewrite that title using the photo.
-${RULE_TIEU_DE_CLAUDE.split('\nReply with,')[0].replace('Count characters and words with code.', 'Count characters and words carefully.')}
+  // v9.81: phan RULE lay tu file title-rules.md trong repo (xem layQuyTacTieuDe); khong lay duoc thi dung RULE_TIEU_DE_CLAUDE co san.
+  function taoSystemApiClaude(rule) {
+    const quyTac = String(rule || RULE_TIEU_DE_CLAUDE).split(/\nReply with,/)[0].replace('Count characters and words with code.', 'Count characters and words carefully.').trim();
+    return `You write Etsy listing titles. The user sends a product photo and the ORIGINAL TITLE of the source listing. Rewrite that title using the photo.
+${quyTac}
 Return the options only through the tool: "ly_do" is one short Vietnamese line (character and word counts + the Etsy rule applied); mark the recommended option with de_xuat=true; "thieu_thong_tin" is one short Vietnamese line about missing info that would help (or an empty string).`;
+  }
+
+  // ---- Quy tac tieu de lay tu repo (v9.81) ----
+  // File title-rules.md tren nhanh main la NGUON QUY TAC chinh thuc (nguoi dung "day" quy tac o Project Claude roi dua vao day qua nut 📚).
+  // Moi lan goi API: dung ban cache neu moi (<5 phut), khong thi tai lai; loi mang -> dung cache cu; chua tung tai duoc -> rule co san.
+  const URL_QUY_TAC_RAW = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/title-rules.md';
+  const GITHUB_REPO = 'tempohie-spec/etsy';
+  const GITHUB_FILE_QUY_TAC = 'title-rules.md';
+  const KHOA_QUY_TAC_CACHE = 'etsy_auto_quy_tac_cache_v1'; // { text, luc }
+  const KHOA_GITHUB_TOKEN = 'etsy_auto_github_token_v1';
+  const TTL_QUY_TAC_MS = 5 * 60 * 1000;
+
+  function docKeyGithub() {
+    return String(docGiaTriLuu(KHOA_GITHUB_TOKEN) || '').trim();
+  }
+
+  function taiQuyTacTuRepo() {
+    return new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== 'function') {
+        reject(new Error('Thiếu quyền GM_xmlhttpRequest'));
+        return;
+      }
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: `${URL_QUY_TAC_RAW}?t=${Date.now()}`,
+        anonymous: true,
+        timeout: 15000,
+        onload: (res) => {
+          const text = String(res.responseText || '').trim();
+          if (res.status >= 200 && res.status < 300 && text.length >= 20) resolve(text);
+          else reject(new Error('HTTP ' + res.status));
+        },
+        onerror: () => reject(new Error('lỗi mạng')),
+        ontimeout: () => reject(new Error('quá thời gian')),
+      });
+    });
+  }
+
+  // -> { text, nguon: 'repo' | 'cache' | 'mac-dinh' }
+  async function layQuyTacTieuDe(epLamMoi) {
+    const cache = docJsonLuu(KHOA_QUY_TAC_CACHE, {});
+    if (!epLamMoi && cache.text && Date.now() - (cache.luc || 0) < TTL_QUY_TAC_MS) return { text: cache.text, nguon: 'cache' };
+    try {
+      const text = await taiQuyTacTuRepo();
+      luuGiaTri(KHOA_QUY_TAC_CACHE, JSON.stringify({ text, luc: Date.now() }));
+      return { text, nguon: 'repo' };
+    } catch (e) {
+      console.warn('[Etsy Auto] Không tải được title-rules.md:', e.message);
+      return cache.text ? { text: cache.text, nguon: 'cache' } : { text: RULE_TIEU_DE_CLAUDE, nguon: 'mac-dinh' };
+    }
+  }
+
+  function viGithubApi(method, path, token, body) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method,
+        url: `https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`,
+        anonymous: true,
+        timeout: 20000,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'content-type': 'application/json',
+        },
+        data: body ? JSON.stringify(body) : undefined,
+        onload: (res) => {
+          let j = {};
+          try { j = JSON.parse(res.responseText || '{}'); } catch (e) { /* khong phai JSON */ }
+          if (res.status >= 200 && res.status < 300) resolve(j);
+          else reject(new Error(dichLoiGithub(res.status, j && j.message)));
+        },
+        onerror: () => reject(new Error('Không kết nối được tới api.github.com (kiểm tra mạng / cho phép Violentmonkey kết nối api.github.com)')),
+        ontimeout: () => reject(new Error('GitHub phản hồi quá lâu')),
+      });
+    });
+  }
+
+  function dichLoiGithub(ma, msg) {
+    if (ma === 401) return 'Token GitHub sai hoặc hết hạn (401).';
+    if (ma === 403) return 'Token không đủ quyền ghi, hoặc nhánh main bị khoá (403). Cần fine-grained token cho repo tempohie-spec/etsy với quyền Contents: Read and write.';
+    if (ma === 404) return 'Không thấy repo/file (404) — token chưa được cấp cho repo tempohie-spec/etsy.';
+    if (ma === 409 || ma === 422) return 'File vừa bị đổi ở nơi khác (xung đột) — bấm Lưu lại 1 lần nữa.';
+    return `GitHub báo lỗi ${ma}${msg ? ': ' + String(msg).slice(0, 120) : ''}.`;
+  }
+
+  // Ghi noi dung quy tac vao title-rules.md tren main (tao commit). -> { url }
+  async function luuQuyTacLenRepo(noiDung, token) {
+    let sha;
+    try {
+      const hienTai = await viGithubApi('GET', `${GITHUB_FILE_QUY_TAC}?ref=main`, token);
+      sha = hienTai.sha;
+    } catch (e) {
+      if (!/\(404\)/.test(e.message)) throw e; // 404 = chua co file -> tao moi (neu token thieu quyen thi buoc PUT se bao loi)
+    }
+    const b64 = btoa(unescape(encodeURIComponent(noiDung.trim() + '\n')));
+    const kq = await viGithubApi('PUT', GITHUB_FILE_QUY_TAC, token, {
+      message: 'Cập nhật quy tắc tiêu đề (từ Project Etsy title, qua nút 📚 trong script)',
+      content: b64,
+      branch: 'main',
+      ...(sha ? { sha } : {}),
+    });
+    luuGiaTri(KHOA_QUY_TAC_CACHE, JSON.stringify({ text: noiDung.trim(), luc: Date.now() }));
+    return { url: (kq.content && kq.content.html_url) || `https://github.com/${GITHUB_REPO}/blob/main/${GITHUB_FILE_QUY_TAC}` };
+  }
 
   const CONG_CU_API_CLAUDE = {
     name: 'dua_ra_tieu_de',
@@ -1819,7 +1929,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
   }
 
   // Goi API. Tra ve { phuongAn: [{tieuDe, lyDo, deXuat}], thieuThongTin, vao, ra }. Loi: Error co message AN TOAN (khong chua key).
-  function goiClaudeApi({ key, model, anhB64, kieuAnh, tieuDeGoc }) {
+  function goiClaudeApi({ key, model, anhB64, kieuAnh, tieuDeGoc, quyTac }) {
     return new Promise((resolve, reject) => {
       if (typeof GM_xmlhttpRequest !== 'function') {
         reject(new Error('Thiếu quyền GM_xmlhttpRequest'));
@@ -1834,7 +1944,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
         data: JSON.stringify({
           model,
           max_tokens: 1500,
-          system: SYSTEM_API_CLAUDE,
+          system: taoSystemApiClaude(quyTac),
           tools: [CONG_CU_API_CLAUDE],
           tool_choice: { type: 'tool', name: CONG_CU_API_CLAUDE.name },
           messages: [
@@ -1954,9 +2064,12 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
     }
     hienThongBao(`✨ Đang gửi ảnh đầu tiên + tiêu đề cho ${cai.model}...`, '#7C3AED', 0);
     let kq;
+    let nguonQuyTac = 'mac-dinh';
     try {
+      const quyTac = await layQuyTacTieuDe(false);
+      nguonQuyTac = quyTac.nguon;
       const u8 = new Uint8Array(await taiMotAnhVoiRetry(urlAnh, 1));
-      kq = await goiClaudeApi({ key, model: cai.model, anhB64: bytesThanhBase64(u8), kieuAnh: doanKieuAnh(u8), tieuDeGoc });
+      kq = await goiClaudeApi({ key, model: cai.model, anhB64: bytesThanhBase64(u8), kieuAnh: doanKieuAnh(u8), tieuDeGoc, quyTac: quyTac.text });
     } catch (loi) {
       console.warn('[Etsy Auto] Gọi Claude API lỗi:', loi.message);
       hienThongBao('✨ ' + loi.message, '#DC2626', 10000);
@@ -1970,12 +2083,12 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
     tk.usd += tinhTienApiClaude(kq.vao, kq.ra, cai);
     luuGiaTri(KHOA_API_CLAUDE_THONG_KE, JSON.stringify(tk));
     const moTaChiPhi = moTaChiPhiApiClaude(kq.vao, kq.ra, tk, cai);
-    console.log('[Etsy Auto] Claude API:', moTaChiPhi);
+    console.log('[Etsy Auto] Claude API:', moTaChiPhi, '| quy tắc:', nguonQuyTac);
     if (!kq.phuongAn.length) {
       hienThongBao(`✨ Claude không trả về phương án nào.\n${moTaChiPhi}`, '#F59E0B', 10000);
       return;
     }
-    hienThongBao(`✨ Claude đã trả lời.\n${moTaChiPhi}`, '#7C3AED', 6000);
+    hienThongBao(`✨ Claude đã trả lời (quy tắc: ${{ repo: 'repo, mới nhất', cache: 'repo, bản đã lưu', 'mac-dinh': 'bản có sẵn trong script — không tải được từ repo' }[nguonQuyTac]}).\n${moTaChiPhi}`, nguonQuyTac === 'mac-dinh' ? '#D97706' : '#7C3AED', 6000);
     const chon = await moBangChonTieuDeApi(kq, tieuDeGoc, moTaChiPhi);
     if (!chon) {
       hienThongBao(`✨ Đã huỷ — chưa lấy dữ liệu.\n${moTaChiPhi}`, '#6B7280', 8000);
@@ -2067,6 +2180,95 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
       );
       veTong();
       tt(keyMoi ? '✅ Đã lưu key và cài đặt.' : '✅ Đã lưu cài đặt.');
+    };
+  }
+
+  // Hop thoai 📚: dua quy tac (copy tu Project Claude "Etsy title") vao file title-rules.md trong repo.
+  // Script KHONG doc duoc Project (khong co API) -> nguoi dung copy noi dung Project Instructions roi dan vao day.
+  function moCapNhatQuyTac() {
+    const lop = document.createElement('div');
+    lop.style.cssText =
+      'position:fixed;inset:0;z-index:1000003;background:rgba(17,24,39,.6);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+    const oNhap = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;margin-top:3px;font-size:13px;';
+    const nutPhu = 'padding:6px 10px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;';
+    lop.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:16px 18px;width:min(640px,94vw);max-height:92vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;color:#111827;line-height:1.5;">
+        <div style="font-weight:bold;font-size:15px;margin-bottom:6px;">📚 Cập nhật quy tắc tiêu đề vào repo</div>
+        <div style="color:#374151;margin-bottom:8px;">Quy tắc chính thức nằm ở file <b>title-rules.md</b> trên GitHub (nhánh main); nút ✨ Claude API đọc file này mỗi lần gọi. Script <b>không đọc được Project Claude</b>, nên: mở Project <b>Etsy title</b> → copy nội dung <i>Instructions</i> → dán vào ô dưới → bấm <b>Lưu vào repo</b> (tạo 1 commit lên main).</div>
+        <label style="display:block;font-weight:bold;">Quy tắc <span id="ea-qt-dem" style="font-weight:normal;color:#6B7280;"></span>
+          <textarea id="ea-qt-text" spellcheck="false" style="${oNhap}height:260px;resize:vertical;font-family:ui-monospace,monospace;font-size:12px;"></textarea>
+        </label>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+          <button id="ea-qt-dan" style="${nutPhu}">📋 Dán từ Clipboard</button>
+          <button id="ea-qt-tai" style="${nutPhu}">⬇ Tải quy tắc hiện tại trên repo</button>
+        </div>
+        <label style="display:block;font-weight:bold;margin-top:10px;">GitHub token <span id="ea-qt-dangco" style="font-weight:normal;"></span>
+          <input id="ea-qt-token" type="password" autocomplete="new-password" spellcheck="false" style="${oNhap}" placeholder="github_pat_… (để trống = giữ token hiện tại)" value="">
+        </label>
+        <div style="color:#92400E;font-size:12px;margin-top:3px;">Chỉ cần nhập 1 lần, <b>chỉ ở máy chính</b>. Tạo <b>fine-grained token</b> (GitHub → Settings → Developer settings), chọn <b>chỉ repo tempohie-spec/etsy</b>, quyền <b>Contents: Read and write</b>, đặt ngày hết hạn. Token lưu trong kho riêng của Violentmonkey, chỉ gửi tới api.github.com; thu hồi ngay nếu nghi bị lộ.</div>
+        <div id="ea-qt-tt" style="margin-top:8px;font-size:12px;color:#374151;white-space:pre-line;"></div>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:12px;flex-wrap:wrap;">
+          <button id="ea-qt-xoatoken" style="${nutPhu}color:#B91C1C;">Xoá token</button>
+          <div style="display:flex;gap:8px;">
+            <button id="ea-qt-dong" style="${nutPhu}">Đóng</button>
+            <button id="ea-qt-luu" style="padding:6px 14px;border:none;border-radius:6px;background:#7C3AED;color:#fff;font-weight:bold;cursor:pointer;">💾 Lưu vào repo</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(lop);
+    const $ = (id) => lop.querySelector('#' + id);
+    const tt = (chu, mau) => { $('ea-qt-tt').textContent = chu; $('ea-qt-tt').style.color = mau || '#374151'; };
+    const veToken = () => {
+      const t = docKeyGithub();
+      $('ea-qt-dangco').textContent = t ? `· đang lưu …${t.slice(-4)}` : '· chưa có token';
+      $('ea-qt-dangco').style.color = t ? '#047857' : '#B45309';
+    };
+    const veDem = () => { $('ea-qt-dem').textContent = `· ${$('ea-qt-text').value.trim().length} ký tự`; };
+    $('ea-qt-text').addEventListener('input', veDem);
+    veToken();
+    const taiHienTai = async () => {
+      tt('Đang tải quy tắc từ repo...');
+      const q = await layQuyTacTieuDe(true);
+      $('ea-qt-text').value = q.text;
+      veDem();
+      tt(q.nguon === 'repo' ? '✅ Đã tải quy tắc hiện tại từ repo.' : '⚠️ Không tải được từ repo — đang hiện bản có sẵn/đã lưu.', q.nguon === 'repo' ? '#047857' : '#B45309');
+    };
+    taiHienTai();
+    $('ea-qt-tai').onclick = taiHienTai;
+    $('ea-qt-dan').onclick = async () => {
+      try {
+        const chu = await navigator.clipboard.readText();
+        if (!chu.trim()) return tt('Clipboard đang trống.', '#B45309');
+        $('ea-qt-text').value = chu;
+        veDem();
+        tt('✅ Đã dán từ Clipboard (chưa lưu vào repo).', '#047857');
+      } catch (e) {
+        tt('❌ Không đọc được Clipboard (trình duyệt chặn) — bấm vào ô rồi Ctrl+V.', '#DC2626');
+      }
+    };
+    $('ea-qt-xoatoken').onclick = () => { luuGiaTri(KHOA_GITHUB_TOKEN, ''); veToken(); tt('Đã xoá token khỏi script. Nhớ thu hồi token trên GitHub nếu nghi bị lộ.'); };
+    $('ea-qt-dong').onclick = () => lop.remove();
+    lop.addEventListener('click', (e) => { if (e.target === lop) lop.remove(); });
+    $('ea-qt-luu').onclick = async () => {
+      const noiDung = $('ea-qt-text').value.trim();
+      if (noiDung.length < 20) return tt('❌ Quy tắc quá ngắn / đang trống.', '#DC2626');
+      if (noiDung.length > 12000) return tt('❌ Quy tắc dài quá 12.000 ký tự — rút gọn lại (prompt dài tốn token mỗi lần gọi).', '#DC2626');
+      const tokenMoi = $('ea-qt-token').value.trim();
+      if (tokenMoi && !/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(tokenMoi)) return tt('❌ Token không đúng dạng (github_pat_… hoặc ghp_…).', '#DC2626');
+      const token = tokenMoi || docKeyGithub();
+      if (!token) return tt('❌ Chưa có GitHub token — nhập token ở ô trên.', '#DC2626');
+      if (!window.confirm(`Ghi ${noiDung.length} ký tự vào ${GITHUB_FILE_QUY_TAC} trên nhánh main của ${GITHUB_REPO}?\n(Lưu thành 1 commit, có lịch sử để xem lại.)`)) return;
+      $('ea-qt-luu').disabled = true;
+      tt('Đang lưu lên GitHub...');
+      try {
+        const kq = await luuQuyTacLenRepo(noiDung, token);
+        if (tokenMoi) { luuGiaTri(KHOA_GITHUB_TOKEN, tokenMoi); $('ea-qt-token').value = ''; veToken(); }
+        tt(`✅ Đã lưu vào repo. Lần gọi ✨ Claude API tiếp theo dùng quy tắc mới.\n${kq.url}`, '#047857');
+      } catch (e) {
+        tt('❌ ' + e.message, '#DC2626');
+      } finally {
+        $('ea-qt-luu').disabled = false;
+      }
     };
   }
 
@@ -7403,6 +7605,7 @@ function doGet(e) {
       <div style="display:flex;gap:6px;">
         <button id="ea-btn-claude-api" title="Gọi Claude API (Haiku) với ảnh đầu + tiêu đề gốc, hiện 2-3 phương án để chọn — dùng ở máy chính, trang listing nguồn. Có tính tiền theo token." style="flex:1;padding:6px 8px;background:#6D28D9;color:#fff;border:none;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">✨ Claude API viết lại tiêu đề (Alt+H)</button>
         <button id="ea-btn-claude-api-cai" title="API key, giá, tổng chi" style="padding:6px 8px;background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">🔑</button>
+        <button id="ea-btn-claude-quytac" title="Cập nhật quy tắc tiêu đề (từ Project Claude) vào file title-rules.md trong repo" style="padding:6px 8px;background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">📚</button>
       </div>
       <div id="ea-bienthe-khung" style="display:flex;flex-direction:column;gap:6px;">
         <button id="ea-btn-var-copy" style="padding:6px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🎨 Copy variations</button>
@@ -7474,6 +7677,7 @@ function doGet(e) {
     document.getElementById('ea-btn-claude-cai').onclick = moCaiDatClaude;
     document.getElementById('ea-btn-claude-api').onclick = nhoClaudeApiVietLaiTieuDe;
     document.getElementById('ea-btn-claude-api-cai').onclick = moCaiDatClaudeApi;
+    document.getElementById('ea-btn-claude-quytac').onclick = moCapNhatQuyTac;
 
     // Nhom nut Variations chi co y nghia tren trang tao/sua listing
     document.getElementById('ea-bienthe-khung').style.display = location.pathname.includes('/listing-editor')
