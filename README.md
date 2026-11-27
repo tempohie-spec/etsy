@@ -2762,6 +2762,10 @@ Bot trả lời ngay "Đang cập nhật, kết quả sẽ gửi khi xong..." r�
 
 `/debug?key=<key>&ma=<mã đơn Etsy>` (kể cả đơn chỉ có trên Merchize dưới dạng mã + chữ cái) in thêm: `top100` (số đơn trong danh sách 100 đơn mới nhất của store mà lịch chạy dùng, thời điểm đơn cũ nhất trong đó, và các đơn Merchize cùng mã), `dongTrenSheet` (AC, AD, AE, AF, ngày fulfill, base cost của các dòng đơn trên Sheet), `workerSeTraTracking` (đơn có đủ điều kiện để Worker tra tracking không) và `apiTrackingTheoAD` (kết quả API tracking theo các mã RX trong cột AD).
 
+## Tự điền lại "Merchize" khi đã xử lý lỗi (Worker)
+
+Đơn có AC dạng `Lỗi...` do Merchize báo (vd `Lỗi địa chỉ: ...`) nhưng đã nằm trên Merchize (AD có mã RX, Date Fulfill trong 10 ngày): khi đã có tracking ở AE, hoặc Merchize đã chuyển đơn sang sản xuất / giao hàng (`order_progress_status` chứa production, shipp, deliver hoặc complet), Worker tự điền lại `Merchize` cho các dòng AC đang là `Lỗi...` của đơn, rồi tra tracking bình thường ở các lần sau. Tin Telegram có mục "Tự điền lại "Merchize" (đã xử lý lỗi)". Lỗi do script báo trước khi gửi (chưa có mã RX, vd `Lỗi: thiếu tên người nhận`) không bị đụng tới.
+
 ## Telegram: shop quét được / shop lỗi
 
 Dưới dòng "Cập nhật tự động lúc ..." của tin tóm tắt có thêm 2 mục: "Quét được các shop" (liệt kê tab gọi API Merchize thành công, không có lỗi nào) và "Các shop lỗi" (kèm lỗi cụ thể, vd `Merchize 403: Something went wrong. Please sign in again.` là token hết hạn; hoặc `chưa có Base URL hoặc token`). Lỗi được giải thích bằng tiếng Việt kèm lỗi gốc trong ngoặc: 401/403 là token hết hạn hoặc không hợp lệ; 404 là sai Base URL; 400/422 là yêu cầu không hợp lệ; 429 là quá nhiều request; 5xx là lỗi máy chủ Merchize; lỗi mạng; vượt giới hạn request của Cloudflare. Shop lỗi token: cập nhật lại Access Token trong panel Merchize của tab đó. Kết quả `/run` cũng có trường `shop`.
