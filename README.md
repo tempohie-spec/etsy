@@ -2476,6 +2476,19 @@ dòng được trim từng dòng, bỏ dòng trống và nối bằng ` | ` thà
 (vd `1. Dad - Charizard | 2. Kid 1 - Charmeleon | 3. Est. 2026`) — để khi dán vào Google Sheets không bị xuống
 dòng làm lệch cột. Nhiều tuỳ chọn cá nhân hoá trong cùng 1 sản phẩm vẫn nối bằng ` | ` như trước.
 
+## Auto Tracking: dừng cả lượt khi Etsy không nhận lệnh gửi + nghỉ ngẫu nhiên giữa các đơn (v3.15)
+
+**Hiện tượng**: modal điền tracking vẫn điền được nhưng nút **Complete order quay mãi**, modal bị đóng, các đơn
+sau lỗi giống hệt cho đến khi F5. Console có `net::ERR_CONNECTION_CLOSED` ở `/api/v3/ajax/bespoke…/batch-complete`
+(kết nối gửi bị Etsy cắt; dòng `"undefined" is not valid JSON` là code của Etsy đọc phản hồi rỗng).
+
+**Sửa**:
+1. Nếu sau khi bấm Complete order mà modal **không đóng** (hoặc nút gửi kẹt ở trạng thái quay/khoá) → script coi là
+   Etsy không nhận lệnh, **dừng cả lượt ngay**, đóng modal và báo đỏ "bấm F5 rồi Bắt đầu lại" (không còn chạy tiếp
+   các đơn sau để chúng lỗi dây chuyền). Sau F5 bấm Bắt đầu lại: đơn đã điền xong không còn nút Complete order nên tự bỏ qua.
+2. Giữa 2 đơn có thao tác điền, script **nghỉ ngẫu nhiên 2–5 giây** (trước đây cố định 2 giây) cho giống người thật;
+   bấm Dừng trong lúc nghỉ vẫn thoát ngay.
+
 ## Đóng bảng "Order details" sau mỗi đơn
 
 Bảng "Order details" mà Etsy hiện ra khi bấm vào mã đơn là một **overlay nổi đè lên danh

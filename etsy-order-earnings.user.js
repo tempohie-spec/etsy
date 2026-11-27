@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.14.1
+// @version      3.15
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -1558,6 +1558,18 @@
     const STOP_MSG = 'Stopped by user';
     const laLoiDung = (e) => !!e && e.message === STOP_MSG;
 
+    // Gui that bai: bam Complete order nhung Etsy khong nhan (nut quay mai / modal khong dong, thuong do
+    // yeu cau batch-complete bi cat ket noi). Cac don sau se loi day chuyen den khi F5 -> DUNG CA LUOT.
+    const GUI_LOI_MSG = 'Etsy khong nhan yeu cau gui';
+    const laLoiGui = (e) => !!e && e.message === GUI_LOI_MSG;
+
+    // Nghi ngau nhien min..max ms giua cac don (giong nguoi that, tranh bi Etsy chan khi gui don lien tuc);
+    // chia nho de bam Dung la thoat ngay.
+    async function nghiNgauNhien(min, max) {
+      const tong = min + Math.floor(Math.random() * (max - min + 1));
+      for (let t = 0; t < tong && GM_getValue(RUN_KEY); t += 250) await sleep(Math.min(250, tong - t));
+    }
+
     async function waitFor(fn, { timeout = 10000, interval = 200, desc = '' } = {}) {
       const start = Date.now();
       while (Date.now() - start < timeout) {
@@ -1791,13 +1803,23 @@
       );
       if (!submitBtn) throw new Error('Modal submit button not found');
 
-      await waitFor(() => !submitBtn.disabled, { timeout: 5000, desc: 'submit button enabled' });
+      try {
+        await waitFor(() => !submitBtn.disabled, { timeout: 5000, desc: 'submit button enabled' });
+      } catch (e) {
+        if (laLoiDung(e)) throw e;
+        throw new Error(GUI_LOI_MSG); // nut ket o trang thai quay/khoa
+      }
       submitBtn.click();
 
-      await waitFor(
-        () => !document.querySelector(`select[name="carrierNameSelect-${orderId}"]`),
-        { timeout: 8000, desc: 'modal closed for ' + orderId }
-      );
+      try {
+        await waitFor(
+          () => !document.querySelector(`select[name="carrierNameSelect-${orderId}"]`),
+          { timeout: 8000, desc: 'modal closed for ' + orderId }
+        );
+      } catch (e) {
+        if (laLoiDung(e)) throw e;
+        throw new Error(GUI_LOI_MSG); // gui xong nhung modal khong dong = Etsy khong nhan
+      }
     }
 
     function closeModalIfOpen(orderId) {
@@ -2116,8 +2138,9 @@
         await fillAndSubmit(orderId, result.tracking, result.carrier);
         log('  ✓ Đã điền xong.');
       } catch (e) {
-        if (!laLoiDung(e)) log('  ✗ Lỗi khi điền: ' + dichLoi(e.message));
         closeModalIfOpen(orderId);
+        if (laLoiGui(e)) throw e; // dung ca luot, xu ly o runAllImpl
+        if (!laLoiDung(e)) log('  ✗ Lỗi khi điền: ' + dichLoi(e.message));
       }
       return true;
     }
@@ -2237,6 +2260,13 @@
           attempted = await processOrder(orderId);
         } catch (e) {
           // Bam Stop giua chung khong phai la loi - chi can don dep roi vong lap tu thoat.
+          if (laLoiGui(e)) {
+            log('⛔ Etsy không nhận lệnh gửi (nút quay mãi). Đã dừng — bấm F5 rồi Bắt đầu lại.');
+            hienThongBao('⛔ Etsy không nhận lệnh gửi tracking nên đã dừng cả lượt. Bấm F5 rồi bấm Bắt đầu lại (đơn đã điền xong sẽ tự bỏ qua).', '#DC2626');
+            GM_setValue(RUN_KEY, false);
+            biDung = true;
+            break;
+          }
           if (!laLoiDung(e)) log('Lỗi khi xử lý đơn:', e.message);
           // Best-effort cleanup: close any dropdown/modal left open by the
           // failed step so it doesn't block clicks on the next order.
@@ -2246,7 +2276,8 @@
         }
         // Only pay the full "let the page settle" pause after a real
         // open-modal/fill/submit attempt; a quick non-match skip doesn't need it.
-        await sleep(attempted ? 2000 : 150);
+        if (attempted) await nghiNgauNhien(2000, 5000);
+        else await sleep(150);
       }
 
       GM_setValue(RUN_KEY, false);
