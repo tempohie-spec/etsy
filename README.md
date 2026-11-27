@@ -828,6 +828,12 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### ✨ Claude API chỉ trả 1 tiêu đề + so sánh với bản gốc; sửa lỗi "xung đột" khi lưu quy tắc (v9.83)
+
+- **1 phương án + bản gốc:** ✨ Claude API giờ chỉ trả **đúng 1 tiêu đề** (tool use 1 trường `tieu_de`). System prompt dặn bỏ qua mọi chỉ dẫn "nhiều phương án" / định dạng trả lời / học từ chỉnh sửa / luồng việc nằm trong quy tắc (vốn viết cho chat), nên file `title-rules.md` có thể giữ nguyên câu chữ dùng cho Project. Hộp thoại hiện **2 ô tích chọn**: **Claude đề xuất** (mặc định, kèm 1 dòng lý do) và **Bản gốc**, mỗi ô có số ký tự/số từ để so sánh (không cảnh báo, không chặn) và sửa tay được. Chọn **Bản gốc** thì lấy dữ liệu như Alt+C thường (thông báo "dùng tiêu đề gốc"), không gắn tiêu đề gốc kèm.
+- **Lỗi "File vừa bị đổi ở nơi khác (xung đột)" khi bấm 💾 Lưu vào repo lần thứ 2:** lần lưu đầu **đã thành công** (có commit trong repo), nhưng API GitHub cache các lệnh GET khoảng 60 giây nên lần bấm sau lấy nhầm mã `sha` cũ của file → GitHub báo 409. Giờ GET kèm tham số chống cache, và nếu vẫn gặp xung đột thì tự lấy lại `sha` mới nhất rồi ghi lại 1 lần. Lệnh đọc quy tắc qua API cũng chống cache nên "Tải quy tắc hiện tại" luôn ra bản mới nhất.
+- Chat Claude Desktop (🤖 Alt+T) giữ nguyên cách cũ (3 phương án).
+
 ### 🔐 Quy tắc tiêu đề chuyển sang repo riêng `etsy-title-rules` (v9.82)
 
 **Vì sao:** repo `etsy` chứa chính file script (`@updateURL` trỏ vào `main`). GitHub token có quyền ghi repo đó sửa được **cả code chạy trên mọi máy** (các máy tự cập nhật). Token của repo quy tắc thì chỉ sửa được 1 file văn bản.
