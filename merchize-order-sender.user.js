@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.69
+// @version      1.70
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.69';
+  const SCRIPT_VERSION = '1.70';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -1143,9 +1143,12 @@
     v[14] = sku;                              // R
     v[15] = cell(r, COL.designFront);         // S
     v[16] = cell(r, COL.designBack);          // T
-    // Co design_back thi chi dien mockup_back (X), khong dien mockup_front (W); khong co thi nguoc lai.
-    if (laLink(cell(r, COL.designBack))) v[20] = cell(r, COL.mockUpFront); // X mockup_back
-    else v[19] = cell(r, COL.mockUpFront);    // W mockup_front
+    // Co design_front thi dien mockup_front (W), co design_back thi dien mockup_back (X): co ca 2 thi dien ca 2
+    // (cung anh mockup o cot D vi Sheet chi co 1 cot mockup). Khong co design nao (khong xay ra) thi dien W.
+    const coFront = laLink(cell(r, COL.designFront));
+    const coBack = laLink(cell(r, COL.designBack));
+    if (coFront || !coBack) v[19] = cell(r, COL.mockUpFront);  // W mockup_front
+    if (coBack) v[20] = cell(r, COL.mockUpFront);               // X mockup_back
     return v;
   }
 
