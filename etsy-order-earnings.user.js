@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.15
+// @version      3.15.1
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -1563,11 +1563,17 @@
     const GUI_LOI_MSG = 'Etsy khong nhan yeu cau gui';
     const laLoiGui = (e) => !!e && e.message === GUI_LOI_MSG;
 
-    // Nghi ngau nhien min..max ms giua cac don (giong nguoi that, tranh bi Etsy chan khi gui don lien tuc);
-    // chia nho de bam Dung la thoat ngay.
-    async function nghiNgauNhien(min, max) {
+    // Tu luc modal mo ra (batDau) cho toi luc bam Complete order phai mat NGAU NHIEN min..max ms (giong nguoi
+    // that, tranh bi Etsy chan). Cac buoc ben trong giu nguyen thoi gian; neu da lau hon thi khong cho them.
+    // Chia nho de bam Dung la thoat ngay.
+    async function choDenKhiDuThoiGian(batDau, min, max) {
       const tong = min + Math.floor(Math.random() * (max - min + 1));
-      for (let t = 0; t < tong && GM_getValue(RUN_KEY); t += 250) await sleep(Math.min(250, tong - t));
+      while (GM_getValue(RUN_KEY)) {
+        const conLai = tong - (Date.now() - batDau);
+        if (conLai <= 0) return;
+        await sleep(Math.min(250, conLai));
+      }
+      throw new Error(STOP_MSG);
     }
 
     async function waitFor(fn, { timeout = 10000, interval = 200, desc = '' } = {}) {
@@ -1753,6 +1759,7 @@
     }
 
     async function fillAndSubmit(orderId, tracking, carrierRaw) {
+      const batDauModal = Date.now(); // modal vua mo xong
       const select = document.querySelector(`select[name="carrierNameSelect-${orderId}"]`);
       if (!select) throw new Error('carrier select not found for ' + orderId);
 
@@ -1809,6 +1816,8 @@
         if (laLoiDung(e)) throw e;
         throw new Error(GUI_LOI_MSG); // nut ket o trang thai quay/khoa
       }
+      // Tong thoi gian tu luc modal mo toi luc bam Complete order: ngau nhien 2-5 giay.
+      await choDenKhiDuThoiGian(batDauModal, 2000, 5000);
       submitBtn.click();
 
       try {
@@ -2276,8 +2285,7 @@
         }
         // Only pay the full "let the page settle" pause after a real
         // open-modal/fill/submit attempt; a quick non-match skip doesn't need it.
-        if (attempted) await nghiNgauNhien(2000, 5000);
-        else await sleep(150);
+        await sleep(attempted ? 2000 : 150);
       }
 
       GM_setValue(RUN_KEY, false);
