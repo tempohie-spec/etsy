@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.74
+// @version      1.75
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.74';
+  const SCRIPT_VERSION = '1.75';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -1133,7 +1133,12 @@
         hop.appendChild(dong);
         return { g, cb, nhan, cbNho };
       });
-      const datNhan = () => o.forEach(({ g, cb, nhan }) => { nhan.textContent = cb.checked ? g.moi : ''; });
+      // Duoi o tich: chua tich = kieu in hien tai (xam), tich = kieu in dich (xanh).
+      const datNhan = () => o.forEach(({ g, cb, nhan }) => {
+        nhan.textContent = cb.checked ? g.moi : g.hienTai;
+        nhan.style.color = cb.checked ? '#2e7d32' : '#888';
+      });
+      datNhan();
       const soNho = Object.keys(docKieuInDaNho()).length;
       if (soNho) {
         const xoaNho = el('button', 'border:none;background:transparent;color:#1565c0;font-size:11px;cursor:pointer;padding:6px 0 0;text-decoration:underline;', `Xóa ${soNho} mockup đã nhớ kiểu in`);
