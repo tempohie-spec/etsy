@@ -828,6 +828,22 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### 📚 Quy tắc tiêu đề lấy từ file `title-rules.md` trong repo + nút cập nhật (v9.81)
+
+- **Nguồn quy tắc chính thức** là file [`title-rules.md`](title-rules.md) trên nhánh `main`. Mỗi lần bấm ✨ Claude API (Alt+H),
+  script tải file này (cache 5 phút; lỗi mạng thì dùng bản đã lưu; chưa từng tải được thì dùng bản có sẵn trong script) và
+  gửi làm chỉ dẫn cho Claude. **Sửa file là script dùng quy tắc mới ngay, không cần tăng phiên bản hay cập nhật từng shop.**
+  Thông báo sau khi Claude trả lời ghi rõ quy tắc đang dùng là bản nào.
+- **Nút 📚** (cạnh 🔑): script **không đọc được Project Claude "Etsy title"** (Anthropic không có API cho Project). Cách cập nhật:
+  mở Project → copy nội dung *Instructions* → bấm 📚 → dán (nút "Dán từ Clipboard") → **💾 Lưu vào repo** → script tạo 1 commit lên
+  `main` sửa `title-rules.md` (có lịch sử trên GitHub). Nút "Tải quy tắc hiện tại" để lấy lại bản đang có trên repo.
+- **GitHub token** (nhập 1 lần, **chỉ ở máy chính**): tạo *fine-grained personal access token* (GitHub → Settings → Developer settings),
+  chọn **chỉ repo `tempohie-spec/etsy`**, quyền **Contents: Read and write**, đặt ngày hết hạn. Token lưu trong kho riêng của
+  Violentmonkey, chỉ gửi tới `api.github.com` qua header; thu hồi ngay nếu nghi bị lộ. Nếu `main` bật bảo vệ nhánh thì cần cho phép
+  token này ghi trực tiếp, nếu không sẽ báo lỗi 403.
+- File chỉ nên chứa **phần quy tắc** (không cần câu mở đầu "You write Etsy listing titles"); các dòng bắt đầu bằng `Reply with,` bị bỏ
+  khi gọi API vì API trả kết quả qua công cụ riêng.
+
 ### ✨ Gọi Claude API (Haiku) từ script: 1 nút, có tính token và tiền (v9.80)
 
 Ở **máy chính**, trang listing nguồn, bấm **✨ Claude API viết lại tiêu đề** (hoặc **Alt+H**): script gửi **ảnh sản phẩm đầu tiên + tiêu đề gốc** tới Claude API (mặc định `claude-haiku-5-5`), nhận **2–3 phương án** (có ⭐ đề xuất + 1 dòng lý do tiếng Việt), bạn chọn/sửa tay rồi bấm **Dùng tiêu đề đã chọn** → script chạy như Alt+C với tiêu đề đó (tiêu đề gốc đi kèm, dán ở máy ảo như phần v9.76).
