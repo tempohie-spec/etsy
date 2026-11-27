@@ -634,6 +634,26 @@ function donKiemCost(rows) {
   });
 }
 
+// Don co AC "Loi..." (vd "Loi dia chi: ...", webhook Merchize ghi) nhung da nam tren Merchize (AD co ma RX) trong SO_NGAY_CAP_NHAT ngay:
+// khi da xu ly xong (co tracking, hoac Merchize da chuyen sang san xuat / giao hang) thi tu dien lai "Merchize".
+function donLoiDaCoRx(rows) {
+  const moc = new Date();
+  moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
+  const map = new Map();
+  rows.forEach((row, i) => {
+    const ma = cell(row, COL.orderNumber);
+    if (i === 0 || !ma) return;
+    if (!map.has(ma)) map.set(ma, []);
+    map.get(ma).push({ rowNumber: i + 1, row });
+  });
+  return Array.from(map.entries()).filter(([, dong]) => {
+    if (!dong.some(({ row }) => /^Lỗi/.test(cell(row, COL.status)))) return false;
+    if (!laRxNhieu(cell(dong[0].row, COL.merchizeId))) return false;
+    const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
+    return ngay && ngay >= moc;
+  });
+}
+
 // Gio Viet Nam (UTC+7) dang HH:MM.
 function gioVN(ms) {
   const d = new Date(ms + 7 * 3600000);
@@ -763,7 +783,7 @@ async function chayLich(env, event, tuyChon = {}) {
   const batDauBuoc = () => Date.now();
   const ketBuoc = (ten, t0) => { thoiGian[ten] = Math.round((Date.now() - t0) / 100) / 10; };
   const dem = taoBoDem();
-  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, zoo: [], zooCost: [], canXuLy: [] };
+  const thongKe = { tracking: [], cost: [], cho: 0, daTra: 0, zoo: [], zooCost: [], canXuLy: [], khoiPhuc: [] };
   // Moi muc thong ke: { tab, ma } (canXuLy them note) de tin Telegram ghi ro don nao cua tab nao.
   const daTraMa = new Set();
   const ghiNhan = (tab, ma, kq) => {
@@ -979,6 +999,17 @@ async function chayLich(env, event, tuyChon = {}) {
     tongCanTra += ds.length;
     try { costApi[tab] = JSON.parse((await env.EVENTS.get('apicost:' + tab)) || '{}') || {}; } catch (e) { costApi[tab] = {}; }
     const dsCost = donKiemCost(duLieu[tab] || []);
+    // Don co AC "Loi..." nhung da co ma RX: da co tracking thi coi nhu xu ly xong, tu dien lai "Merchize".
+    const khoiPhucDong = (ma, dong) => {
+      dong.forEach(({ rowNumber, row }) => {
+        if (/^Lỗi/.test(cell(row, COL.status))) { boGhi.dat(tab, rowNumber, COL.status, 'Merchize'); row[COL.status] = 'Merchize'; }
+      });
+      thongKe.khoiPhuc.push({ tab, ma });
+    };
+    const dsLoiCho = [];
+    donLoiDaCoRx(duLieu[tab] || []).forEach(([ma, dong]) => {
+      if (dong.some(({ row }) => cell(row, COL.tracking))) khoiPhucDong(ma, dong); else dsLoiCho.push([ma, dong]);
+    });
     giuCost[tab] = new Set(ds.concat(dsCost).map(([ma]) => ma));
     tatCaCanTra.push(...ds.map(([ma, dong]) => ({ tab, ma, r0: dong[0].row })));
     const laRx = (v) => /^[A-Z]{2}-\d+-\d+$/.test(v);
@@ -987,10 +1018,18 @@ async function chayLich(env, event, tuyChon = {}) {
     // - ffm_cost.total = tong Merchize tru that (gom ca phu phi nhu usps_peak_surcharge) -> Base Cost.
     const coFfm = new Set();
     const donTach = new Set(); // don Etsy tach thanh nhieu don Merchize (ma + chu cai): luon tra lai tracking de bat don con moi
-    if ((ds.length || dsCost.length) && dem.n < GIOI_HAN_REQUEST - 10) {
+    if ((ds.length || dsCost.length || dsLoiCho.length) && dem.n < GIOI_HAN_REQUEST - 10) {
       try {
         const kq = await merchizeGetRaw(dem, store, '/order/orders/search/v3?' + QUERY_DON_MOI);
         shopOk(tab);
+        // Don loi chua co tracking nhung Merchize da chuyen sang san xuat / giao hang: loi da xu ly xong.
+        if (dsLoiCho.length) {
+          const tienTrinh = {};
+          ((kq && kq.orders) || []).forEach((o) => { if (!donBiHuy(o)) tienTrinh[str(o.code)] = str(o.order_progress_status); });
+          dsLoiCho.forEach(([ma, dong]) => {
+            if (tachRx(cell(dong[0].row, COL.merchizeId)).some((c) => /production|shipp|deliver|complet/i.test(tienTrinh[c] || ''))) khoiPhucDong(ma, dong);
+          });
+        }
         const rxTheoMa = {};
         const ffmTheoMa = {};
         // Don Etsy bi tach thanh nhieu don Merchize: ma Etsy + 1 chu cai (4238855261a, ...b). Chi dung khi KHONG co
@@ -1156,7 +1195,7 @@ async function chayLich(env, event, tuyChon = {}) {
   };
   const muc = (tieuDe, arr) => (arr.length ? `${tieuDe}: ${arr.length} đơn\n${theoTab(arr)}` : '');
   const coMoi = thongKe.tracking.length || thongKe.cost.length || thongKe.cho || thongKe.zoo.length || thongKe.zooCost.length ||
-    thongKe.canXuLy.length;
+    thongKe.canXuLy.length || thongKe.khoiPhuc.length;
   const dsShopLoi = tabs.filter((t) => trangThaiShop[t] && trangThaiShop[t].loi);
   const dsShopOk = tabs.filter((t) => trangThaiShop[t] && trangThaiShop[t].ok && !trangThaiShop[t].loi);
   await guiTelegram(env, dem, [
@@ -1167,6 +1206,7 @@ async function chayLich(env, event, tuyChon = {}) {
     muc('Cost thật', thongKe.cost),
     muc('Tracking ZooTop mới', thongKe.zoo),
     muc('Cost ZooTop', thongKe.zooCost),
+    muc('Tự điền lại "Merchize" (đã xử lý lỗi)', thongKe.khoiPhuc),
     thongKe.canXuLy.length ? `🛑 Đơn cần xử lý trên Merchize: ${thongKe.canXuLy.length}\n` +
       thongKe.canXuLy.map((x) => `  • ${x.tab} | ${x.ma}: ${x.note || 'xem trên Merchize'}`).join('\n') : '',
     thongKe.cho ? `Ghi bù thông báo chờ: ${thongKe.cho}` : '',
