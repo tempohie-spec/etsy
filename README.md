@@ -2486,10 +2486,9 @@ sau lỗi giống hệt cho đến khi F5. Console có `net::ERR_CONNECTION_CLOS
 1. Nếu sau khi bấm Complete order mà modal **không đóng** (hoặc nút gửi kẹt ở trạng thái quay/khoá) → script coi là
    Etsy không nhận lệnh, **dừng cả lượt ngay**, đóng modal và báo đỏ "bấm F5 rồi Bắt đầu lại" (không còn chạy tiếp
    các đơn sau để chúng lỗi dây chuyền). Sau F5 bấm Bắt đầu lại: đơn đã điền xong không còn nút Complete order nên tự bỏ qua.
-2. (v3.15.1) Từ lúc **modal mở ra cho tới lúc bấm Complete order**, tổng thời gian thao tác là **ngẫu nhiên 2–5 giây**
-   (giống người thật). Các bước khác — quét đơn, tra tracking, nghỉ giữa các đơn (2 giây sau mỗi đơn đã điền, 0,15 giây
-   với đơn bỏ qua) — **giữ nguyên như trước**. Nếu các bước điền đã mất lâu hơn mức ngẫu nhiên thì không chờ thêm.
-   Bấm Dừng trong lúc chờ vẫn thoát ngay.
+2. (v3.15.2) Trong modal, **mỗi thao tác — chọn DVVC, điền tracking, bấm Complete order — cách nhau ngẫu nhiên
+   2–5 giây** (giống người thật; tổng khoảng 6–15 giây/đơn). Các bước khác — quét đơn, tra tracking, nghỉ giữa các
+   đơn (2 giây sau mỗi đơn đã điền, 0,15 giây với đơn bỏ qua) — **giữ nguyên như trước**. Bấm Dừng trong lúc chờ vẫn thoát ngay.
 
 ## Đóng bảng "Order details" sau mỗi đơn
 
