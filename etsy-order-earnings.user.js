@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Order Scraper + Earnings -> Excel
 // @namespace    etsy-order-scraper
-// @version      3.15.3
+// @version      3.16
 // @description  Quet don hang Etsy + Earnings tung don + xuat Excel, VA tu dong dien tracking/hang van chuyen tu Google Sheet cho cac don tren trang /your/orders/sold (gop tu script "Etsy Auto Tracking"). Giao dien co the thu nho thanh 1 bieu tuong "Order" va keo tha tu do.
 // @match        https://www.etsy.com/your/orders*
 // @grant        GM_setValue
@@ -1563,12 +1563,13 @@
     const GUI_LOI_MSG = 'Etsy khong nhan yeu cau gui';
     const laLoiGui = (e) => !!e && e.message === GUI_LOI_MSG;
 
-    // TONG thoi gian tu luc modal mo toi luc bam Complete order la NGAU NHIEN 2-5 giay; 3 thao tac (chon DVVC,
+    // TONG thoi gian tu luc modal mo toi luc bam Complete order la 2 giay (TONG_THAO_TAC_MODAL_MS); 3 thao tac (chon DVVC,
     // dien tracking, bam Complete) moi thao tac bat dau o 1 thoi diem NGAU NHIEN trong khoang do (giong nguoi
     // that, tranh bi Etsy chan). Cac buoc cho khac giu nguyen; thao tac nao den som hon thoi diem thi doi,
     // tre hon thi chay luon. Chia nho de bam Dung thoat ngay.
+    const TONG_THAO_TAC_MODAL_MS = 2000; // tong tu luc modal mo toi luc bam Complete (tu v3.16; truoc do ngau nhien 2-5s)
     function lapLichModal(batDau) {
-      const tong = 2000 + Math.floor(Math.random() * 3001);
+      const tong = TONG_THAO_TAC_MODAL_MS;
       const t1 = tong * (0.2 + Math.random() * 0.6); // bat dau chon DVVC
       const t2 = t1 + (tong - t1) * (0.2 + Math.random() * 0.6); // bat dau dien tracking
       return { t1, t2, t3: tong, choDen: async (t) => {
@@ -1821,7 +1822,7 @@
         if (laLoiDung(e)) throw e;
         throw new Error(GUI_LOI_MSG); // nut ket o trang thai quay/khoa
       }
-      await lich.choDen(lich.t3); // thao tac 3: bam Complete order (tong 2-5s ke tu luc modal mo)
+      await lich.choDen(lich.t3); // thao tac 3: bam Complete order (tong 2s ke tu luc modal mo)
       submitBtn.click();
 
       try {
