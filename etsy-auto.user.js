@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.81
+// @version      9.82
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -25,7 +25,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.81';
+  const PHIEN_BAN = '9.82';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1787,21 +1787,40 @@ ${quyTac}
 Return the options only through the tool: "ly_do" is one short Vietnamese line (character and word counts + the Etsy rule applied); mark the recommended option with de_xuat=true; "thieu_thong_tin" is one short Vietnamese line about missing info that would help (or an empty string).`;
   }
 
-  // ---- Quy tac tieu de lay tu repo (v9.81) ----
-  // File title-rules.md tren nhanh main la NGUON QUY TAC chinh thuc (nguoi dung "day" quy tac o Project Claude roi dua vao day qua nut 📚).
+  // ---- Quy tac tieu de lay tu repo (v9.81, v9.82: sang REPO RIENG) ----
+  // File title-rules.md trong repo RIENG "etsy-title-rules" la NGUON QUY TAC chinh thuc (nguoi dung "day" quy tac o Project Claude roi
+  // dua vao day qua nut 📚). LY DO TACH REPO: repo etsy chua chinh file script (@updateURL tro vao main), nen token co quyen ghi repo do
+  // sua duoc CA CODE chay tren moi may; token cua repo quy tac chi sua duoc 1 file chu.
   // Moi lan goi API: dung ban cache neu moi (<5 phut), khong thi tai lai; loi mang -> dung cache cu; chua tung tai duoc -> rule co san.
-  const URL_QUY_TAC_RAW = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/title-rules.md';
-  const GITHUB_REPO = 'tempohie-spec/etsy';
+  const GITHUB_REPO = 'tempohie-spec/etsy-title-rules';
+  const GITHUB_NHANH_QUY_TAC = 'main';
   const GITHUB_FILE_QUY_TAC = 'title-rules.md';
+  const URL_QUY_TAC_RAW = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_NHANH_QUY_TAC}/${GITHUB_FILE_QUY_TAC}`;
+  // Vi tri CU (v9.81, trong repo etsy) — chi dung de dien san noi dung khi chuyen sang repo moi (nut "Tai quy tac hien tai")
+  const URL_QUY_TAC_CU = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/title-rules.md';
+  const GIOI_HAN_QUY_TAC = 12000; // ky tu; file lon hon bi bo qua (tranh prompt khong lo -> ton token moi lan goi)
   const KHOA_QUY_TAC_CACHE = 'etsy_auto_quy_tac_cache_v1'; // { text, luc }
-  const KHOA_GITHUB_TOKEN = 'etsy_auto_github_token_v1';
+  const KHOA_GITHUB_TOKEN = 'etsy_auto_github_token_quytac_v2'; // token CHI cho repo quy tac
+  const KHOA_GITHUB_TOKEN_CU = 'etsy_auto_github_token_v1'; // v9.81: token co the co quyen ghi repo etsy (chua script) -> bi xoa khi nap v9.82
   const TTL_QUY_TAC_MS = 5 * 60 * 1000;
 
   function docKeyGithub() {
     return String(docGiaTriLuu(KHOA_GITHUB_TOKEN) || '').trim();
   }
 
-  function taiQuyTacTuRepo() {
+  // v9.82: xoa token GitHub cu cua v9.81 khoi script (neu co) va bao nguoi dung thu hoi tren GitHub
+  function xoaTokenGithubCu() {
+    if (!String(docGiaTriLuu(KHOA_GITHUB_TOKEN_CU) || '').trim()) return;
+    luuGiaTri(KHOA_GITHUB_TOKEN_CU, '');
+    hienThongBao(
+      '🔐 v9.82: đã xoá GitHub token cũ (có thể ghi được repo chứa script) khỏi script. Hãy vào GitHub → Settings → Developer settings → thu hồi (Revoke) token đó. Quy tắc tiêu đề giờ ở repo riêng tempohie-spec/etsy-title-rules, cần token mới chỉ cho repo đó (nút 📚).',
+      '#B45309',
+      0
+    );
+  }
+
+  // Doc 1 URL (khong token): tra ve text; loi -> reject
+  function taiVanBan(url, headers, thoiHan = 15000) {
     return new Promise((resolve, reject) => {
       if (typeof GM_xmlhttpRequest !== 'function') {
         reject(new Error('Thiếu quyền GM_xmlhttpRequest'));
@@ -1809,18 +1828,37 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
       }
       GM_xmlhttpRequest({
         method: 'GET',
-        url: `${URL_QUY_TAC_RAW}?t=${Date.now()}`,
+        url,
         anonymous: true,
-        timeout: 15000,
+        timeout: thoiHan,
+        headers,
         onload: (res) => {
           const text = String(res.responseText || '').trim();
-          if (res.status >= 200 && res.status < 300 && text.length >= 20) resolve(text);
-          else reject(new Error('HTTP ' + res.status));
+          if (res.status < 200 || res.status >= 300) reject(new Error('HTTP ' + res.status));
+          else if (text.length < 20) reject(new Error('file quá ngắn / trống'));
+          else if (text.length > GIOI_HAN_QUY_TAC) reject(new Error(`file dài ${text.length} ký tự, quá giới hạn ${GIOI_HAN_QUY_TAC}`));
+          else resolve(text);
         },
         onerror: () => reject(new Error('lỗi mạng')),
         ontimeout: () => reject(new Error('quá thời gian')),
       });
     });
+  }
+
+  // Co token: doc qua API (dung duoc ca khi repo la PRIVATE); khong duoc thi thu doc cong khai (raw). Khong token: chi doc raw.
+  async function taiQuyTacTuRepo() {
+    const token = docKeyGithub();
+    if (token) {
+      try {
+        return await taiVanBan(
+          `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE_QUY_TAC}?ref=${GITHUB_NHANH_QUY_TAC}`,
+          { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.raw+json', 'X-GitHub-Api-Version': '2022-11-28' }
+        );
+      } catch (e) {
+        console.warn('[Etsy Auto] Đọc quy tắc qua API GitHub lỗi, thử đọc công khai:', e.message);
+      }
+    }
+    return taiVanBan(`${URL_QUY_TAC_RAW}?t=${Date.now()}`);
   }
 
   // -> { text, nguon: 'repo' | 'cache' | 'mac-dinh' }
@@ -1832,7 +1870,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
       luuGiaTri(KHOA_QUY_TAC_CACHE, JSON.stringify({ text, luc: Date.now() }));
       return { text, nguon: 'repo' };
     } catch (e) {
-      console.warn('[Etsy Auto] Không tải được title-rules.md:', e.message);
+      console.warn('[Etsy Auto] Không tải được title-rules.md từ repo quy tắc:', e.message);
       return cache.text ? { text: cache.text, nguon: 'cache' } : { text: RULE_TIEU_DE_CLAUDE, nguon: 'mac-dinh' };
     }
   }
@@ -1865,17 +1903,17 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
 
   function dichLoiGithub(ma, msg) {
     if (ma === 401) return 'Token GitHub sai hoặc hết hạn (401).';
-    if (ma === 403) return 'Token không đủ quyền ghi, hoặc nhánh main bị khoá (403). Cần fine-grained token cho repo tempohie-spec/etsy với quyền Contents: Read and write.';
-    if (ma === 404) return 'Không thấy repo/file (404) — token chưa được cấp cho repo tempohie-spec/etsy.';
+    if (ma === 403) return `Token không đủ quyền ghi, hoặc nhánh main bị khoá (403). Cần fine-grained token CHỈ cho repo ${GITHUB_REPO} với quyền Contents: Read and write.`;
+    if (ma === 404) return `Không thấy repo (404) — repo ${GITHUB_REPO} chưa được tạo, hoặc token chưa được cấp cho repo đó.`;
     if (ma === 409 || ma === 422) return 'File vừa bị đổi ở nơi khác (xung đột) — bấm Lưu lại 1 lần nữa.';
     return `GitHub báo lỗi ${ma}${msg ? ': ' + String(msg).slice(0, 120) : ''}.`;
   }
 
-  // Ghi noi dung quy tac vao title-rules.md tren main (tao commit). -> { url }
+  // Ghi noi dung quy tac vao title-rules.md trong repo quy tac (tao commit). -> { url }
   async function luuQuyTacLenRepo(noiDung, token) {
     let sha;
     try {
-      const hienTai = await viGithubApi('GET', `${GITHUB_FILE_QUY_TAC}?ref=main`, token);
+      const hienTai = await viGithubApi('GET', `${GITHUB_FILE_QUY_TAC}?ref=${GITHUB_NHANH_QUY_TAC}`, token);
       sha = hienTai.sha;
     } catch (e) {
       if (!/\(404\)/.test(e.message)) throw e; // 404 = chua co file -> tao moi (neu token thieu quyen thi buoc PUT se bao loi)
@@ -1884,11 +1922,11 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
     const kq = await viGithubApi('PUT', GITHUB_FILE_QUY_TAC, token, {
       message: 'Cập nhật quy tắc tiêu đề (từ Project Etsy title, qua nút 📚 trong script)',
       content: b64,
-      branch: 'main',
+      branch: GITHUB_NHANH_QUY_TAC,
       ...(sha ? { sha } : {}),
     });
     luuGiaTri(KHOA_QUY_TAC_CACHE, JSON.stringify({ text: noiDung.trim(), luc: Date.now() }));
-    return { url: (kq.content && kq.content.html_url) || `https://github.com/${GITHUB_REPO}/blob/main/${GITHUB_FILE_QUY_TAC}` };
+    return { url: (kq.content && kq.content.html_url) || `https://github.com/${GITHUB_REPO}/blob/${GITHUB_NHANH_QUY_TAC}/${GITHUB_FILE_QUY_TAC}` };
   }
 
   const CONG_CU_API_CLAUDE = {
@@ -2194,7 +2232,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
     lop.innerHTML = `
       <div style="background:#fff;border-radius:12px;padding:16px 18px;width:min(640px,94vw);max-height:92vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;color:#111827;line-height:1.5;">
         <div style="font-weight:bold;font-size:15px;margin-bottom:6px;">📚 Cập nhật quy tắc tiêu đề vào repo</div>
-        <div style="color:#374151;margin-bottom:8px;">Quy tắc chính thức nằm ở file <b>title-rules.md</b> trên GitHub (nhánh main); nút ✨ Claude API đọc file này mỗi lần gọi. Script <b>không đọc được Project Claude</b>, nên: mở Project <b>Etsy title</b> → copy nội dung <i>Instructions</i> → dán vào ô dưới → bấm <b>Lưu vào repo</b> (tạo 1 commit lên main).</div>
+        <div style="color:#374151;margin-bottom:8px;">Quy tắc chính thức nằm ở file <b>title-rules.md</b> trong repo <b>${GITHUB_REPO}</b> (repo riêng, chỉ chứa quy tắc); nút ✨ Claude API đọc file này mỗi lần gọi. Script <b>không đọc được Project Claude</b>, nên: mở Project <b>Etsy title</b> → copy nội dung <i>Instructions</i> → dán vào ô dưới → bấm <b>Lưu vào repo</b> (tạo 1 commit).</div>
         <label style="display:block;font-weight:bold;">Quy tắc <span id="ea-qt-dem" style="font-weight:normal;color:#6B7280;"></span>
           <textarea id="ea-qt-text" spellcheck="false" style="${oNhap}height:260px;resize:vertical;font-family:ui-monospace,monospace;font-size:12px;"></textarea>
         </label>
@@ -2205,7 +2243,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
         <label style="display:block;font-weight:bold;margin-top:10px;">GitHub token <span id="ea-qt-dangco" style="font-weight:normal;"></span>
           <input id="ea-qt-token" type="password" autocomplete="new-password" spellcheck="false" style="${oNhap}" placeholder="github_pat_… (để trống = giữ token hiện tại)" value="">
         </label>
-        <div style="color:#92400E;font-size:12px;margin-top:3px;">Chỉ cần nhập 1 lần, <b>chỉ ở máy chính</b>. Tạo <b>fine-grained token</b> (GitHub → Settings → Developer settings), chọn <b>chỉ repo tempohie-spec/etsy</b>, quyền <b>Contents: Read and write</b>, đặt ngày hết hạn. Token lưu trong kho riêng của Violentmonkey, chỉ gửi tới api.github.com; thu hồi ngay nếu nghi bị lộ.</div>
+        <div style="color:#92400E;font-size:12px;margin-top:3px;">Chỉ cần nhập 1 lần, <b>chỉ ở máy chính</b>. Tạo <b>fine-grained token</b> (GitHub → Settings → Developer settings), chọn <b>chỉ repo ${GITHUB_REPO}</b> (<u>không</u> chọn repo <code>etsy</code> chứa script — token ghi được repo đó sửa được cả code chạy trên mọi máy), quyền <b>Contents: Read and write</b>, đặt ngày hết hạn. Token lưu trong kho riêng của Violentmonkey, chỉ gửi tới api.github.com; thu hồi ngay nếu nghi bị lộ.</div>
         <div id="ea-qt-tt" style="margin-top:8px;font-size:12px;color:#374151;white-space:pre-line;"></div>
         <div style="display:flex;justify-content:space-between;gap:8px;margin-top:12px;flex-wrap:wrap;">
           <button id="ea-qt-xoatoken" style="${nutPhu}color:#B91C1C;">Xoá token</button>
@@ -2229,6 +2267,17 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
     const taiHienTai = async () => {
       tt('Đang tải quy tắc từ repo...');
       const q = await layQuyTacTieuDe(true);
+      if (q.nguon !== 'repo') {
+        // Repo quy tac moi chua co file (hoac chua tao) -> thu lay noi dung o vi tri CU (repo etsy, v9.81) de dien san, nguoi dung bam Luu de chuyen sang repo moi
+        try {
+          const cu = await taiVanBan(`${URL_QUY_TAC_CU}?t=${Date.now()}`);
+          $('ea-qt-text').value = cu;
+          veDem();
+          return tt(`ℹ️ Repo ${GITHUB_REPO} chưa có file (hoặc chưa tạo / chưa có token đọc được). Đã điền sẵn quy tắc ở vị trí cũ (repo etsy) — bấm 💾 Lưu vào repo để chuyển sang repo mới.`, '#1D4ED8');
+        } catch (e) {
+          /* khong co ban cu -> hien ban co san / da luu ben duoi */
+        }
+      }
       $('ea-qt-text').value = q.text;
       veDem();
       tt(q.nguon === 'repo' ? '✅ Đã tải quy tắc hiện tại từ repo.' : '⚠️ Không tải được từ repo — đang hiện bản có sẵn/đã lưu.', q.nguon === 'repo' ? '#047857' : '#B45309');
@@ -2257,7 +2306,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
       if (tokenMoi && !/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(tokenMoi)) return tt('❌ Token không đúng dạng (github_pat_… hoặc ghp_…).', '#DC2626');
       const token = tokenMoi || docKeyGithub();
       if (!token) return tt('❌ Chưa có GitHub token — nhập token ở ô trên.', '#DC2626');
-      if (!window.confirm(`Ghi ${noiDung.length} ký tự vào ${GITHUB_FILE_QUY_TAC} trên nhánh main của ${GITHUB_REPO}?\n(Lưu thành 1 commit, có lịch sử để xem lại.)`)) return;
+      if (!window.confirm(`Ghi ${noiDung.length} ký tự vào ${GITHUB_FILE_QUY_TAC} trên nhánh ${GITHUB_NHANH_QUY_TAC} của ${GITHUB_REPO}?\n(Lưu thành 1 commit, có lịch sử để xem lại.)`)) return;
       $('ea-qt-luu').disabled = true;
       tt('Đang lưu lên GitHub...');
       try {
@@ -7862,6 +7911,8 @@ function doGet(e) {
       duong.includes('/your/shops/me/listing-editor')
     );
   }
+
+  xoaTokenGithubCu(); // v9.82: bo token GitHub cu (v9.81) neu con
 
   if (trangDuocHoTro()) {
     taoGiaoDien();
