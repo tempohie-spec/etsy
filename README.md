@@ -841,7 +841,7 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 1. Trên GitHub tạo repo **`etsy-title-rules`** (nên để **Private**; tích *Add a README* để có nhánh `main`).
 2. GitHub → Settings → Developer settings → Fine-grained tokens → tạo token **chỉ cho repo `etsy-title-rules`**, quyền **Contents: Read and write**, đặt ngày hết hạn. **Thu hồi token cũ** của v9.81 (nếu có).
 3. Ở máy chính: 📚 → dán token → (quy tắc sẽ tự điền từ vị trí cũ) → **💾 Lưu vào repo**.
-4. Xong thì xoá `title-rules.md` khỏi repo `etsy` (hoặc nhờ Claude xoá).
+4. ✅ `title-rules.md` đã được chép sang repo `etsy-title-rules` và **đã xoá khỏi repo `etsy`** (nội dung ban đầu giống bản có sẵn trong script), nên bước 3 chỉ cần khi bạn muốn sửa quy tắc bằng nút 📚; chỉ đọc quy tắc từ repo private thì cần token ở máy chính.
 
 ### 📚 Quy tắc tiêu đề lấy từ file `title-rules.md` trong repo + nút cập nhật (v9.81)
 
