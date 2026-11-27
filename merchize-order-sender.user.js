@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.72
+// @version      1.73
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.72';
+  const SCRIPT_VERSION = '1.73';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -935,6 +935,34 @@
   // Ban sao cua don voi cot A doi sang kieu in `pm`.
   const donDoiKieuIn = (don, pm) => ({ ...don, rows: don.rows.map(({ rowNumber, r }) => ({ rowNumber, r: Object.assign(r.slice(), { [COL.printingMethod]: pm }) })) });
 
+  // ============ NHO KIEU IN THEO LINK MOCKUP ============
+  // GM "mz_nho_kieu_in": { "<link mockup>": "DTG" | "DTF" }. Don co (cac) link mockup da nho thi tu ap dung kieu in da nho, khong hoi lai.
+  function docKieuInDaNho() {
+    try { return JSON.parse(GM_getValue('mz_nho_kieu_in', '{}')) || {}; } catch (e) { return {}; }
+  }
+  const cacLinkMockup = (don) => Array.from(new Set(don.rows.map(({ r }) => cell(r, COL.mockUpFront)).filter(laLink)));
+  // Kieu in da nho cua don: moi link mockup cua don deu da nho va cung 1 kieu, nguoc lai ''.
+  function kieuInDaNho(don, nho) {
+    const links = cacLinkMockup(don);
+    if (!links.length || !nho) return '';
+    const kieu = new Set(links.map((l) => nho[l] || ''));
+    return kieu.size === 1 && (kieu.has('DTG') || kieu.has('DTF')) ? Array.from(kieu)[0] : '';
+  }
+  function luuKieuInNho(don, pm) {
+    const nho = docKieuInDaNho();
+    cacLinkMockup(don).forEach((l) => { nho[l] = pm; });
+    GM_setValue('mz_nho_kieu_in', JSON.stringify(nho));
+  }
+  // Quyet dinh kieu in cho don: kieu da nho (neu co gia / SKU) thi tu ap dung (tuDong), khong thi chon kieu re hon.
+  function quyetDinhKieuIn(don, ung, nho) {
+    const pmNho = kieuInDaNho(don, nho);
+    if (pmNho && ung.some((x) => x.pm === pmNho)) {
+      if (don.rows.every(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) === pmNho)) return null;
+      return { nen: ung.find((x) => x.pm === pmNho), tietKiem: null, tuDong: true };
+    }
+    return chonKieuRe(don, ung);
+  }
+
   // Chon kieu in re nhat cho don trong cac kieu co gia (ung: [{ pm, gia }]). Tra ve { nen, tietKiem } hoac null neu don da o kieu re nhat
   // (hoac 2 kieu bang gia). Don dang in 1 kieu: tietKiem = chenh lech so voi kieu hien tai (null neu kieu hien tai khong co gia).
   function chonKieuRe(don, ung) {
@@ -948,7 +976,7 @@
   }
 
   // Goi y cho cac don ZooTop tu tra SKU: doi sang kieu in re hon (DTG sang DTF hoac nguoc lai).
-  function tinhGoiYKieuIn(dsDon, bangZoo, bangGia) {
+  function tinhGoiYKieuIn(dsDon, bangZoo, bangGia, nho) {
     const kq = [];
     dsDon.forEach((d) => {
       if (!d.zooSkus || (d.skuTay && d.skuTay.some(Boolean))) return;
@@ -957,10 +985,10 @@
       if (!ung.length) return;
       const dtg = ung.find((x) => x.pm === 'DTG');
       const dtf = ung.find((x) => x.pm === 'DTF');
-      const c = chonKieuRe(d, ung);
+      const c = quyetDinhKieuIn(d, ung, nho);
       if (!c) return;
       const hienTai = Array.from(new Set(d.rows.map(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) || '?'))).join('+');
-      kq.push({ don: d, moi: c.nen.pm, hienTai, giaDtg: dtg ? dtg.gia : null, giaDtf: dtf ? dtf.gia : null, tietKiem: c.tietKiem, ncc: 'ZooTop' });
+      kq.push({ don: d, moi: c.nen.pm, hienTai, giaDtg: dtg ? dtg.gia : null, giaDtf: dtf ? dtf.gia : null, tietKiem: c.tietKiem, tuDong: !!c.tuDong, ncc: 'ZooTop' });
     });
     return kq;
   }
@@ -1017,7 +1045,7 @@
   }
 
   // Goi y kieu in cho cac don Merchize hop le: doi sang kieu in re hon (DTG sang DTF hoac nguoc lai).
-  function tinhGoiYMerchize(dsDon, bangGia) {
+  function tinhGoiYMerchize(dsDon, bangGia, nho) {
     const kq = [];
     dsDon.forEach(({ d, skus }) => {
       if (d.rows.some(({ r }) => !phuongPhapIn(cell(r, COL.printingMethod)))) return; // cot A khong phai DTG/DTF: khong biet kieu in hien tai
@@ -1027,10 +1055,10 @@
       if (!ung.length) return;
       const dtg = ung.find((x) => x.pm === 'DTG');
       const dtf = ung.find((x) => x.pm === 'DTF');
-      const c = chonKieuRe(d, ung);
+      const c = quyetDinhKieuIn(d, ung, nho);
       if (!c) return;
       const hienTai = Array.from(new Set(d.rows.map(({ r }) => phuongPhapIn(cell(r, COL.printingMethod))))).join('+');
-      kq.push({ don: d, moi: c.nen.pm, hienTai, giaDtg: dtg ? dtg.gia : null, giaDtf: dtf ? dtf.gia : null, tietKiem: c.tietKiem, ncc: 'Merchize' });
+      kq.push({ don: d, moi: c.nen.pm, hienTai, giaDtg: dtg ? dtg.gia : null, giaDtf: dtf ? dtf.gia : null, tietKiem: c.tietKiem, tuDong: !!c.tuDong, ncc: 'Merchize' });
     });
     return kq;
   }
@@ -1087,11 +1115,27 @@
           if (cacLink.length > 8) khungAnh.appendChild(el('span', 'font-size:11px;color:#666;align-self:center;', `+${cacLink.length - 8}`));
           dong.appendChild(khungAnh);
         }
-        dong.appendChild(el('span', 'flex:1;', `${g.ncc ? '[' + g.ncc + '] ' : ''}${g.don.orderNumber}: ${g.hienTai} → ${g.moi}${g.tietKiem != null ? `, tiết kiệm ${g.tietKiem.toFixed(2)}$` : ''}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
+        const cotChu = el('div', 'flex:1;');
+        cotChu.appendChild(el('div', '', `${g.ncc ? '[' + g.ncc + '] ' : ''}${g.don.orderNumber}: ${g.hienTai} → ${g.moi}${g.tietKiem != null ? `, tiết kiệm ${g.tietKiem.toFixed(2)}$` : ''}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
+        // Nho kieu in cua link mockup: lan sau don co mockup nay tu dung kieu in ban chon (tich doi = DTF/DTG moi, khong tich = giu kieu hien tai).
+        const nhanNho = el('label', 'display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#555;margin-top:3px;cursor:pointer;');
+        const cbNho = document.createElement('input');
+        cbNho.type = 'checkbox';
+        cbNho.style.margin = '0';
+        nhanNho.appendChild(cbNho);
+        nhanNho.appendChild(document.createTextNode('Nhớ kiểu in của mockup này'));
+        cotChu.appendChild(nhanNho);
+        dong.appendChild(cotChu);
         hop.appendChild(dong);
-        return { g, cb, nhan };
+        return { g, cb, nhan, cbNho };
       });
       const datNhan = () => o.forEach(({ g, cb, nhan }) => { nhan.textContent = cb.checked ? g.moi : ''; });
+      const soNho = Object.keys(docKieuInDaNho()).length;
+      if (soNho) {
+        const xoaNho = el('button', 'border:none;background:transparent;color:#1565c0;font-size:11px;cursor:pointer;padding:6px 0 0;text-decoration:underline;', `Xóa ${soNho} mockup đã nhớ kiểu in`);
+        xoaNho.addEventListener('click', () => { GM_setValue('mz_nho_kieu_in', '{}'); xoaNho.textContent = 'Đã xóa các kiểu in đã nhớ.'; xoaNho.disabled = true; });
+        hop.appendChild(xoaNho);
+      }
       const ap = nut('Chốt và Gửi đơn', '#4CAF50');
       ap.style.marginTop = '10px';
       ap.style.marginBottom = '0';
@@ -1104,7 +1148,11 @@
       nutTat.addEventListener('click', () => xong(null));
       cbTatCa.addEventListener('change', () => { o.forEach(({ cb }) => { cb.checked = cbTatCa.checked; }); datNhan(); });
       o.forEach(({ cb }) => cb.addEventListener('change', () => { cbTatCa.checked = o.every((x) => x.cb.checked); datNhan(); }));
-      ap.addEventListener('click', () => xong(new Set(o.filter(({ cb }) => cb.checked).map(({ g }) => g.don.orderNumber))));
+      ap.addEventListener('click', () => {
+        const kq = new Set(o.filter(({ cb }) => cb.checked).map(({ g }) => g.don.orderNumber));
+        kq.nho = new Set(o.filter(({ cbNho }) => cbNho.checked).map(({ g }) => g.don.orderNumber));
+        xong(kq);
+      });
     });
   }
 
@@ -1278,10 +1326,11 @@
     let ghiChuGia = '';
     if (guiThat) {
       try {
+        const nho = docKieuInDaNho();
         let goiYZoo = [];
         if (zooTarget) {
           try {
-            goiYZoo = tinhGoiYKieuIn(tatCa, bangZoo, await docBangGia());
+            goiYZoo = tinhGoiYKieuIn(tatCa, bangZoo, await docBangGia(), nho);
           } catch (e) { ghiChuGia = 'Không gợi ý được kiểu in ZooTop (giữ nguyên): ' + e.message.slice(0, 120); }
         }
         let goiYMz = [];
@@ -1289,12 +1338,21 @@
           const bangGiaMz = await docBangGiaMerchize();
           const ungMz = tatCa.filter((d) => !d.zooSkus && !d.loiChiDinh).map((d) => ({ d, kq: dungDon(d, catalog, title) }))
             .filter((x) => x.kq.loi.length === 0).map((x) => ({ d: x.d, skus: x.kq.skus }));
-          goiYMz = tinhGoiYMerchize(ungMz, bangGiaMz);
+          goiYMz = tinhGoiYMerchize(ungMz, bangGiaMz, nho);
         } catch (e) { ghiChuGia = (ghiChuGia ? ghiChuGia + ' ' : '') + 'Không gợi ý được kiểu in Merchize (giữ nguyên): ' + e.message.slice(0, 120); }
-        const goiY = goiYZoo.concat(goiYMz);
+        const goiYTatCa = goiYZoo.concat(goiYMz);
+        const goiYTuDong = goiYTatCa.filter((g) => g.tuDong); // kieu in da nho: tu ap dung, khong hoi
+        const goiY = goiYTatCa.filter((g) => !g.tuDong);
         const chon = goiY.length ? await hoiDoiKieuIn(goiY) : new Set();
         if (chon === null) return 'Đã tắt bảng gợi ý kiểu in, chưa gửi đơn nào.';
-        const duocDoi = goiY.filter((g) => chon.has(g.don.orderNumber));
+        // Luu kieu in cua cac mockup duoc tich "Nho": don duoc tich doi = kieu in moi, khong tich = giu kieu hien tai.
+        if (chon.nho) {
+          goiY.filter((g) => chon.nho.has(g.don.orderNumber)).forEach((g) => {
+            const pm = chon.has(g.don.orderNumber) ? g.moi : (/^(DTG|DTF)$/.test(g.hienTai) ? g.hienTai : '');
+            if (pm) luuKieuInNho(g.don, pm);
+          });
+        }
+        const duocDoi = goiY.filter((g) => chon.has(g.don.orderNumber)).concat(goiYTuDong);
         duocDoi.forEach((g) => {
           const moi = donDoiKieuIn(g.don, g.moi);
           const i2 = tatCa.indexOf(g.don);
@@ -1302,7 +1360,8 @@
           moi.rows.forEach(({ rowNumber }) => ghiA.push({ row: rowNumber, pm: g.moi }));
         });
         const tongTietKiem = Math.round(duocDoi.reduce((t, g) => t + (g.tietKiem || 0), 0) * 100) / 100;
-        if (goiY.length) ghiChuGia = (ghiChuGia ? ghiChuGia + ' ' : '') + `Gợi ý đổi kiểu in: ${goiY.length} đơn, đã đổi ${duocDoi.length}` + (duocDoi.length ? `, tiết kiệm ${tongTietKiem.toFixed(2)}$` : '') + '.';
+        if (goiY.length) ghiChuGia = (ghiChuGia ? ghiChuGia + ' ' : '') + `Gợi ý đổi kiểu in: ${goiY.length} đơn, đã đổi ${duocDoi.length - goiYTuDong.length}` + (tongTietKiem > 0 ? `, tiết kiệm ${tongTietKiem.toFixed(2)}$` : '') + '.';
+        if (goiYTuDong.length) ghiChuGia = (ghiChuGia ? ghiChuGia + ' ' : '') + `Tự áp dụng kiểu in đã nhớ: ${goiYTuDong.length} đơn (${goiYTuDong.slice(0, 10).map((g) => g.don.orderNumber + ' → ' + g.moi).join(', ')}).`;
       } catch (e) {
         ghiChuGia = 'Không gợi ý được kiểu in (giữ nguyên): ' + e.message.slice(0, 150);
       }
