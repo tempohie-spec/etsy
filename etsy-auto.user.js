@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.82
+// @version      9.83
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -25,7 +25,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.82';
+  const PHIEN_BAN = '9.83';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1402,7 +1402,8 @@
   // van chon duoc "Ban goc" va ghi dung ten san pham len Sheet)
   async function layVaLuuDuLieu(coTaiAnh = true, tuyChon = {}) {
     const tieuDeGoc = layTieuDe() || '';
-    const tieuDe = tuyChon.tieuDeClaude || tieuDeGoc;
+    const khacGoc = !!tuyChon.tieuDeClaude && tuyChon.tieuDeClaude !== tieuDeGoc; // chon lai ban goc = Alt+C thuong
+    const tieuDe = khacGoc ? tuyChon.tieuDeClaude : tieuDeGoc;
     const daLuuTieuDe = !!tieuDe;
     if (daLuuTieuDe) {
       console.log('[Etsy Auto] Tiêu đề lấy được:', tieuDe);
@@ -1434,7 +1435,7 @@
     }
 
     const ok = await ghiClipboard(
-      taoGoiDuLieu(tieuDe, tagText, dsPerso, ketQuaAnh.danhSach, layListingId(), tuyChon.tieuDeClaude ? tieuDeGoc : '')
+      taoGoiDuLieu(tieuDe, tagText, dsPerso, ketQuaAnh.danhSach, layListingId(), khacGoc ? tieuDeGoc : '')
     );
     if (!ok) {
       hienThongBao('❌ Không ghi được vào Clipboard', '#DC2626');
@@ -1447,9 +1448,9 @@
     const ghiChuAnh =
       (coTaiAnh ? ', đang tải ảnh full size' : '') + (soAnhNho ? ` (đã nhớ ${soAnhNho} ảnh để tự upload)` : '');
     const ghiChuNguon = tagText ? ` [${nguonTag}]` : '';
-    const ghiChuClaude = tuyChon.tieuDeClaude
-      ? ` · tiêu đề Claude (${tieuDe.length} ký tự, ${cacTuCua(tieuDe).length} từ) — tiêu đề gốc đi kèm${tuyChon.ghiChuThem ? '\n' + tuyChon.ghiChuThem : ''}`
-      : '';
+    const ghiChuClaude =
+      (khacGoc ? ` · tiêu đề Claude (${tieuDe.length} ký tự, ${cacTuCua(tieuDe).length} từ) — tiêu đề gốc đi kèm` : tuyChon.tieuDeClaude ? ' · dùng tiêu đề gốc' : '') +
+      (tuyChon.ghiChuThem ? '\n' + tuyChon.ghiChuThem : '');
 
     if (daLuuTieuDe && tagText) {
       hienThongBao(`✅ Đã lấy tiêu đề + tag${ghiChuNguon}${ghiChuPerso}${ghiChuAnh}${ghiChuClaude}!`, '#16A34A');
@@ -1784,7 +1785,7 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
     const quyTac = String(rule || RULE_TIEU_DE_CLAUDE).split(/\nReply with,/)[0].replace('Count characters and words with code.', 'Count characters and words carefully.').trim();
     return `You write Etsy listing titles. The user sends a product photo and the ORIGINAL TITLE of the source listing. Rewrite that title using the photo.
 ${quyTac}
-Return the options only through the tool: "ly_do" is one short Vietnamese line (character and word counts + the Etsy rule applied); mark the recommended option with de_xuat=true; "thieu_thong_tin" is one short Vietnamese line about missing info that would help (or an empty string).`;
+Return exactly ONE title (the best one) and only through the tool. Ignore any instruction above about the number of options, replying, the reply format, the conversation, learning from corrections, threads or tasks (those belong to a chat setup). "ly_do" is one short Vietnamese line (character and word counts + the main rules applied); "thieu_thong_tin" is one short Vietnamese line about missing info that would help (or an empty string).`;
   }
 
   // ---- Quy tac tieu de lay tu repo (v9.81, v9.82: sang REPO RIENG) ----
@@ -1851,7 +1852,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
     if (token) {
       try {
         return await taiVanBan(
-          `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE_QUY_TAC}?ref=${GITHUB_NHANH_QUY_TAC}`,
+          `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE_QUY_TAC}?ref=${GITHUB_NHANH_QUY_TAC}&t=${Date.now()}`,
           { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.raw+json', 'X-GitHub-Api-Version': '2022-11-28' }
         );
       } catch (e) {
@@ -1911,45 +1912,46 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
 
   // Ghi noi dung quy tac vao title-rules.md trong repo quy tac (tao commit). -> { url }
   async function luuQuyTacLenRepo(noiDung, token) {
-    let sha;
-    try {
-      const hienTai = await viGithubApi('GET', `${GITHUB_FILE_QUY_TAC}?ref=${GITHUB_NHANH_QUY_TAC}`, token);
-      sha = hienTai.sha;
-    } catch (e) {
-      if (!/\(404\)/.test(e.message)) throw e; // 404 = chua co file -> tao moi (neu token thieu quyen thi buoc PUT se bao loi)
-    }
     const b64 = btoa(unescape(encodeURIComponent(noiDung.trim() + '\n')));
-    const kq = await viGithubApi('PUT', GITHUB_FILE_QUY_TAC, token, {
-      message: 'Cập nhật quy tắc tiêu đề (từ Project Etsy title, qua nút 📚 trong script)',
-      content: b64,
-      branch: GITHUB_NHANH_QUY_TAC,
-      ...(sha ? { sha } : {}),
-    });
+    // Lay sha HIEN TAI cua file. Them tham so thoi gian de tranh ban cu trong cache: API GitHub cache GET khoang 60s nen sau 1 lan
+    // luu, bam Luu lan nua se lay nham sha cu va bi bao xung dot (409/422).
+    const laySha = async () => {
+      try {
+        return (await viGithubApi('GET', `${GITHUB_FILE_QUY_TAC}?ref=${GITHUB_NHANH_QUY_TAC}&t=${Date.now()}`, token)).sha;
+      } catch (e) {
+        if (!/\(404\)/.test(e.message)) throw e; // 404 = chua co file -> tao moi (neu token thieu quyen thi buoc PUT se bao loi)
+        return undefined;
+      }
+    };
+    const ghi = (sha) =>
+      viGithubApi('PUT', GITHUB_FILE_QUY_TAC, token, {
+        message: 'Cập nhật quy tắc tiêu đề (từ Project Etsy title, qua nút 📚 trong script)',
+        content: b64,
+        branch: GITHUB_NHANH_QUY_TAC,
+        ...(sha ? { sha } : {}),
+      });
+    let kq;
+    try {
+      kq = await ghi(await laySha());
+    } catch (e) {
+      if (!/xung đột/.test(e.message)) throw e;
+      kq = await ghi(await laySha()); // xung dot (sha cu): lay lai sha moi nhat roi ghi lai 1 lan
+    }
     luuGiaTri(KHOA_QUY_TAC_CACHE, JSON.stringify({ text: noiDung.trim(), luc: Date.now() }));
     return { url: (kq.content && kq.content.html_url) || `https://github.com/${GITHUB_REPO}/blob/${GITHUB_NHANH_QUY_TAC}/${GITHUB_FILE_QUY_TAC}` };
   }
 
   const CONG_CU_API_CLAUDE = {
     name: 'dua_ra_tieu_de',
-    description: 'Return 2-3 rewritten Etsy title options.',
+    description: 'Return the one rewritten Etsy title.',
     input_schema: {
       type: 'object',
       properties: {
-        phuong_an: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              tieu_de: { type: 'string', description: 'The title only, one line, no quotes.' },
-              ly_do: { type: 'string' },
-              de_xuat: { type: 'boolean' },
-            },
-            required: ['tieu_de', 'ly_do'],
-          },
-        },
+        tieu_de: { type: 'string', description: 'The title only, one line, no quotes.' },
+        ly_do: { type: 'string' },
         thieu_thong_tin: { type: 'string' },
       },
-      required: ['phuong_an'],
+      required: ['tieu_de'],
     },
   };
 
@@ -2013,10 +2015,8 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
             return;
           }
           const khoi = (kq.content || []).find((c) => c.type === 'tool_use' && c.input);
-          const ds = khoi && Array.isArray(khoi.input.phuong_an) ? khoi.input.phuong_an : [];
-          const phuongAn = ds
-            .map((x) => ({ tieuDe: gonKhoangTrang(x && x.tieu_de), lyDo: gonKhoangTrang(x && x.ly_do), deXuat: !!(x && x.de_xuat) }))
-            .filter((x) => x.tieuDe);
+          const tieuDe = gonKhoangTrang(khoi && khoi.input.tieu_de);
+          const phuongAn = tieuDe ? [{ tieuDe, lyDo: gonKhoangTrang(khoi.input.ly_do), deXuat: true }] : [];
           const u = kq.usage || {};
           const vao = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0);
           resolve({ phuongAn, thieuThongTin: gonKhoangTrang(khoi && khoi.input.thieu_thong_tin), vao, ra: Number(u.output_tokens) || 0 });
@@ -2027,7 +2027,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
     });
   }
 
-  // Bang chon phuong an (nguyen van Claude, sua tay duoc). Tra ve Promise<tieu de | null>
+  // Bang so sanh: 1 tieu de Claude de xuat + tieu de GOC (tich chon cai se dung, sua tay duoc). Tra ve Promise<tieu de | null>
   function moBangChonTieuDeApi(kq, tieuDeGoc, moTaChiPhi) {
     return new Promise((resolve) => {
       const lop = document.createElement('div');
@@ -2035,22 +2035,21 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
         'position:fixed;inset:0;z-index:1000002;background:rgba(17,24,39,.6);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
       const idChon = 'ea-api-chon-' + Math.random().toString(36).slice(2, 8);
       const oNhap = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;font:13px/1.4 sans-serif;resize:vertical;';
-      const macDinh = Math.max(0, kq.phuongAn.findIndex((x) => x.deXuat));
-      const cacMuc = kq.phuongAn
-        .map(
-          (x, i) => `
-          <div style="margin-top:8px;">
-            <label style="cursor:pointer;font-weight:bold;"><input type="radio" name="${idChon}" value="${i}" autocomplete="off"> Phương án ${i + 1}${x.deXuat ? ' ⭐ đề xuất' : ''}</label>
-            ${x.lyDo ? `<div style="font-size:12px;color:#6B7280;margin:2px 0 3px 20px;">${thoatHtml(x.lyDo)}</div>` : ''}
-            <textarea data-tieu-de="${i}" rows="2" style="${oNhap}"></textarea>
-          </div>`
-        )
-        .join('');
+      const x = kq.phuongAn[0];
+      const oChon = (giaTri, nhan, lyDo) => `
+        <div style="margin-top:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <label style="cursor:pointer;font-weight:bold;"><input type="radio" name="${idChon}" value="${giaTri}" autocomplete="off"> ${nhan}</label>
+            <span data-dem="${giaTri}" style="font-size:12px;color:#6B7280;"></span>
+          </div>
+          ${lyDo ? `<div style="font-size:12px;color:#6B7280;margin:2px 0 3px 20px;">${thoatHtml(lyDo)}</div>` : ''}
+          <textarea data-tieu-de="${giaTri}" rows="3" style="${oNhap}"></textarea>
+        </div>`;
       lop.innerHTML = `
         <div style="background:#fff;border-radius:12px;padding:16px 18px;width:min(640px,94vw);max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;color:#111827;line-height:1.5;">
-          <div style="font-weight:bold;font-size:15px;">✨ Claude đề xuất tiêu đề</div>
-          <div style="color:#6B7280;margin:4px 0 2px;font-size:12px;">Gốc: ${thoatHtml(tieuDeGoc)}</div>
-          ${cacMuc}
+          <div style="font-weight:bold;font-size:15px;">✨ Claude đề xuất tiêu đề — so sánh với bản gốc</div>
+          ${oChon('claude', 'Claude đề xuất <span style="font-weight:normal;color:#047857;">(mặc định)</span>', x.lyDo)}
+          ${oChon('goc', 'Bản gốc', '')}
           ${kq.thieuThongTin ? `<div style="margin-top:8px;font-size:12px;color:#374151;">💡 ${thoatHtml(kq.thieuThongTin)}</div>` : ''}
           <div style="margin-top:10px;padding:8px;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:6px;font-size:12px;color:#4C1D95;">${thoatHtml(moTaChiPhi)}</div>
           <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
@@ -2059,13 +2058,22 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
           </div>
         </div>`;
       document.body.appendChild(lop);
-      const o = [...lop.querySelectorAll('[data-tieu-de]')];
-      const radios = [...lop.querySelectorAll(`input[name="${idChon}"]`)];
-      kq.phuongAn.forEach((x, i) => {
-        o[i].value = x.tieuDe;
-        o[i].addEventListener('focus', () => (radios[i].checked = true));
+      const o = { claude: lop.querySelector('[data-tieu-de="claude"]'), goc: lop.querySelector('[data-tieu-de="goc"]') };
+      const radios = { claude: lop.querySelector('input[value="claude"]'), goc: lop.querySelector('input[value="goc"]') };
+      o.claude.value = x.tieuDe;
+      o.goc.value = tieuDeGoc;
+      // So ky tu / so tu chi de THAM KHAO khi so sanh (khong canh bao, khong chan)
+      const veDem = () =>
+        ['claude', 'goc'].forEach((k) => {
+          const td = gonKhoangTrang(o[k].value);
+          lop.querySelector(`[data-dem="${k}"]`).textContent = `${td.length} ký tự · ${cacTuCua(td).length} từ`;
+        });
+      ['claude', 'goc'].forEach((k) => {
+        o[k].addEventListener('input', veDem);
+        o[k].addEventListener('focus', () => (radios[k].checked = true));
       });
-      if (radios[macDinh]) radios[macDinh].checked = true; // ep bang tay, tranh trinh duyet nho radio cu
+      veDem();
+      radios.claude.checked = true; // ep bang tay, tranh trinh duyet nho radio cu
       const dong = (v) => {
         lop.remove();
         resolve(v);
@@ -2074,10 +2082,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
       lop.addEventListener('click', (e) => {
         if (e.target === lop) dong(null);
       });
-      lop.querySelector('#ea-api-dung').onclick = () => {
-        const i = Math.max(0, radios.findIndex((r) => r.checked));
-        dong(gonKhoangTrang(o[i].value) || null);
-      };
+      lop.querySelector('#ea-api-dung').onclick = () => dong(gonKhoangTrang((radios.goc.checked ? o.goc : o.claude).value) || null);
     });
   }
 
@@ -2123,7 +2128,7 @@ Return the options only through the tool: "ly_do" is one short Vietnamese line (
     const moTaChiPhi = moTaChiPhiApiClaude(kq.vao, kq.ra, tk, cai);
     console.log('[Etsy Auto] Claude API:', moTaChiPhi, '| quy tắc:', nguonQuyTac);
     if (!kq.phuongAn.length) {
-      hienThongBao(`✨ Claude không trả về phương án nào.\n${moTaChiPhi}`, '#F59E0B', 10000);
+      hienThongBao(`✨ Claude không trả về tiêu đề nào.\n${moTaChiPhi}`, '#F59E0B', 10000);
       return;
     }
     hienThongBao(`✨ Claude đã trả lời (quy tắc: ${{ repo: 'repo, mới nhất', cache: 'repo, bản đã lưu', 'mac-dinh': 'bản có sẵn trong script — không tải được từ repo' }[nguonQuyTac]}).\n${moTaChiPhi}`, nguonQuyTac === 'mac-dinh' ? '#D97706' : '#7C3AED', 6000);
