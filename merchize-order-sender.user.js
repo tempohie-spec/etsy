@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.73
+// @version      1.74
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.73';
+  const SCRIPT_VERSION = '1.74';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -941,24 +941,28 @@
     try { return JSON.parse(GM_getValue('mz_nho_kieu_in', '{}')) || {}; } catch (e) { return {}; }
   }
   const cacLinkMockup = (don) => Array.from(new Set(don.rows.map(({ r }) => cell(r, COL.mockUpFront)).filter(laLink)));
-  // Kieu in da nho cua don: moi link mockup cua don deu da nho va cung 1 kieu, nguoc lai ''.
-  function kieuInDaNho(don, nho) {
-    const links = cacLinkMockup(don);
-    if (!links.length || !nho) return '';
-    const kieu = new Set(links.map((l) => nho[l] || ''));
-    return kieu.size === 1 && (kieu.has('DTG') || kieu.has('DTF')) ? Array.from(kieu)[0] : '';
+  // Kieu in BAT BUOC cua ca don (don nhieu ao chung 1 kieu in): co 1 ao bat ky la DTG (theo bo nho kieu in cua link mockup,
+  // hoac cac dong cot A dang lan DTG va DTF) thi ca don DTG; moi link mockup cua don deu da nho la DTF thi ca don DTF; khong thi ''.
+  function kieuInBatBuoc(don, nho) {
+    const theoLink = cacLinkMockup(don).map((l) => (nho && nho[l]) || '');
+    if (theoLink.includes('DTG')) return 'DTG';
+    if (theoLink.length && theoLink.every((x) => x === 'DTF')) return 'DTF';
+    const hienTai = new Set(don.rows.map(({ r }) => phuongPhapIn(cell(r, COL.printingMethod))).filter(Boolean));
+    if (hienTai.has('DTG') && hienTai.has('DTF')) return 'DTG';
+    return '';
   }
   function luuKieuInNho(don, pm) {
     const nho = docKieuInDaNho();
     cacLinkMockup(don).forEach((l) => { nho[l] = pm; });
     GM_setValue('mz_nho_kieu_in', JSON.stringify(nho));
   }
-  // Quyet dinh kieu in cho don: kieu da nho (neu co gia / SKU) thi tu ap dung (tuDong), khong thi chon kieu re hon.
+  // Quyet dinh kieu in cho don: kieu bat buoc (da nho / don co ao DTG) neu co gia / SKU thi tu ap dung (tuDong) cho ca don,
+  // khong thi chon kieu re hon.
   function quyetDinhKieuIn(don, ung, nho) {
-    const pmNho = kieuInDaNho(don, nho);
-    if (pmNho && ung.some((x) => x.pm === pmNho)) {
-      if (don.rows.every(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) === pmNho)) return null;
-      return { nen: ung.find((x) => x.pm === pmNho), tietKiem: null, tuDong: true };
+    const pmBat = kieuInBatBuoc(don, nho);
+    if (pmBat && ung.some((x) => x.pm === pmBat)) {
+      if (don.rows.every(({ r }) => phuongPhapIn(cell(r, COL.printingMethod)) === pmBat)) return null;
+      return { nen: ung.find((x) => x.pm === pmBat), tietKiem: null, tuDong: true };
     }
     return chonKieuRe(don, ung);
   }
