@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Google Sheets - Gui don len Merchize
 // @namespace    gsheet-merchize-order-sender
-// @version      1.71
+// @version      1.72
 // @description  Doc don hang tren trang tinh Google Sheets dang mo, tu tra Merchize SKU theo loai ao + mau + size (tu catalog Merchize), gop cac dong cung orderNumber thanh 1 don roi gui len Merchize qua API /order/external/orders. Ghi ket qua vao cot AB (Merchize SKU), AC (Trang thai), AD (Ma don Merchize).
 // @match        https://docs.google.com/spreadsheets/*
 // @grant        GM_xmlhttpRequest
@@ -23,7 +23,7 @@
   'use strict';
 
   // ====== CAU HINH ======
-  const SCRIPT_VERSION = '1.71';
+  const SCRIPT_VERSION = '1.72';
   // Link ban moi nhat tren GitHub (nhanh main). Nhanh bi xoa / doi ten thi sua link nay va 2 dong
   // @updateURL / @downloadURL o dau file.
   const LINK_CAP_NHAT = 'https://raw.githubusercontent.com/tempohie-spec/etsy/main/merchize-order-sender.user.js';
@@ -1022,6 +1022,7 @@
     dsDon.forEach(({ d, skus }) => {
       if (d.rows.some(({ r }) => !phuongPhapIn(cell(r, COL.printingMethod)))) return; // cot A khong phai DTG/DTF: khong biet kieu in hien tai
       const quocGia = maQuocGia(cell(d.rows[0].r, COL.country));
+      if (quocGia !== 'US') return; // don ngoai US gui Merchize mac dinh in DTG: khong goi y doi kieu in
       const ung = ['DTG', 'DTF'].map((pm) => ({ pm, gia: giaDonMerchize(d, skus, pm, bangGia, quocGia) })).filter((x) => x.gia !== null);
       if (!ung.length) return;
       const dtg = ung.find((x) => x.pm === 'DTG');
@@ -1047,21 +1048,28 @@
       hangTieuDe.appendChild(nutTat);
       hop.appendChild(hangTieuDe);
       // "Chon tat ca" o dau cot tich cac don.
-      const dongTatCa = el('label', 'display:flex;align-items:center;gap:6px;padding:4px 0;cursor:pointer;font-weight:bold;');
+      const dongTatCa = el('label', 'display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-weight:bold;');
       const cbTatCa = document.createElement('input');
       cbTatCa.type = 'checkbox';
       cbTatCa.style.flex = 'none';
-      dongTatCa.appendChild(cbTatCa);
+      const cotTatCa = el('div', 'display:flex;justify-content:center;flex:none;width:34px;margin-right:2px;');
+      cbTatCa.style.margin = '0';
+      cotTatCa.appendChild(cbTatCa);
+      dongTatCa.appendChild(cotTatCa);
       dongTatCa.appendChild(document.createTextNode('Chọn tất cả'));
       hop.appendChild(dongTatCa);
       const o = goiY.map((g) => {
         const dong = el('label', 'display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #eee;cursor:pointer;');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
-        cb.style.marginRight = '6px';
+        cb.style.margin = '0';
         const gia = (v) => (v == null ? 'n/a' : v.toFixed(2) + '$');
-        cb.style.flex = 'none';
-        dong.appendChild(cb);
+        // O tich + chu DTF / DTG (kieu in dich) ngay duoi o tich khi don duoc tich.
+        const cot = el('div', 'display:flex;flex-direction:column;align-items:center;gap:2px;flex:none;width:34px;margin-right:2px;');
+        const nhan = el('span', 'font-size:11px;font-weight:bold;color:#2e7d32;min-height:13px;line-height:13px;');
+        cot.appendChild(cb);
+        cot.appendChild(nhan);
+        dong.appendChild(cot);
         // Anh mockup (cot D) cua TAT CA cac dong trong don (bo link trung); bam vao anh de mo anh lon o tab moi.
         const cacLink = Array.from(new Set(g.don.rows.map(({ r }) => cell(r, COL.mockUpFront)).filter(laLink)));
         if (cacLink.length) {
@@ -1081,8 +1089,9 @@
         }
         dong.appendChild(el('span', 'flex:1;', `${g.ncc ? '[' + g.ncc + '] ' : ''}${g.don.orderNumber}: ${g.hienTai} → ${g.moi}${g.tietKiem != null ? `, tiết kiệm ${g.tietKiem.toFixed(2)}$` : ''}   (DTG ${gia(g.giaDtg)}, DTF ${gia(g.giaDtf)})`));
         hop.appendChild(dong);
-        return { g, cb };
+        return { g, cb, nhan };
       });
+      const datNhan = () => o.forEach(({ g, cb, nhan }) => { nhan.textContent = cb.checked ? g.moi : ''; });
       const ap = nut('Chốt và Gửi đơn', '#4CAF50');
       ap.style.marginTop = '10px';
       ap.style.marginBottom = '0';
@@ -1093,8 +1102,8 @@
       const khiNhanPhim = (e) => { if (e.key === 'Escape') xong(null); };
       document.addEventListener('keydown', khiNhanPhim, true);
       nutTat.addEventListener('click', () => xong(null));
-      cbTatCa.addEventListener('change', () => o.forEach(({ cb }) => { cb.checked = cbTatCa.checked; }));
-      o.forEach(({ cb }) => cb.addEventListener('change', () => { cbTatCa.checked = o.every((x) => x.cb.checked); }));
+      cbTatCa.addEventListener('change', () => { o.forEach(({ cb }) => { cb.checked = cbTatCa.checked; }); datNhan(); });
+      o.forEach(({ cb }) => cb.addEventListener('change', () => { cbTatCa.checked = o.every((x) => x.cb.checked); datNhan(); }));
       ap.addEventListener('click', () => xong(new Set(o.filter(({ cb }) => cb.checked).map(({ g }) => g.don.orderNumber))));
     });
   }
