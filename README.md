@@ -828,6 +828,21 @@ Rà soát lại luồng upload tìm ra 3 lỗi (đều chỉ lộ ra khi một l
 - Sửa thêm 1 lỗi khi tab đang hiện: lúc thả chuột, ảnh có thể **trôi thêm theo quán tính** (thư viện tính vận tốc của nhịp kéo cuối) → lệch vị trí đã chọn. Giờ có 1 nhịp dừng trước khi thả nên vận tốc = 0.
 - Giới hạn: không có cách ép trình duyệt chạy hiệu ứng zoom khi tab ẩn, nên bước thumbnail bắt buộc cần tab hiện (các bước upload trước đó vẫn chạy nền như cũ). Listing không chỉnh thumbnail thì không bị ảnh hưởng.
 
+### ✨ Gọi Claude API (Haiku) từ script: 1 nút, có tính token và tiền (v9.80)
+
+Ở **máy chính**, trang listing nguồn, bấm **✨ Claude API viết lại tiêu đề** (hoặc **Alt+H**): script gửi **ảnh sản phẩm đầu tiên + tiêu đề gốc** tới Claude API (mặc định `claude-haiku-5-5`), nhận **2–3 phương án** (có ⭐ đề xuất + 1 dòng lý do tiếng Việt), bạn chọn/sửa tay rồi bấm **Dùng tiêu đề đã chọn** → script chạy như Alt+C với tiêu đề đó (tiêu đề gốc đi kèm, dán ở máy ảo như phần v9.76).
+
+- **Không tự kiểm tra/lọc bằng code:** các phương án hiện **nguyên văn** như Claude trả về (kể cả khi dài hơn 140 ký tự), bạn tự chọn và sửa. Rule Etsy nằm trong system prompt (cùng bộ rule với 🤖 Claude Desktop, giữ nguyên tên thương hiệu/nhân vật trong tiêu đề gốc); kết quả lấy qua *tool use* nên luôn đúng cấu trúc JSON.
+- **Thông báo token + tiền:** mỗi lần chạy hiện *"Lần này: X vào + Y ra = Z token ≈ $… (≈ …đ) · Tổng N lần: … token ≈ $… (≈ …đ)"* trong hộp chọn và toast cuối. Số token lấy từ `usage` của API (đã gồm token của ảnh); tiền = token × giá. **Tính tiền cả khi bạn bấm Huỷ** (API đã chạy).
+- **🔑 Cài đặt** (nút cạnh ✨): API key, model, giá vào/ra ($/1 triệu token, mặc định 0,10 / 0,50 theo trang giá Anthropic cho Haiku 5.5, prompt ≤ 100K token), tỷ giá (mặc định 26.000 đ/$), xem tổng chi, **Đặt lại tổng chi**, **Xoá key**. Giá đổi thì tự sửa.
+
+**Bảo mật API key**
+- Key lưu bằng `GM_setValue` (kho riêng của script trong Violentmonkey, trang Etsy không đọc được), **không** dùng localStorage/cookie; chỉ gửi trong header `x-api-key` của `GM_xmlhttpRequest` tới `api.anthropic.com` (`anonymous: true`, không cookie). Key không nằm trong URL, thông báo, Console, Clipboard, gói dữ liệu hay Google Sheet; thông báo lỗi chỉ in nội dung lỗi của API (đã che mọi chuỗi `sk-ant-…`).
+- Ô nhập là kiểu mật khẩu; lưu xong chỉ hiện `sk-ant-…xxxx` (4 ký tự cuối), không điền lại key vào ô.
+- **Giới hạn trung thực:** lúc bạn gõ/dán key vào hộp thoại, nó đi qua trang Etsy một lúc. Cách kín hơn: nhập trong Violentmonkey → script → tab **Values** (nếu có), thêm khoá `etsy_auto_claude_api_key_v1`. Máy bị nhiễm mã độc/tiện ích xấu thì không script nào giữ được key.
+- Chỉ nhập key ở **máy chính**. Nên tạo **key riêng trong 1 workspace có hạn mức chi tiêu tháng thấp** (Anthropic Console → Spend limits), thu hồi key ngay nếu nghi bị lộ.
+- Header script có thêm `@connect api.anthropic.com`: Violentmonkey sẽ hỏi cho phép kết nối lần đầu.
+
 ### Nhận link Project của Claude Code (`claude.ai/code/project/chan_…`) (v9.79)
 
 Hộp ⚙️ của 🤖 trước đây chỉ nhận link dạng `https://claude.ai/project/<uuid>` hoặc `.../chat/<uuid>`, nên báo "chưa đúng dạng" với link Project của **Claude Code** (có Threads/Context, id dạng `chan_…`). Giờ nhận thêm `https://claude.ai/code/project/<id>` (id giữ nguyên hoa/thường) và mở bằng `claude://claude.ai/code/project/<id>?q=…`.

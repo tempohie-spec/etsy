@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etsy Auto - Lay Tieu De, Tag, Ca Nhan Hoa & Tai Anh Full Size (quet tu data-carousel-pagination-list, tai rieng le, khong nen zip, dung Clipboard he thong)
 // @namespace    etsy-auto-local
-// @version      9.79
+// @version      9.80
 // @description  Lay tieu de + tag + o ca nhan hoa (Add personalization) (co hoac khong tai anh full size, luu tung file rieng - khong nen zip) tren trang nguon, luu vao Clipboard he thong (dung chung duoc giua nhieu trinh duyet), tu dong tim va dan gop tieu de + tag + tao TAT CA Custom option (Add field > Text box hoac List of options, nhieu truong cung luc) tren trang chinh sua Etsy, sau do tu dong bam vao tab Photo & Video, tu upload anh cua listing nguon (bo tick san anh bang size) va giu lai tieu de trong Clipboard de dan rieng noi khac. Anh duoc lay tu khoi "data-carousel-pagination-list" (dung anh cua listing), doi il_75x75 -> il_fullxfull roi tai tung file. Dua anh len dau luoi KHONG lam duoc tu script (trinh duyet chan moi su kien ban phim/chuot gia lap khi dang keo) nen ban tu keo tay sau khi upload — hoac dat truoc mot thu vien anh bang size cua rieng ban (nut "Ảnh bảng size") de script tu nhoi vao SAU CUNG anh san pham theo dung thu tu da luu, khong can dua len dau khi luoi dich con trong. Tren trang tao/sua listing con co 3 nut Variations: Copy variations (ghi ca Clipboard), Dan variations (tu tao variation + dien gia + Visible), Chi dien gia. Giao dien chi hien tren trang tim kiem, trang listing va trang tao/sua listing; co the thu nho thanh 1 bieu tuong "Listing" va keo tha tu do.
 // @match        https://www.etsy.com/*
 // @grant        GM_setClipboard
@@ -13,6 +13,7 @@
 // @connect      openapi.etsy.com
 // @connect      script.google.com
 // @connect      script.googleusercontent.com
+// @connect      api.anthropic.com
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto.user.js
 // @downloadURL  https://raw.githubusercontent.com/tempohie-spec/etsy/main/etsy-auto.user.js
@@ -22,7 +23,7 @@
   'use strict';
 
   // Phien ban dang chay — in ra Console luc nap de biet chac trinh duyet dang dung ban nao
-  const PHIEN_BAN = '9.79';
+  const PHIEN_BAN = '9.80';
 
   // Link cai dat ban moi nhat tren GitHub (cung URL voi @updateURL/@downloadURL o dau file).
   // Mo link nay, Violentmonkey tu hien hop thoai Cai dat/Cap nhat kem so phien ban moi.
@@ -1445,7 +1446,7 @@
       (coTaiAnh ? ', đang tải ảnh full size' : '') + (soAnhNho ? ` (đã nhớ ${soAnhNho} ảnh để tự upload)` : '');
     const ghiChuNguon = tagText ? ` [${nguonTag}]` : '';
     const ghiChuClaude = tuyChon.tieuDeClaude
-      ? ` · tiêu đề Claude (${tieuDe.length} ký tự, ${cacTuCua(tieuDe).length} từ) — tiêu đề gốc đi kèm`
+      ? ` · tiêu đề Claude (${tieuDe.length} ký tự, ${cacTuCua(tieuDe).length} từ) — tiêu đề gốc đi kèm${tuyChon.ghiChuThem ? '\n' + tuyChon.ghiChuThem : ''}`
       : '';
 
     if (daLuuTieuDe && tagText) {
@@ -1710,6 +1711,363 @@ Rules: max 140 chars, under 15 words, product noun once in the first 60 chars, n
       return;
     }
     await layVaLuuDuLieu(false, { tieuDeClaude: kq.tieuDe });
+  }
+
+  // ================== GOI CLAUDE API (HAIKU) TU SCRIPT (v9.80, may chinh, trang listing NGUON) ==================
+  // Mot nut (Alt+H): lay anh dau + tieu de goc -> goi Claude API -> hien 2-3 phuong an de chon -> gop vao goi du lieu nhu Alt+C.
+  // KHONG tu kiem tra / loai phuong an bang code: hien nguyen van Claude tra ve de nguoi dung chon (hoac sua tay).
+  //
+  // BAO MAT API KEY:
+  //   - Key luu bang GM_setValue (kho CUA RIENG script trong Violentmonkey, trang Etsy khong doc duoc), KHONG dung localStorage /
+  //     cookie; o nhap la kieu password, luu xong chi hien "sk-ant-…xxxx" (4 ky tu cuoi), khong bao gio dien lai vao o nhap.
+  //     Luu y trung thuc: luc nguoi dung go vao o nhap, key di qua DOM trang Etsy mot luc -> huong dan cach kin hon la nhap thang
+  //     trong tab Values cua Violentmonkey (xem hop thoai 🔑).
+  //   - Chi gui qua header "x-api-key" cua GM_xmlhttpRequest (chay o tien ich, ma JavaScript cua trang Etsy khong chen / xem duoc),
+  //     chi toi api.anthropic.com (@connect), anonymous:true (khong kem cookie); key KHONG nam trong URL, thong bao, console,
+  //     Clipboard, goi du lieu hay Google Sheet; thong bao loi chi lay noi dung loi cua API, khong bao gio in lai header.
+  //   - Key chi nhap o MAY CHINH. Khuyen dung key rieng cua 1 workspace co han muc chi tieu thang thap trong Anthropic Console.
+  const KHOA_API_CLAUDE_KEY = 'etsy_auto_claude_api_key_v1';
+  const KHOA_API_CLAUDE_CAI_DAT = 'etsy_auto_claude_api_cai_dat_v1'; // { model, giaVao, giaRa, tyGia } (khong chua key)
+  const KHOA_API_CLAUDE_THONG_KE = 'etsy_auto_claude_api_thong_ke_v1'; // { lan, vao, ra, usd }
+  const URL_API_CLAUDE = 'https://api.anthropic.com/v1/messages';
+  // Gia (USD / 1 trieu token) tham khao trang gia Anthropic cho Haiku 5.5 (prompt <= 100K token): sua duoc neu gia doi
+  const CAI_DAT_API_MAC_DINH = { model: 'claude-haiku-5-5', giaVao: 0.1, giaRa: 0.5, tyGia: 26000 };
+
+  function docKeyApiClaude() {
+    return String(docGiaTriLuu(KHOA_API_CLAUDE_KEY) || '').trim();
+  }
+
+  function maKeyApiClaude(key) {
+    return key ? `sk-ant-…${key.slice(-4)}` : '';
+  }
+
+  function docCaiDatApiClaude() {
+    const c = docJsonLuu(KHOA_API_CLAUDE_CAI_DAT, {});
+    const so = (v, macDinh) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== '' && v != null ? Number(v) : macDinh);
+    return {
+      model: String(c.model || '').trim() || CAI_DAT_API_MAC_DINH.model,
+      giaVao: so(c.giaVao, CAI_DAT_API_MAC_DINH.giaVao),
+      giaRa: so(c.giaRa, CAI_DAT_API_MAC_DINH.giaRa),
+      tyGia: so(c.tyGia, CAI_DAT_API_MAC_DINH.tyGia),
+    };
+  }
+
+  function docThongKeApiClaude() {
+    const t = docJsonLuu(KHOA_API_CLAUDE_THONG_KE, {});
+    return { lan: Number(t.lan) || 0, vao: Number(t.vao) || 0, ra: Number(t.ra) || 0, usd: Number(t.usd) || 0 };
+  }
+
+  function tinhTienApiClaude(vao, ra, cai) {
+    return (vao * cai.giaVao + ra * cai.giaRa) / 1e6;
+  }
+
+  function dinhDangTienApiClaude(usd, tyGia) {
+    const dong = usd * tyGia;
+    return `$${usd < 0.01 ? usd.toFixed(5) : usd.toFixed(4)} (≈ ${dong < 1 ? '<1' : Math.round(dong).toLocaleString('vi-VN')}đ)`;
+  }
+
+  // "Lan nay: X vao + Y ra = Z token ≈ $... · Tong N lan: ... token ≈ $..."
+  function moTaChiPhiApiClaude(vao, ra, tk, cai) {
+    const usd = tinhTienApiClaude(vao, ra, cai);
+    const n = (x) => x.toLocaleString('vi-VN');
+    return (
+      `Lần này (${cai.model}): ${n(vao)} vào + ${n(ra)} ra = ${n(vao + ra)} token ≈ ${dinhDangTienApiClaude(usd, cai.tyGia)}` +
+      ` · Tổng ${n(tk.lan)} lần: ${n(tk.vao + tk.ra)} token ≈ ${dinhDangTienApiClaude(tk.usd, cai.tyGia)}`
+    );
+  }
+
+  // Rule dung cho API = phan rule cua che do chat, bo dong "Count characters ... with code" (API khong co cong cu chay code)
+  const SYSTEM_API_CLAUDE = `You write Etsy listing titles. The user sends a product photo and the ORIGINAL TITLE of the source listing. Rewrite that title using the photo.
+${RULE_TIEU_DE_CLAUDE.split('\nReply with,')[0].replace('Count characters and words with code.', 'Count characters and words carefully.')}
+Return the options only through the tool: "ly_do" is one short Vietnamese line (character and word counts + the Etsy rule applied); mark the recommended option with de_xuat=true; "thieu_thong_tin" is one short Vietnamese line about missing info that would help (or an empty string).`;
+
+  const CONG_CU_API_CLAUDE = {
+    name: 'dua_ra_tieu_de',
+    description: 'Return 2-3 rewritten Etsy title options.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        phuong_an: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              tieu_de: { type: 'string', description: 'The title only, one line, no quotes.' },
+              ly_do: { type: 'string' },
+              de_xuat: { type: 'boolean' },
+            },
+            required: ['tieu_de', 'ly_do'],
+          },
+        },
+        thieu_thong_tin: { type: 'string' },
+      },
+      required: ['phuong_an'],
+    },
+  };
+
+  function doanKieuAnh(u8) {
+    if (u8[0] === 0x89 && u8[1] === 0x50) return 'image/png';
+    if (u8[0] === 0x47 && u8[1] === 0x49) return 'image/gif';
+    if (u8[0] === 0x52 && u8[1] === 0x49 && u8[8] === 0x57) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  function bytesThanhBase64(u8) {
+    let chuoi = '';
+    for (let i = 0; i < u8.length; i += 0x8000) chuoi += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(chuoi);
+  }
+
+  // Goi API. Tra ve { phuongAn: [{tieuDe, lyDo, deXuat}], thieuThongTin, vao, ra }. Loi: Error co message AN TOAN (khong chua key).
+  function goiClaudeApi({ key, model, anhB64, kieuAnh, tieuDeGoc }) {
+    return new Promise((resolve, reject) => {
+      if (typeof GM_xmlhttpRequest !== 'function') {
+        reject(new Error('Thiếu quyền GM_xmlhttpRequest'));
+        return;
+      }
+      GM_xmlhttpRequest({
+        method: 'POST',
+        url: URL_API_CLAUDE,
+        anonymous: true,
+        timeout: 90000,
+        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+        data: JSON.stringify({
+          model,
+          max_tokens: 1500,
+          system: SYSTEM_API_CLAUDE,
+          tools: [CONG_CU_API_CLAUDE],
+          tool_choice: { type: 'tool', name: CONG_CU_API_CLAUDE.name },
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: kieuAnh, data: anhB64 } },
+                { type: 'text', text: `ORIGINAL TITLE: ${tieuDeGoc}` },
+              ],
+            },
+          ],
+        }),
+        onload: (res) => {
+          let kq = null;
+          try {
+            kq = JSON.parse(res.responseText || '');
+          } catch (e) {
+            /* khong phai JSON */
+          }
+          if (res.status < 200 || res.status >= 300 || !kq) {
+            const chiTiet = kq && kq.error && kq.error.message ? String(kq.error.message).replace(/sk-ant-[A-Za-z0-9_-]+/g, 'sk-ant-…') : '';
+            const goiY =
+              res.status === 401 ? ' — API key sai hoặc đã bị thu hồi (🔑 để nhập lại)'
+              : res.status === 429 ? ' — vượt giới hạn tốc độ, chờ ít phút rồi thử lại'
+              : res.status === 403 ? ' — key không có quyền dùng model này'
+              : '';
+            reject(new Error(`API trả lỗi ${res.status}${goiY}${chiTiet ? ': ' + chiTiet.slice(0, 300) : ''}`));
+            return;
+          }
+          const khoi = (kq.content || []).find((c) => c.type === 'tool_use' && c.input);
+          const ds = khoi && Array.isArray(khoi.input.phuong_an) ? khoi.input.phuong_an : [];
+          const phuongAn = ds
+            .map((x) => ({ tieuDe: gonKhoangTrang(x && x.tieu_de), lyDo: gonKhoangTrang(x && x.ly_do), deXuat: !!(x && x.de_xuat) }))
+            .filter((x) => x.tieuDe);
+          const u = kq.usage || {};
+          const vao = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0);
+          resolve({ phuongAn, thieuThongTin: gonKhoangTrang(khoi && khoi.input.thieu_thong_tin), vao, ra: Number(u.output_tokens) || 0 });
+        },
+        onerror: () => reject(new Error('Không kết nối được tới api.anthropic.com (kiểm tra mạng, hoặc cho phép Violentmonkey kết nối tới api.anthropic.com)')),
+        ontimeout: () => reject(new Error('API không phản hồi sau 90s')),
+      });
+    });
+  }
+
+  // Bang chon phuong an (nguyen van Claude, sua tay duoc). Tra ve Promise<tieu de | null>
+  function moBangChonTieuDeApi(kq, tieuDeGoc, moTaChiPhi) {
+    return new Promise((resolve) => {
+      const lop = document.createElement('div');
+      lop.style.cssText =
+        'position:fixed;inset:0;z-index:1000002;background:rgba(17,24,39,.6);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+      const idChon = 'ea-api-chon-' + Math.random().toString(36).slice(2, 8);
+      const oNhap = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;font:13px/1.4 sans-serif;resize:vertical;';
+      const macDinh = Math.max(0, kq.phuongAn.findIndex((x) => x.deXuat));
+      const cacMuc = kq.phuongAn
+        .map(
+          (x, i) => `
+          <div style="margin-top:8px;">
+            <label style="cursor:pointer;font-weight:bold;"><input type="radio" name="${idChon}" value="${i}" autocomplete="off"> Phương án ${i + 1}${x.deXuat ? ' ⭐ đề xuất' : ''}</label>
+            ${x.lyDo ? `<div style="font-size:12px;color:#6B7280;margin:2px 0 3px 20px;">${thoatHtml(x.lyDo)}</div>` : ''}
+            <textarea data-tieu-de="${i}" rows="2" style="${oNhap}"></textarea>
+          </div>`
+        )
+        .join('');
+      lop.innerHTML = `
+        <div style="background:#fff;border-radius:12px;padding:16px 18px;width:min(640px,94vw);max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;color:#111827;line-height:1.5;">
+          <div style="font-weight:bold;font-size:15px;">✨ Claude đề xuất tiêu đề</div>
+          <div style="color:#6B7280;margin:4px 0 2px;font-size:12px;">Gốc: ${thoatHtml(tieuDeGoc)}</div>
+          ${cacMuc}
+          ${kq.thieuThongTin ? `<div style="margin-top:8px;font-size:12px;color:#374151;">💡 ${thoatHtml(kq.thieuThongTin)}</div>` : ''}
+          <div style="margin-top:10px;padding:8px;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:6px;font-size:12px;color:#4C1D95;">${thoatHtml(moTaChiPhi)}</div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+            <button id="ea-api-huy" style="padding:6px 12px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;">Huỷ</button>
+            <button id="ea-api-dung" style="padding:6px 16px;border:none;border-radius:6px;background:#7C3AED;color:#fff;font-weight:bold;cursor:pointer;">Dùng tiêu đề đã chọn (lấy dữ liệu)</button>
+          </div>
+        </div>`;
+      document.body.appendChild(lop);
+      const o = [...lop.querySelectorAll('[data-tieu-de]')];
+      const radios = [...lop.querySelectorAll(`input[name="${idChon}"]`)];
+      kq.phuongAn.forEach((x, i) => {
+        o[i].value = x.tieuDe;
+        o[i].addEventListener('focus', () => (radios[i].checked = true));
+      });
+      if (radios[macDinh]) radios[macDinh].checked = true; // ep bang tay, tranh trinh duyet nho radio cu
+      const dong = (v) => {
+        lop.remove();
+        resolve(v);
+      };
+      lop.querySelector('#ea-api-huy').onclick = () => dong(null);
+      lop.addEventListener('click', (e) => {
+        if (e.target === lop) dong(null);
+      });
+      lop.querySelector('#ea-api-dung').onclick = () => {
+        const i = Math.max(0, radios.findIndex((r) => r.checked));
+        dong(gonKhoangTrang(o[i].value) || null);
+      };
+    });
+  }
+
+  // Alt+H
+  async function nhoClaudeApiVietLaiTieuDe() {
+    const tieuDeGoc = layTieuDe();
+    if (!layListingId() || !tieuDeGoc) {
+      hienThongBao('✨ Chỉ dùng được ở trang listing nguồn (cần thấy tiêu đề listing).', '#DC2626');
+      return;
+    }
+    const key = docKeyApiClaude();
+    if (!key) {
+      hienThongBao('✨ Chưa nhập Claude API key — mở 🔑 bên cạnh để nhập.', '#DC2626', 6000);
+      moCaiDatClaudeApi();
+      return;
+    }
+    const cai = docCaiDatApiClaude();
+    const urlAnh = layUrlAnhDauChoClaude();
+    if (!urlAnh) {
+      hienThongBao('✨ Không tìm thấy ảnh sản phẩm trên trang này.', '#DC2626');
+      return;
+    }
+    hienThongBao(`✨ Đang gửi ảnh đầu tiên + tiêu đề cho ${cai.model}...`, '#7C3AED', 0);
+    let kq;
+    try {
+      const u8 = new Uint8Array(await taiMotAnhVoiRetry(urlAnh, 1));
+      kq = await goiClaudeApi({ key, model: cai.model, anhB64: bytesThanhBase64(u8), kieuAnh: doanKieuAnh(u8), tieuDeGoc });
+    } catch (loi) {
+      console.warn('[Etsy Auto] Gọi Claude API lỗi:', loi.message);
+      hienThongBao('✨ ' + loi.message, '#DC2626', 10000);
+      return;
+    }
+    // Ghi so token / tien (ca khi nguoi dung huy — API da tinh tien)
+    const tk = docThongKeApiClaude();
+    tk.lan += 1;
+    tk.vao += kq.vao;
+    tk.ra += kq.ra;
+    tk.usd += tinhTienApiClaude(kq.vao, kq.ra, cai);
+    luuGiaTri(KHOA_API_CLAUDE_THONG_KE, JSON.stringify(tk));
+    const moTaChiPhi = moTaChiPhiApiClaude(kq.vao, kq.ra, tk, cai);
+    console.log('[Etsy Auto] Claude API:', moTaChiPhi);
+    if (!kq.phuongAn.length) {
+      hienThongBao(`✨ Claude không trả về phương án nào.\n${moTaChiPhi}`, '#F59E0B', 10000);
+      return;
+    }
+    hienThongBao(`✨ Claude đã trả lời.\n${moTaChiPhi}`, '#7C3AED', 6000);
+    const chon = await moBangChonTieuDeApi(kq, tieuDeGoc, moTaChiPhi);
+    if (!chon) {
+      hienThongBao(`✨ Đã huỷ — chưa lấy dữ liệu.\n${moTaChiPhi}`, '#6B7280', 8000);
+      return;
+    }
+    await layVaLuuDuLieu(false, { tieuDeClaude: chon, ghiChuThem: `✨ ${moTaChiPhi}` });
+  }
+
+  // Hop thoai 🔑: API key (password, chi hien 4 ky tu cuoi), model, gia, ty gia, tong chi
+  function moCaiDatClaudeApi() {
+    const key = docKeyApiClaude();
+    const cai = docCaiDatApiClaude();
+    const lop = document.createElement('div');
+    lop.style.cssText =
+      'position:fixed;inset:0;z-index:1000003;background:rgba(17,24,39,.6);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+    const oNhap = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;margin-top:3px;font-size:13px;';
+    const nutPhu = 'padding:6px 10px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;';
+    lop.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:16px 18px;width:min(560px,94vw);max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;color:#111827;line-height:1.5;">
+        <div style="font-weight:bold;font-size:15px;margin-bottom:6px;">🔑 Claude API (Haiku) — key, giá, tổng chi</div>
+        <div style="color:#374151;margin-bottom:8px;">Key lưu trong kho riêng của script (Violentmonkey) và chỉ gửi tới <b>api.anthropic.com</b> qua header của tiện ích; không vào Clipboard, Google Sheet hay Console. Chỉ nhập ở <b>máy chính</b>. Nên tạo <b>key riêng trong 1 workspace có hạn mức chi tiêu tháng thấp</b> trong Anthropic Console, và thu hồi key ngay nếu nghi bị lộ.<br><span style="color:#92400E;">Lưu ý: lúc bạn gõ/dán vào ô bên dưới, key đi qua trang Etsy một lúc (ô kiểu mật khẩu nên các công cụ ghi lại màn hình thường che đi). Cách kín hơn: nhập thẳng trong Violentmonkey → script này → tab <i>Values</i> (nếu có), thêm khoá <code>etsy_auto_claude_api_key_v1</code> với giá trị là key.</span></div>
+        <label style="display:block;font-weight:bold;">API key <span id="ea-ca-dangco" style="font-weight:normal;color:#047857;"></span>
+          <input id="ea-ca-key" type="password" autocomplete="new-password" spellcheck="false" style="${oNhap}" placeholder="sk-ant-… (để trống = giữ key hiện tại)" value="">
+        </label>
+        <label style="display:block;font-weight:bold;margin-top:8px;">Model
+          <input id="ea-ca-model" style="${oNhap}" value="">
+        </label>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <label style="flex:1;font-weight:bold;">Giá vào ($/1 triệu token)<input id="ea-ca-vao" style="${oNhap}" value=""></label>
+          <label style="flex:1;font-weight:bold;">Giá ra ($/1 triệu token)<input id="ea-ca-ra" style="${oNhap}" value=""></label>
+          <label style="flex:1;font-weight:bold;">Tỷ giá (đ/$)<input id="ea-ca-tygia" style="${oNhap}" value=""></label>
+        </div>
+        <div style="color:#6B7280;font-size:12px;margin-top:3px;">Giá mặc định theo trang giá Anthropic cho Haiku 5.5 (prompt ≤ 100K token) — tự sửa nếu giá đổi. Số token lấy từ phản hồi của API, tiền chỉ là ước tính.</div>
+        <div id="ea-ca-tk" style="margin-top:8px;padding:8px;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:6px;font-size:12px;color:#4C1D95;"></div>
+        <div id="ea-ca-tt" style="margin-top:6px;font-size:12px;color:#374151;white-space:pre-line;"></div>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:12px;flex-wrap:wrap;">
+          <div style="display:flex;gap:6px;">
+            <button id="ea-ca-xoakey" style="${nutPhu}color:#B91C1C;">Xoá key</button>
+            <button id="ea-ca-xoatk" style="${nutPhu}">Đặt lại tổng chi</button>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="ea-ca-dong" style="${nutPhu}">Đóng</button>
+            <button id="ea-ca-luu" style="padding:6px 14px;border:none;border-radius:6px;background:#7C3AED;color:#fff;font-weight:bold;cursor:pointer;">Lưu</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(lop);
+    const $ = (id) => lop.querySelector('#' + id);
+    const veTong = () => {
+      const tk = docThongKeApiClaude();
+      const c = docCaiDatApiClaude();
+      $('ea-ca-tk').textContent = tk.lan
+        ? `Tổng ${tk.lan.toLocaleString('vi-VN')} lần: ${tk.vao.toLocaleString('vi-VN')} vào + ${tk.ra.toLocaleString('vi-VN')} ra = ${(tk.vao + tk.ra).toLocaleString('vi-VN')} token ≈ ${dinhDangTienApiClaude(tk.usd, c.tyGia)}`
+        : 'Chưa chạy lần nào.';
+      $('ea-ca-dangco').textContent = docKeyApiClaude() ? `· đang lưu ${maKeyApiClaude(docKeyApiClaude())}` : '· chưa có key';
+      $('ea-ca-dangco').style.color = docKeyApiClaude() ? '#047857' : '#B45309';
+    };
+    $('ea-ca-model').value = cai.model;
+    $('ea-ca-vao').value = String(cai.giaVao);
+    $('ea-ca-ra').value = String(cai.giaRa);
+    $('ea-ca-tygia').value = String(cai.tyGia);
+    veTong();
+    const tt = (chu) => ($('ea-ca-tt').textContent = chu);
+    $('ea-ca-xoakey').onclick = () => {
+      luuGiaTri(KHOA_API_CLAUDE_KEY, '');
+      veTong();
+      tt('Đã xoá key khỏi script. Nhớ thu hồi key trong Anthropic Console nếu nghi bị lộ.');
+    };
+    $('ea-ca-xoatk').onclick = () => {
+      luuGiaTri(KHOA_API_CLAUDE_THONG_KE, JSON.stringify({ lan: 0, vao: 0, ra: 0, usd: 0 }));
+      veTong();
+    };
+    $('ea-ca-dong').onclick = () => lop.remove();
+    lop.addEventListener('click', (e) => {
+      if (e.target === lop) lop.remove();
+    });
+    $('ea-ca-luu').onclick = () => {
+      const keyMoi = $('ea-ca-key').value.trim();
+      if (keyMoi && !/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(keyMoi)) return tt('❌ Key không đúng dạng (phải bắt đầu bằng sk-ant- và không có khoảng trắng).');
+      const so = (id) => $(id).value.trim();
+      const kiemSo = (v) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0;
+      if (!kiemSo(so('ea-ca-vao')) || !kiemSo(so('ea-ca-ra')) || !kiemSo(so('ea-ca-tygia'))) return tt('❌ Giá và tỷ giá phải là số ≥ 0.');
+      if (!so('ea-ca-model')) return tt('❌ Chưa nhập model.');
+      if (keyMoi) luuGiaTri(KHOA_API_CLAUDE_KEY, keyMoi);
+      $('ea-ca-key').value = '';
+      luuGiaTri(
+        KHOA_API_CLAUDE_CAI_DAT,
+        JSON.stringify({ model: so('ea-ca-model'), giaVao: Number(so('ea-ca-vao')), giaRa: Number(so('ea-ca-ra')), tyGia: Number(so('ea-ca-tygia')) })
+      );
+      veTong();
+      tt(keyMoi ? '✅ Đã lưu key và cài đặt.' : '✅ Đã lưu cài đặt.');
+    };
   }
 
   // ================== BUOC 2: TU DONG TIM O TIEU DE / O TAG / TAB PHOTO & VIDEO (trang draft) ==================
@@ -7042,6 +7400,10 @@ function doGet(e) {
         <button id="ea-btn-claude-cai" title="Cài đặt: dùng chung 1 Project / 1 chat Claude cho việc viết tiêu đề" style="padding:6px 8px;background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">⚙️</button>
         <button id="ea-btn-claude-dung" title="Sau khi bấm Copy tiêu đề ưng ý trong Claude: lấy tiêu đề đó vào dữ liệu listing (như Alt+C)" style="padding:6px 8px;background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">📥 Dùng tiêu đề đã copy (Alt+Shift+T)</button>
       </div>
+      <div style="display:flex;gap:6px;">
+        <button id="ea-btn-claude-api" title="Gọi Claude API (Haiku) với ảnh đầu + tiêu đề gốc, hiện 2-3 phương án để chọn — dùng ở máy chính, trang listing nguồn. Có tính tiền theo token." style="flex:1;padding:6px 8px;background:#6D28D9;color:#fff;border:none;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">✨ Claude API viết lại tiêu đề (Alt+H)</button>
+        <button id="ea-btn-claude-api-cai" title="API key, giá, tổng chi" style="padding:6px 8px;background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;border-radius:6px;font-weight:bold;font-size:12px;cursor:pointer;">🔑</button>
+      </div>
       <div id="ea-bienthe-khung" style="display:flex;flex-direction:column;gap:6px;">
         <button id="ea-btn-var-copy" style="padding:6px 12px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🎨 Copy variations</button>
         <button id="ea-btn-var-paste" title="Dán variations đã Copy, hoặc dán thẳng vùng bảng vừa copy (Ctrl+C) từ Google Sheets" style="padding:6px 12px;background:#15803D;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">🎨 Dán variations</button>
@@ -7110,6 +7472,8 @@ function doGet(e) {
     document.getElementById('ea-btn-claude').onclick = nhoClaudeVietLaiTieuDe;
     document.getElementById('ea-btn-claude-dung').onclick = dungTieuDeTuClaude;
     document.getElementById('ea-btn-claude-cai').onclick = moCaiDatClaude;
+    document.getElementById('ea-btn-claude-api').onclick = nhoClaudeApiVietLaiTieuDe;
+    document.getElementById('ea-btn-claude-api-cai').onclick = moCaiDatClaudeApi;
 
     // Nhom nut Variations chi co y nghia tren trang tao/sua listing
     document.getElementById('ea-bienthe-khung').style.display = location.pathname.includes('/listing-editor')
@@ -7324,6 +7688,7 @@ function doGet(e) {
       if (key === 'c') { e.preventDefault(); chiLayTieuDeVaTag(); }
       if (key === 'v') { e.preventDefault(); danTieuDeVaTag(e.shiftKey); }
       if (key === 't') { e.preventDefault(); if (e.shiftKey) dungTieuDeTuClaude(); else nhoClaudeVietLaiTieuDe(); }
+      if (key === 'h') { e.preventDefault(); nhoClaudeApiVietLaiTieuDe(); }
     });
   }
 
