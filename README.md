@@ -2802,7 +2802,7 @@ Bot trả lời ngay "Đang cập nhật, kết quả sẽ gửi khi xong..." r�
 
 ## Tự điền lại "Merchize" khi đã xử lý lỗi (Worker)
 
-Đơn có AC dạng `Lỗi...` do Merchize báo (vd `Lỗi địa chỉ: ...`) nhưng đã nằm trên Merchize (AD có mã RX, Date Fulfill trong 10 ngày): khi đã có tracking ở AE, hoặc Merchize đã chuyển đơn sang sản xuất / giao hàng (`order_progress_status` chứa production, shipp, deliver hoặc complet), Worker tự điền lại `Merchize` cho các dòng AC đang là `Lỗi...` của đơn, rồi tra tracking bình thường ở các lần sau. Tin Telegram có mục "Tự điền lại "Merchize" (đã xử lý lỗi)". Lỗi do script báo trước khi gửi (chưa có mã RX, vd `Lỗi: thiếu tên người nhận`) không bị đụng tới.
+Đơn có AC dạng `Lỗi...` do Merchize báo (vd `Lỗi địa chỉ: ...`) nhưng đã nằm trên Merchize (AD có mã RX, Date Fulfill trong 10 ngày): khi đã có tracking ở AE, hoặc Merchize đã chuyển đơn sang sản xuất / giao hàng (`order_progress_status` chứa production, shipp, deliver hoặc complet), Worker tự điền lại `Merchize` cho các dòng AC đang là `Lỗi...` của đơn, rồi tra tracking bình thường ở các lần sau. Tin Telegram có mục "Tự điền lại "Merchize" (đã xử lý lỗi)". Lỗi do script báo trước khi gửi (chưa có mã RX, vd `Lỗi: thiếu tên người nhận`) không bị đụng tới. Từ ngày 28/11 cùng cơ chế áp dụng cho AC dạng `Cần xử lý: ...` (yêu cầu Request update, vd `out of stock`): có tracking ở AE, hoặc yêu cầu trên Merchize không còn mở (`order_request_attention_status` khác `open`), thì tự điền lại `Merchize`; yêu cầu còn mở thì giữ nguyên dù đơn đã sản xuất.
 
 ## Telegram: shop quét được / shop lỗi
 
