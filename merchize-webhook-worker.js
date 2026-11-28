@@ -634,8 +634,9 @@ function donKiemCost(rows) {
   });
 }
 
-// Don co AC "Loi..." (vd "Loi dia chi: ...", webhook Merchize ghi) nhung da nam tren Merchize (AD co ma RX) trong SO_NGAY_CAP_NHAT ngay:
-// khi da xu ly xong (co tracking, hoac Merchize da chuyen sang san xuat / giao hang) thi tu dien lai "Merchize".
+// Don co AC "Loi..." (vd "Loi dia chi: ...", webhook Merchize ghi) hoac "Can xu ly: ..." (yeu cau Request update) nhung da nam tren Merchize
+// (AD co ma RX) trong SO_NGAY_CAP_NHAT ngay: khi da xu ly xong (co tracking; don "Loi" con khi Merchize da chuyen sang san xuat / giao hang;
+// don "Can xu ly" con khi yeu cau tren Merchize khong con mo) thi tu dien lai "Merchize".
 function donLoiDaCoRx(rows) {
   const moc = new Date();
   moc.setDate(moc.getDate() - SO_NGAY_CAP_NHAT);
@@ -647,7 +648,7 @@ function donLoiDaCoRx(rows) {
     map.get(ma).push({ rowNumber: i + 1, row });
   });
   return Array.from(map.entries()).filter(([, dong]) => {
-    if (!dong.some(({ row }) => /^Lỗi/.test(cell(row, COL.status)))) return false;
+    if (!dong.some(({ row }) => /^(Lỗi|Cần xử lý)/.test(cell(row, COL.status)))) return false;
     if (!laRxNhieu(cell(dong[0].row, COL.merchizeId))) return false;
     const ngay = ngayTuO(cell(dong[0].row, COL.dateFulfill));
     return ngay && ngay >= moc;
@@ -1002,7 +1003,7 @@ async function chayLich(env, event, tuyChon = {}) {
     // Don co AC "Loi..." nhung da co ma RX: da co tracking thi coi nhu xu ly xong, tu dien lai "Merchize".
     const khoiPhucDong = (ma, dong) => {
       dong.forEach(({ rowNumber, row }) => {
-        if (/^Lỗi/.test(cell(row, COL.status))) { boGhi.dat(tab, rowNumber, COL.status, 'Merchize'); row[COL.status] = 'Merchize'; }
+        if (/^(Lỗi|Cần xử lý)/.test(cell(row, COL.status))) { boGhi.dat(tab, rowNumber, COL.status, 'Merchize'); row[COL.status] = 'Merchize'; }
       });
       thongKe.khoiPhuc.push({ tab, ma });
     };
@@ -1025,9 +1026,19 @@ async function chayLich(env, event, tuyChon = {}) {
         // Don loi chua co tracking nhung Merchize da chuyen sang san xuat / giao hang: loi da xu ly xong.
         if (dsLoiCho.length) {
           const tienTrinh = {};
-          ((kq && kq.orders) || []).forEach((o) => { if (!donBiHuy(o)) tienTrinh[str(o.code)] = str(o.order_progress_status); });
+          const yeuCau = {}; // ma RX -> trang thai yeu cau Request update ("open" = dang mo)
+          ((kq && kq.orders) || []).forEach((o) => {
+            if (donBiHuy(o)) return;
+            tienTrinh[str(o.code)] = str(o.order_progress_status);
+            yeuCau[str(o.code)] = str(o.order_request_attention_status);
+          });
           dsLoiCho.forEach(([ma, dong]) => {
-            if (tachRx(cell(dong[0].row, COL.merchizeId)).some((c) => /production|shipp|deliver|complet/i.test(tienTrinh[c] || ''))) khoiPhucDong(ma, dong);
+            const codes = tachRx(cell(dong[0].row, COL.merchizeId));
+            const canXuLy = dong.some(({ row }) => /^Cần xử lý/.test(cell(row, COL.status)));
+            const xong = canXuLy
+              ? codes.some((c) => yeuCau[c] && yeuCau[c] !== 'open')
+              : codes.some((c) => /production|shipp|deliver|complet/i.test(tienTrinh[c] || ''));
+            if (xong) khoiPhucDong(ma, dong);
           });
         }
         const rxTheoMa = {};
